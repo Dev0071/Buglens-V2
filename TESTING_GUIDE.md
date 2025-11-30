@@ -19,6 +19,7 @@ nano .env
 ```
 
 **Required values for testing:**
+
 ```env
 NODE_ENV=development
 PORT=3000
@@ -105,7 +106,7 @@ npm run migrate:up
 # Expected output:
 # > buglens@0.1.0 migrate:up
 # > node-pg-migrate up
-# 
+#
 # Running 001_create_organizations
 # Running 002_create_events
 # Running 003_create_rca_jobs
@@ -138,11 +139,11 @@ docker exec -it buglens-postgres psql -U buglens -d buglens_dev
 
 ```sql
 -- Check org_id columns exist on all tables
-SELECT 
-  table_name, 
-  column_name 
-FROM information_schema.columns 
-WHERE column_name = 'org_id' 
+SELECT
+  table_name,
+  column_name
+FROM information_schema.columns
+WHERE column_name = 'org_id'
 ORDER BY table_name;
 
 -- Expected: 8 rows (all tables except organizations and pgmigrations)
@@ -189,10 +190,12 @@ npm run test:ui
 ### Test Coverage
 
 **Current unit tests:**
+
 1. `tests/unit/health.test.ts` - Health check endpoints
 2. `tests/integration/sentry-webhook.test.ts` - Webhook receiver
 
 **Expected output:**
+
 ```
 ✓ tests/unit/health.test.ts (2)
   ✓ Health Endpoints (2)
@@ -211,6 +214,7 @@ Tests  4 passed (4)
 ### Manual Unit Test Verification
 
 **Test 1: Health Check**
+
 ```bash
 # Start dev server in one terminal
 npm run dev
@@ -227,6 +231,7 @@ curl http://localhost:3000/api/v1/health
 ```
 
 **Test 2: Ready Check**
+
 ```bash
 curl http://localhost:3000/api/v1/ready
 
@@ -250,32 +255,39 @@ node
 ```
 
 ```javascript
-const crypto = require('crypto');
-const secret = 'your-test-secret'; // From .env
+const crypto = require("crypto");
+const secret = "your-test-secret"; // From .env
 const payload = JSON.stringify({
-  event_id: 'manual-test-001',
+  event_id: "manual-test-001",
   timestamp: Date.now() / 1000,
-  platform: 'javascript',
+  platform: "javascript",
   exception: {
-    values: [{
-      type: 'ReferenceError',
-      value: 'user is not defined',
-      stacktrace: {
-        frames: [{
-          filename: 'app.js',
-          function: 'getUserName',
-          lineno: 25,
-          colno: 10
-        }]
-      }
-    }]
+    values: [
+      {
+        type: "ReferenceError",
+        value: "user is not defined",
+        stacktrace: {
+          frames: [
+            {
+              filename: "app.js",
+              function: "getUserName",
+              lineno: 25,
+              colno: 10,
+            },
+          ],
+        },
+      },
+    ],
   },
-  environment: 'production'
+  environment: "production",
 });
 
-const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-console.log('Signature:', signature);
-console.log('Payload:', payload);
+const signature = crypto
+  .createHmac("sha256", secret)
+  .update(payload)
+  .digest("hex");
+console.log("Signature:", signature);
+console.log("Payload:", payload);
 ```
 
 **Step 2: Send Test Webhook**
@@ -328,7 +340,7 @@ docker exec -it buglens-postgres psql -U buglens -d buglens_dev -c \
 
 ```sql
 -- In psql
-SELECT 
+SELECT
   id,
   org_id,
   sentry_event_id,
@@ -336,7 +348,7 @@ SELECT
   message,
   environment,
   created_at
-FROM events 
+FROM events
 WHERE sentry_event_id = 'manual-test-001';
 
 -- Verify org_id matches test org (00000000-0000-0000-0000-000000000000)
@@ -452,6 +464,7 @@ curl -X POST http://localhost:3000/api/v1/webhooks/sentry \
 ### Check Logs
 
 **Structured logging test:**
+
 ```bash
 # Tail server logs
 npm run dev
@@ -467,6 +480,7 @@ curl http://localhost:3000/api/v1/health
 ```
 
 **Expected log format (JSON):**
+
 ```json
 {
   "level": 30,
@@ -504,12 +518,14 @@ SELECT count(*) FROM pg_stat_activity WHERE datname = 'buglens_dev';
 Run this full checklist before considering Week 1 complete:
 
 ### Infrastructure ✅
+
 - [ ] Docker Compose starts Postgres + Redis
 - [ ] Postgres health check passes
 - [ ] Redis health check passes
 - [ ] Can connect to both services
 
 ### Database ✅
+
 - [ ] All 9 migrations run successfully
 - [ ] All tables have `org_id` (except organizations)
 - [ ] Indexes exist on `org_id` columns
@@ -517,6 +533,7 @@ Run this full checklist before considering Week 1 complete:
 - [ ] Seed data loads correctly
 
 ### API ✅
+
 - [ ] Health endpoint returns 200
 - [ ] Ready endpoint returns 200
 - [ ] Server logs structured JSON
@@ -524,6 +541,7 @@ Run this full checklist before considering Week 1 complete:
 - [ ] Request ID in logs
 
 ### Webhooks ✅
+
 - [ ] Sentry webhook accepts valid payload
 - [ ] HMAC validation works
 - [ ] Invalid payload returns 400
@@ -531,18 +549,21 @@ Run this full checklist before considering Week 1 complete:
 - [ ] Timestamp converted properly
 
 ### Security ✅
+
 - [ ] Rate limiting enforces 100 req/min
 - [ ] JWT middleware registered (even if not used yet)
 - [ ] HMAC signature validation works
 - [ ] SQL injection prevented (parameterized queries)
 
 ### Multi-Tenancy ✅
+
 - [ ] org_id stored on all events
 - [ ] org_id matches integration's org
 - [ ] Can set org context in SQL
 - [ ] Queries isolated by org_id
 
 ### Tests ✅
+
 - [ ] `npm test` passes all 4 tests
 - [ ] Health test passes
 - [ ] Webhook integration test passes
@@ -626,6 +647,7 @@ Week 1 baseline metrics:
 - Rate limit check: <1ms (in-memory, will be faster with Redis)
 
 **Measure with:**
+
 ```bash
 # Install Apache Bench
 brew install ab
@@ -667,6 +689,7 @@ echo $?  # Should be 0
 ## Summary
 
 You've now thoroughly tested:
+
 1. ✅ Infrastructure (Docker Compose)
 2. ✅ Database (Migrations + Multi-tenancy)
 3. ✅ API (Health + Webhooks)

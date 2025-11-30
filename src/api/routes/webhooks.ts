@@ -5,7 +5,20 @@ import { sentryWebhookSchema } from "../../types/sentry.js";
 import { pool } from "../../db/client.js";
 
 export const webhooksRoutes: FastifyPluginAsync = async (server) => {
-  server.post("/webhooks/sentry", async (request, reply) => {
+  // Webhook endpoint with org_id in path for multi-tenancy
+  server.post("/webhooks/sentry/:org_id", async (request, reply) => {
+    const { org_id } = request.params as { org_id: string };
+
+    // Validate org_id is a valid UUID
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(org_id)) {
+      return reply.status(400).send({
+        error: "Bad Request",
+        message: "Invalid organization ID",
+      });
+    }
+
     const signature = request.headers["sentry-hook-signature"] as
       | string
       | undefined;
@@ -53,7 +66,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
             payload.exception?.values?.[0]?.value || "unknown"
           }`;
 
-      // Store event (hardcoded org_id for now - will get from integration config later)
+      // Store event (org_id from URL path)
       const result = await pool.query(
         `
         INSERT INTO events (
@@ -61,6 +74,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           source,
           sentry_event_id,
           signature,
+          platform,
           message,
           stack_trace,
           breadcrumbs,
@@ -70,14 +84,15 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           timestamp,
           status,
           raw_payload
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id
       `,
         [
-          "00000000-0000-0000-0000-000000000000", // TODO: Get from integration
+          org_id, // From URL path parameter
           "sentry",
           payload.event_id,
           signature,
+          payload.platform,
           payload.message ||
             payload.exception?.values?.[0]?.value ||
             "Unknown error",
