@@ -1,0 +1,8 @@
+{
+  "migrationsTable": "pgmigrations",
+  "dir": "migrations",
+  "schema": "public",
+  "checkOrder": true,
+  "ignorePattern": "\\..*",
+  "template-file-name": "migrations/template.cjs"
+}
