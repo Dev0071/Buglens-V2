@@ -138,11 +138,23 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
       }
 
       // Extract error signature (for deduplication)
+      // Sanitize fingerprint values - limit length and remove any problematic characters
+      const sanitizeFingerprint = (fp: string[]): string => {
+        return fp
+          .map((part) =>
+            // Limit each part to 200 chars, replace control chars (ASCII 0-31 and 127)
+            // eslint-disable-next-line no-control-regex
+            part.slice(0, 200).replace(/[\x00-\x1f\x7f]/g, "")
+          )
+          .join(":")
+          .slice(0, 1000); // Limit total signature length
+      };
+
       const eventSignature = payload.fingerprint
-        ? payload.fingerprint.join(":")
+        ? sanitizeFingerprint(payload.fingerprint)
         : `${payload.exception?.values?.[0]?.type || "unknown"}:${
-            payload.exception?.values?.[0]?.value || "unknown"
-          }`;
+            payload.exception?.values?.[0]?.value?.slice(0, 500) || "unknown"
+          }`.slice(0, 1000);
 
       // Store event (org_id from URL path)
       const result = await pool.query(

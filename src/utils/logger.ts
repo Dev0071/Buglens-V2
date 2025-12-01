@@ -1,6 +1,10 @@
-import pino from "pino";
+import { pino } from "pino";
+import type { FastifyBaseLogger } from "fastify";
 import { config } from "./config.js";
 
+// Pino logger configuration compatible with Fastify
+// Cast through unknown to satisfy FastifyBaseLogger interface
+// (Fastify bundles its own pino types with extra properties like msgPrefix)
 export const logger = pino({
   level: config.LOG_LEVEL,
   transport:
@@ -14,8 +18,8 @@ export const logger = pino({
           },
         }
       : undefined,
-});
+}) as unknown as FastifyBaseLogger;
 
-export function createChildLogger(context: Record<string, unknown>) {
-  return logger.child(context);
+export function createChildLogger(context: Record<string, unknown>): FastifyBaseLogger {
+  return logger.child(context) as FastifyBaseLogger;
 }
