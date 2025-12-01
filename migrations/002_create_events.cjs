@@ -18,6 +18,7 @@ exports.up = (pgm) => {
     source: { type: "text", notNull: true, default: "sentry" },
     sentry_event_id: { type: "text", unique: true },
     signature: { type: "text", notNull: true },
+    platform: { type: "text" },
     message: { type: "text" },
     stack_trace: { type: "jsonb" },
     breadcrumbs: { type: "jsonb" },

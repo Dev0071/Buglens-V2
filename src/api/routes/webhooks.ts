@@ -1,30 +1,83 @@
-import { FastifyPluginAsync } from "fastify";
+import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import crypto from "crypto";
 import { config } from "../../utils/config.js";
 import { sentryWebhookSchema } from "../../types/sentry.js";
 import { pool } from "../../db/client.js";
 
+type WebhookRequestWithRaw = FastifyRequest & { rawBody?: Buffer };
+
+const resolvePayloadBuffer = (request: WebhookRequestWithRaw): Buffer => {
+  if (request.rawBody && Buffer.isBuffer(request.rawBody)) {
+    return request.rawBody;
+  }
+
+  const body = request.body ?? {};
+  const textPayload = typeof body === "string" ? body : JSON.stringify(body);
+  return Buffer.from(textPayload ?? "", "utf8");
+};
+
 export const webhooksRoutes: FastifyPluginAsync = async (server) => {
-  server.post("/webhooks/sentry", async (request, reply) => {
-    const signature = request.headers["sentry-hook-signature"] as
+  // Webhook endpoint with org_id in path for multi-tenancy
+  server.post("/webhooks/sentry/:org_id", async (request, reply) => {
+    const { org_id } = request.params as { org_id: string };
+    const requestWithRawBody = request as WebhookRequestWithRaw;
+
+    // Validate org_id is a valid UUID
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(org_id)) {
+      return reply.status(400).send({
+        error: "Bad Request",
+        message: "Invalid organization ID",
+      });
+    }
+
+    const sentrySignatureHeader = request.headers["sentry-hook-signature"] as
       | string
       | undefined;
 
-    // HMAC validation (if secret configured)
     if (config.SENTRY_WEBHOOK_SECRET) {
-      if (!signature) {
+      if (!sentrySignatureHeader) {
         return reply.status(401).send({
           error: "Unauthorized",
           message: "Missing signature",
         });
       }
 
+      const payloadBuffer = resolvePayloadBuffer(requestWithRawBody);
       const hmac = crypto.createHmac("sha256", config.SENTRY_WEBHOOK_SECRET);
-      hmac.update(JSON.stringify(request.body));
-      const expectedSignature = hmac.digest("hex");
+      hmac.update(payloadBuffer);
+      const expectedBuffer = hmac.digest();
+      const expectedSignature = expectedBuffer.toString("hex");
 
-      if (signature !== expectedSignature) {
-        request.log.warn({ signature, expectedSignature }, "Invalid signature");
+      const normalizedSignature = sentrySignatureHeader
+        .replace(/^sha256=/i, "")
+        .trim();
+      const hexRegex = /^[0-9a-f]+$/i;
+
+      if (!hexRegex.test(normalizedSignature)) {
+        request.log.warn(
+          { header: sentrySignatureHeader },
+          "Malformed signature header"
+        );
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Invalid signature format",
+        });
+      }
+
+      const signatureBuffer = Buffer.from(normalizedSignature, "hex");
+      const signatureLengthMatches =
+        signatureBuffer.length === expectedBuffer.length;
+      const signatureValid =
+        signatureLengthMatches &&
+        crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+
+      if (!signatureValid) {
+        request.log.warn(
+          { header: sentrySignatureHeader, expected: expectedSignature },
+          "Invalid signature"
+        );
         return reply.status(401).send({
           error: "Unauthorized",
           message: "Invalid signature",
@@ -44,16 +97,54 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
     }
 
     const payload = parseResult.data;
+    const sentryEventId = payload.event_id;
 
     try {
+      const orgResult = await pool.query(
+        "SELECT id FROM organizations WHERE id = $1",
+        [org_id]
+      );
+
+      if (orgResult.rowCount === 0) {
+        request.log.warn(
+          { org_id },
+          "Webhook received for unknown organization"
+        );
+        return reply.status(404).send({
+          error: "Not Found",
+          message: "Organization does not exist",
+        });
+      }
+
+      const duplicateEvent = await pool.query(
+        "SELECT id FROM events WHERE org_id = $1 AND sentry_event_id = $2 LIMIT 1",
+        [org_id, sentryEventId]
+      );
+
+      if (duplicateEvent.rows.length > 0) {
+        const existingEventId = duplicateEvent.rows[0].id;
+        request.log.info(
+          {
+            org_id,
+            sentry_event_id: sentryEventId,
+            event_id: existingEventId,
+          },
+          "Duplicate webhook ignored"
+        );
+        return reply.status(200).send({
+          status: "duplicate",
+          event_id: existingEventId,
+        });
+      }
+
       // Extract error signature (for deduplication)
-      const signature = payload.fingerprint
+      const eventSignature = payload.fingerprint
         ? payload.fingerprint.join(":")
         : `${payload.exception?.values?.[0]?.type || "unknown"}:${
             payload.exception?.values?.[0]?.value || "unknown"
           }`;
 
-      // Store event (hardcoded org_id for now - will get from integration config later)
+      // Store event (org_id from URL path)
       const result = await pool.query(
         `
         INSERT INTO events (
@@ -61,6 +152,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           source,
           sentry_event_id,
           signature,
+          platform,
           message,
           stack_trace,
           breadcrumbs,
@@ -70,14 +162,15 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           timestamp,
           status,
           raw_payload
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id
       `,
         [
-          "00000000-0000-0000-0000-000000000000", // TODO: Get from integration
+          org_id, // From URL path parameter
           "sentry",
-          payload.event_id,
-          signature,
+          sentryEventId,
+          eventSignature,
+          payload.platform,
           payload.message ||
             payload.exception?.values?.[0]?.value ||
             "Unknown error",
@@ -104,7 +197,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
       request.log.info(
         {
           event_id: result.rows[0].id,
-          sentry_event_id: payload.event_id,
+          sentry_event_id: sentryEventId,
         },
         "Event received"
       );
