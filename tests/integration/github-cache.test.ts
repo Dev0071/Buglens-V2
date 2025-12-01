@@ -64,8 +64,89 @@ describe("GitHub Caching", () => {
       };
 
       const key = buildS3CacheKey(params);
-      // Should handle leading slash gracefully
-      expect(key).toContain("cache/org-123/owner/repo/abc123/");
+      // Should strip leading slash
+      expect(key).toBe("cache/org-123/owner/repo/abc123/src/index.ts");
+    });
+
+    it("should sanitize path traversal attempts", async () => {
+      const { buildS3CacheKey, sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
+
+      // Test the sanitization function directly
+      expect(sanitizePathForCacheKey("//app/../src/file.js")).toBe(
+        "app/src/file.js"
+      );
+      expect(sanitizePathForCacheKey("../../../etc/passwd")).toBe("etc/passwd");
+      expect(sanitizePathForCacheKey("./src/./utils/../index.ts")).toBe(
+        "src/utils/index.ts"
+      );
+
+      // Test via buildS3CacheKey
+      const params: CacheKeyParams = {
+        orgId: "org-123",
+        repo: "owner/repo",
+        sha: "abc123",
+        path: "//app/../src/file.js",
+      };
+
+      const key = buildS3CacheKey(params);
+      expect(key).toBe("cache/org-123/owner/repo/abc123/app/src/file.js");
+    });
+
+    it("should sanitize spaces and special characters", async () => {
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
+
+      // Spaces become underscores
+      expect(sanitizePathForCacheKey("src/ file.js")).toBe("src/_file.js");
+      expect(sanitizePathForCacheKey("src/my file name.js")).toBe(
+        "src/my_file_name.js"
+      );
+
+      // Multiple spaces collapse to single underscore
+      expect(sanitizePathForCacheKey("src/  multiple   spaces.js")).toBe(
+        "src/_multiple_spaces.js"
+      );
+
+      // Windows-invalid chars become underscores
+      expect(sanitizePathForCacheKey("src/file<name>.js")).toBe(
+        "src/file_name_.js"
+      );
+    });
+
+    it("should handle consecutive slashes", async () => {
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
+
+      expect(sanitizePathForCacheKey("src//utils///index.ts")).toBe(
+        "src/utils/index.ts"
+      );
+      expect(sanitizePathForCacheKey("/app/src//utils/index.ts")).toBe(
+        "app/src/utils/index.ts"
+      );
+    });
+
+    it("should handle URL-encoded paths", async () => {
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
+
+      // %20 is space
+      expect(sanitizePathForCacheKey("src/my%20file.js")).toBe(
+        "src/my_file.js"
+      );
+    });
+
+    it("should handle empty or invalid paths gracefully", async () => {
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
+
+      // Empty after sanitization should return a fallback
+      const result = sanitizePathForCacheKey("/../../../");
+      expect(result).toMatch(/^_invalid_path_/);
+
+      // Only dots
+      const result2 = sanitizePathForCacheKey("./././");
+      expect(result2).toMatch(/^_invalid_path_/);
     });
   });
 

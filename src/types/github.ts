@@ -276,12 +276,74 @@ export interface CacheKeyParams {
   path: string;
 }
 
+/**
+ * Sanitize a file path to be safe for cache keys (S3 and Redis).
+ * Handles:
+ * - Path traversal attempts (../)
+ * - Leading/trailing slashes
+ * - Consecutive slashes
+ * - Spaces and special characters
+ * - URL-encoded characters
+ *
+ * @example
+ * sanitizePathForCacheKey("//app/../src/file.js") -> "src/file.js"
+ * sanitizePathForCacheKey("src/ file.js") -> "src/_file.js"
+ * sanitizePathForCacheKey("/app/src//utils/index.ts") -> "app/src/utils/index.ts"
+ */
+export function sanitizePathForCacheKey(path: string): string {
+  let sanitized = path;
+
+  // 1. Decode URL-encoded characters first (e.g., %20 -> space)
+  try {
+    sanitized = decodeURIComponent(sanitized);
+  } catch {
+    // If decoding fails, continue with original
+  }
+
+  // 2. Normalize path separators (handle Windows-style backslashes)
+  sanitized = sanitized.replace(/\\/g, "/");
+
+  // 3. Remove path traversal sequences (../ and ./)
+  // Split by /, filter out .. and . segments, rejoin
+  const segments = sanitized.split("/").filter((segment) => {
+    return segment !== ".." && segment !== "." && segment !== "";
+  });
+
+  // 4. Rejoin and handle edge cases
+  sanitized = segments.join("/");
+
+  // 5. Replace problematic characters:
+  //    - Spaces -> underscores
+  //    - Control characters -> removed
+  //    - Multiple consecutive special chars -> single
+  sanitized = sanitized
+    .replace(/\s+/g, "_") // Spaces to underscores
+    // eslint-disable-next-line no-control-regex -- Intentional: remove control chars for security
+    .replace(/[\x00-\x1f\x7f]/g, "") // Remove control characters (ASCII 0-31 and 127)
+    .replace(/[<>:"|?*]/g, "_") // Replace Windows-invalid chars
+    .replace(/_+/g, "_") // Collapse multiple underscores
+    .replace(/\/+/g, "/"); // Collapse multiple slashes
+
+  // 6. Remove leading/trailing slashes and underscores
+  sanitized = sanitized.replace(/^[/_]+|[/_]+$/g, "");
+
+  // 7. Ensure we have a valid path (fallback to hash if empty)
+  if (!sanitized) {
+    // Generate a safe fallback from original path
+    sanitized = `_invalid_path_${Buffer.from(path).toString("base64url").slice(0, 32)}`;
+  }
+
+  return sanitized;
+}
+
 export function buildRedisCacheKey(params: CacheKeyParams): string {
-  return `gh:file:${params.orgId}:${params.repo}:${params.sha}:${params.path}`;
+  const safePath = sanitizePathForCacheKey(params.path);
+  return `gh:file:${params.orgId}:${params.repo}:${params.sha}:${safePath}`;
 }
 
 export function buildS3CacheKey(params: CacheKeyParams): string {
-  return `cache/${params.orgId}/${params.repo}/${params.sha}/${params.path}`;
+  const safePath = sanitizePathForCacheKey(params.path);
+  return `cache/${params.orgId}/${params.repo}/${params.sha}/${safePath}`;
 }
 
 // ============================================

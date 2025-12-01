@@ -10,6 +10,7 @@ import { logger } from "../utils/logger.js";
 import { getFromCache, setInCache } from "../db/redis.js";
 import { pool } from "../db/client.js";
 import type { CacheKeyParams, CachedFileContent } from "../types/github.js";
+import { sanitizePathForCacheKey } from "../types/github.js";
 
 // ============================================
 // Cache Configuration
@@ -56,12 +57,12 @@ function getS3Client(): S3Client {
 // ============================================
 
 function buildRedisCacheKey(params: CacheKeyParams): string {
-  return `gh:file:${params.orgId}:${params.repo}:${params.sha}:${params.path}`;
+  const safePath = sanitizePathForCacheKey(params.path);
+  return `gh:file:${params.orgId}:${params.repo}:${params.sha}:${safePath}`;
 }
 
 function buildS3CacheKey(params: CacheKeyParams): string {
-  // Sanitize path to be S3-safe
-  const safePath = params.path.replace(/^\/+/, "");
+  const safePath = sanitizePathForCacheKey(params.path);
   return `cache/${params.orgId}/${params.repo}/${params.sha}/${safePath}`;
 }
 
