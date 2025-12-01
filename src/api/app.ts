@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import type { FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
@@ -7,12 +8,41 @@ import { logger } from "../utils/logger.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
+import {
+  orgContextMiddleware,
+  setupOrgDecorators,
+} from "./middleware/org-context.js";
+import { redis } from "../db/redis.js";
 
 const server = Fastify({
   logger: logger,
   requestIdHeader: "x-request-id",
   disableRequestLogging: false,
 });
+
+// Preserve raw body for HMAC verification (GitHub/Sentry)
+server.addContentTypeParser(
+  /^application\/json/,
+  { parseAs: "buffer" },
+  (request, body, done) => {
+    try {
+      const buffer = body as Buffer;
+      (request as FastifyRequest & { rawBody?: Buffer }).rawBody = buffer;
+      if (buffer.length === 0) {
+        done(null, {});
+        return;
+      }
+      const json = JSON.parse(buffer.toString("utf-8"));
+      done(null, json);
+    } catch (error) {
+      done(error as Error);
+    }
+  }
+);
+
+// Organization context helpers (multi-tenancy)
+setupOrgDecorators(server);
+server.addHook("preHandler", orgContextMiddleware);
 
 // Register plugins
 await server.register(cors, {
@@ -29,7 +59,8 @@ await server.register(rateLimit, {
   timeWindow: "1 minute",
   cache: 10000,
   allowList: [],
-  redis: undefined, // Will add Redis later
+  redis: config.NODE_ENV === "test" ? undefined : redis.client,
+  keyGenerator: (request) => request.getOrgId() || request.ip,
 });
 
 // Register routes

@@ -120,6 +120,49 @@ cd python
 pytest
 ```
 
+Load testing scenarios using `k6` live in `scripts/k6/` (see the README in that directory). Run them against a local stack to validate rate-limiting behaviour before large refactors.
+
+### Continuous Integration
+
+Buglens uses a GitHub Actions pipeline defined in `.github/workflows/ci.yml`. The workflow provisions PostgreSQL and Redis services, applies migrations, and enforces linting/type-checking/testing for both TypeScript and Python workspaces.
+
+**Required CI Secrets / Environment Variables**
+
+| Variable                | Purpose                                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | Connection string to ephemeral Postgres service (set to `postgresql://postgres:postgres@localhost:5432/buglens_test` in CI). |
+| `REDIS_URL`             | Redis connection used by rate limits (`redis://localhost:6379`).                                                             |
+| `S3_BUCKET_NAME`        | Temporary name for artifact bucket (CI uses `buglens-ci-artifacts`).                                                         |
+| `JWT_SECRET`            | Symmetric key required for Fastify JWT plugin during tests.                                                                  |
+| `SENTRY_WEBHOOK_SECRET` | Shared secret for signed Sentry webhook tests.                                                                               |
+| `GITHUB_WEBHOOK_SECRET` | Shared secret for GitHub webhook HMAC tests.                                                                                 |
+
+**Local Stack Expectations**
+
+- The workflow spins up Docker services for PostgreSQL 15 and Redis 7; ensure matching versions locally (`docker-compose up postgres redis`).
+- Database migrations run via `npm run migrate:up`; migrations must be idempotent and self-contained.
+- Redis-backed rate limiting is exercised in integration tests—flush keys between local test runs if you exceed quotas.
+- Python checks (`black`, `mypy`, `pytest`) execute after Node tests; keep `requirements.txt` and `requirements-dev.txt` synchronized with runtime needs.
+
+To replicate the CI locally:
+
+```bash
+# Start dependencies with docker-compose
+docker-compose up -d postgres redis
+
+# Apply migrations and run quality gates
+npm run migrate:up
+npm run lint
+npx tsc --noEmit
+npm test -- --run
+
+# Python quality gates
+cd python
+black --check .
+mypy .
+pytest
+```
+
 ### Documentation
 
 - [Architecture](./Buglens%20Architecture%20UPDATED.md)

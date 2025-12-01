@@ -42,7 +42,9 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
  * Set organization context for row-level security
  */
 export async function setOrgContext(client: pg.PoolClient, orgId: string) {
-  await client.query("SET LOCAL app.current_org_id = $1", [orgId]);
+  await client.query("SELECT set_config('app.current_org_id', $1, true)", [
+    orgId,
+  ]);
 }
 
 /**

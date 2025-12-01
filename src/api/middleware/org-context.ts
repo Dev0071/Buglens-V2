@@ -17,6 +17,7 @@ declare module "fastify" {
     orgContext?: OrgContext;
     getOrgId(): string;
     getOrgPlan(): string;
+    rawBody?: Buffer;
   }
 }
 
@@ -28,12 +29,31 @@ export async function orgContextMiddleware(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  const headerOrgId = request.headers["x-org-id"];
+  const params = request.params as Record<string, unknown> | undefined;
+  const pathOrgId =
+    params && typeof params.org_id === "string" ? params.org_id : undefined;
+  const candidateOrgId =
+    (typeof headerOrgId === "string" && headerOrgId.trim().length > 0
+      ? headerOrgId
+      : undefined) || pathOrgId;
+
+  // Health checks and unauthenticated routes may not provide org context
+  if (!candidateOrgId) {
+    return;
+  }
+
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(candidateOrgId)) {
+    return reply.status(400).send({
+      error: "Bad Request",
+      message: "Invalid organization ID",
+    });
+  }
+
   try {
-    // Extract org_id from JWT token (when auth is implemented)
-    // For now, get from header (development only)
-    const orgId =
-      (request.headers["x-org-id"] as string) ||
-      "00000000-0000-0000-0000-000000000000";
+    const orgId = candidateOrgId;
 
     // Verify organization exists
     const result = await pool.query(
@@ -42,8 +62,10 @@ export async function orgContextMiddleware(
     );
 
     if (result.rows.length === 0) {
+      request.log.warn({ orgId }, "Organization context not found");
       return reply.status(404).send({
-        error: "Organization not found",
+        error: "Not Found",
+        message: "Organization does not exist",
       });
     }
 

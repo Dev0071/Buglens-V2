@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
 import { server } from "../../src/api/app.js";
-import { pool } from "../../src/db/client.js";
+import * as dbClient from "../../src/db/client.js";
+import { RATE_LIMITS } from "../../src/utils/rate-limits.js";
 import crypto from "crypto";
+
+const { pool, transaction } = dbClient;
 
 // Test org id (must exist in DB via seed-dev-data.sql)
 const TEST_ORG_ID = "00000000-0000-0000-0000-000000000000";
+const TEST_ORG_SLUG = "sentry-test-org";
 const WEBHOOK_SECRET =
   process.env.SENTRY_WEBHOOK_SECRET || "your-test-secret-for-local-development";
 
@@ -20,13 +32,14 @@ describe("Sentry Webhook", () => {
     // Ensure test org exists
     await pool.query(
       `INSERT INTO organizations (id, name, slug, plan)
-       VALUES ($1, 'Test Organization', 'test-org', 'free')
+       VALUES ($1, 'Test Organization', $2, 'free')
        ON CONFLICT (id) DO NOTHING`,
-      [TEST_ORG_ID]
+      [TEST_ORG_ID, TEST_ORG_SLUG]
     );
   });
 
   afterAll(async () => {
+    await pool.query("DELETE FROM organizations WHERE id = $1", [TEST_ORG_ID]);
     await server.close();
   });
 
@@ -194,5 +207,116 @@ describe("Sentry Webhook", () => {
       [payload.event_id, TEST_ORG_ID]
     );
     expect(Number(result.rows[0].count)).toBe(1);
+  });
+
+  it("sets org context before transactional work", async () => {
+    const originalTransaction = dbClient.transaction;
+    const transactionSpy = vi
+      .spyOn(dbClient, "transaction")
+      .mockImplementation(async (orgId, callback) => {
+        return originalTransaction(orgId, async (client) => {
+          const current = await client.query<{ org_id: string | null }>(
+            "SELECT current_setting('app.current_org_id', true) AS org_id"
+          );
+          expect(current.rows[0].org_id).toBe(orgId);
+          return callback(client);
+        });
+      });
+
+    try {
+      const payload = {
+        event_id: `context-check-${Date.now()}`,
+        timestamp: Date.now() / 1000,
+        platform: "javascript",
+      };
+      const signature = generateSignature(payload);
+
+      const response = await server.inject({
+        method: "POST",
+        url: `/api/v1/webhooks/sentry/${TEST_ORG_ID}`,
+        payload,
+        headers: {
+          "sentry-hook-signature": signature,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(transactionSpy).toHaveBeenCalled();
+    } finally {
+      transactionSpy.mockRestore();
+    }
+  });
+
+  it("enforces hourly event quota when exhausted", async () => {
+    const limit = RATE_LIMITS.free.events_per_hour;
+
+    await transaction(TEST_ORG_ID, async (client) => {
+      await client.query(
+        `INSERT INTO events (
+            org_id,
+            source,
+            sentry_event_id,
+            signature,
+            platform,
+            message,
+            stack_trace,
+            breadcrumbs,
+            context,
+            environment,
+            release,
+            timestamp,
+            status,
+            raw_payload
+          )
+          SELECT
+            $1,
+            'sentry',
+            CONCAT('limit-event-', gs::text),
+            CONCAT('limit-signature-', gs::text),
+            'javascript',
+            'Pre-existing event for rate limit check',
+            '{}'::jsonb,
+            '[]'::jsonb,
+            '{}'::jsonb,
+            'production',
+            NULL,
+            NOW(),
+            'received',
+            '{}'::jsonb
+          FROM generate_series(1, $2::int) AS gs`,
+        [TEST_ORG_ID, limit]
+      );
+    });
+
+    const payload = {
+      event_id: `rate-limit-${Date.now()}`,
+      timestamp: Date.now() / 1000,
+      platform: "javascript",
+    };
+    const signature = generateSignature(payload);
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/api/v1/webhooks/sentry/${TEST_ORG_ID}`,
+      payload,
+      headers: {
+        "sentry-hook-signature": signature,
+      },
+    });
+
+    expect(response.statusCode).toBe(429);
+    const body = JSON.parse(response.body);
+    expect(body.error).toBe("Rate Limit Exceeded");
+    expect(body.quota).toMatchObject({
+      limit,
+      remaining: 0,
+    });
+    expect(response.headers["x-ratelimit-remaining"]).toBe("0");
+
+    const result = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM events WHERE org_id = $1",
+      [TEST_ORG_ID]
+    );
+    expect(result.rows[0].count).toBe(limit);
   });
 });
