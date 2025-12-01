@@ -22,7 +22,7 @@ pool.on("error", (err) => {
   process.exit(1);
 });
 
-export async function query<T = unknown>(
+export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<pg.QueryResult<T>> {

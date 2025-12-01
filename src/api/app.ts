@@ -5,6 +5,7 @@ import jwt from "@fastify/jwt";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
+import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
 
 const server = Fastify({
@@ -34,6 +35,7 @@ await server.register(rateLimit, {
 // Register routes
 await server.register(healthRoutes, { prefix: "/api/v1" });
 await server.register(webhooksRoutes, { prefix: "/api/v1" });
+await server.register(githubWebhooksRoutes, { prefix: "/api/v1" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

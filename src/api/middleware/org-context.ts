@@ -1,5 +1,24 @@
-import { FastifyRequest, FastifyReply } from "fastify";
-import { pool } from "../db/client.js";
+import { FastifyRequest, FastifyReply, FastifyInstance } from "fastify";
+import { pool } from "../../db/client.js";
+
+/**
+ * Organization context stored in request
+ */
+interface OrgContext {
+  orgId: string;
+  orgPlan: string;
+}
+
+/**
+ * Extend FastifyRequest to include org context
+ */
+declare module "fastify" {
+  interface FastifyRequest {
+    orgContext?: OrgContext;
+    getOrgId(): string;
+    getOrgPlan(): string;
+  }
+}
 
 /**
  * Middleware to extract and validate organization context
@@ -28,9 +47,11 @@ export async function orgContextMiddleware(
       });
     }
 
-    // Store in request context
-    request.requestContext.set("org_id", orgId);
-    request.requestContext.set("org_plan", result.rows[0].plan);
+    // Store in request object
+    request.orgContext = {
+      orgId,
+      orgPlan: result.rows[0].plan as string,
+    };
   } catch (error) {
     request.log.error({ error }, "Failed to set org context");
     return reply.status(500).send({
@@ -40,21 +61,17 @@ export async function orgContextMiddleware(
 }
 
 /**
- * Decorator to get org_id from request context
+ * Setup request decorators for org context access
  */
-declare module "fastify" {
-  interface FastifyRequest {
-    getOrgId(): string;
-    getOrgPlan(): string;
-  }
-}
-
 export function setupOrgDecorators(server: FastifyInstance) {
-  server.decorateRequest("getOrgId", function () {
-    return this.requestContext.get("org_id") as string;
+  // Add placeholder for orgContext
+  server.decorateRequest("orgContext", null);
+
+  server.decorateRequest("getOrgId", function (this: FastifyRequest) {
+    return this.orgContext?.orgId || "";
   });
 
-  server.decorateRequest("getOrgPlan", function () {
-    return this.requestContext.get("org_plan") as string;
+  server.decorateRequest("getOrgPlan", function (this: FastifyRequest) {
+    return this.orgContext?.orgPlan || "free";
   });
 }

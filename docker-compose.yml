@@ -32,6 +32,25 @@ services:
       timeout: 5s
       retries: 5
 
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: buglens-localstack
+    ports:
+      - "4566:4566" # LocalStack Gateway
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+      - PERSISTENCE=1
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
+  localstack_data:
