@@ -69,9 +69,8 @@ describe("GitHub Caching", () => {
     });
 
     it("should sanitize path traversal attempts", async () => {
-      const { buildS3CacheKey, sanitizePathForCacheKey } = await import(
-        "../../src/types/github.js"
-      );
+      const { buildS3CacheKey, sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
 
       // Test the sanitization function directly
       expect(sanitizePathForCacheKey("//app/../src/file.js")).toBe(
@@ -95,9 +94,8 @@ describe("GitHub Caching", () => {
     });
 
     it("should sanitize spaces and special characters", async () => {
-      const { sanitizePathForCacheKey } = await import(
-        "../../src/types/github.js"
-      );
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
 
       // Spaces become underscores
       expect(sanitizePathForCacheKey("src/ file.js")).toBe("src/_file.js");
@@ -111,15 +109,14 @@ describe("GitHub Caching", () => {
       );
 
       // Windows-invalid chars become underscores
-      expect(sanitizePathForCacheKey('src/file<name>.js')).toBe(
+      expect(sanitizePathForCacheKey("src/file<name>.js")).toBe(
         "src/file_name_.js"
       );
     });
 
     it("should handle consecutive slashes", async () => {
-      const { sanitizePathForCacheKey } = await import(
-        "../../src/types/github.js"
-      );
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
 
       expect(sanitizePathForCacheKey("src//utils///index.ts")).toBe(
         "src/utils/index.ts"
@@ -130,9 +127,8 @@ describe("GitHub Caching", () => {
     });
 
     it("should handle URL-encoded paths", async () => {
-      const { sanitizePathForCacheKey } = await import(
-        "../../src/types/github.js"
-      );
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
 
       // %20 is space
       expect(sanitizePathForCacheKey("src/my%20file.js")).toBe(
@@ -141,9 +137,8 @@ describe("GitHub Caching", () => {
     });
 
     it("should handle empty or invalid paths gracefully", async () => {
-      const { sanitizePathForCacheKey } = await import(
-        "../../src/types/github.js"
-      );
+      const { sanitizePathForCacheKey } =
+        await import("../../src/types/github.js");
 
       // Empty after sanitization should return a fallback
       const result = sanitizePathForCacheKey("/../../../");
