@@ -20,6 +20,8 @@ export const logger = pino({
       : undefined,
 }) as unknown as FastifyBaseLogger;
 
-export function createChildLogger(context: Record<string, unknown>): FastifyBaseLogger {
+export function createChildLogger(
+  context: Record<string, unknown>
+): FastifyBaseLogger {
   return logger.child(context) as FastifyBaseLogger;
 }

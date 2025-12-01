@@ -327,7 +327,10 @@ class CodeFetcherService {
       };
     } catch (error) {
       logger.error(
-        { file: normalizedFrame.file, error: error instanceof Error ? error.message : "Unknown error" },
+        {
+          file: normalizedFrame.file,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
         "Failed to fetch code for frame"
       );
       return null;
@@ -481,7 +484,10 @@ class CodeFetcherService {
       };
     } catch (error) {
       logger.error(
-        { path, error: error instanceof Error ? error.message : "Unknown error" },
+        {
+          path,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
         "GitHub API error"
       );
       return null;
@@ -554,7 +560,10 @@ class CodeFetcherService {
       return await this.applySourceMap(frame, sourceMapData);
     } catch (error) {
       logger.warn(
-        { file: frame.file, error: error instanceof Error ? error.message : "Unknown error" },
+        {
+          file: frame.file,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
         "Failed to resolve source map"
       );
       return null;
