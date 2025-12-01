@@ -166,12 +166,10 @@ class CodeFetcherService {
     // Prefer abs_path but strip deployment prefixes, fallback to filename
     const rawPath = frame.abs_path || frame.filename;
 
-    // Validate path before processing (security: prevent path traversal)
-    this.validateFilePath(rawPath);
-
+    // Strip deployment prefixes before validating (security: prevent path traversal)
     const cleanPath = this.stripPathPrefix(rawPath);
 
-    // Validate again after stripping (belt and suspenders)
+    // Validate only after stripping
     this.validateFilePath(cleanPath);
 
     return {
