@@ -1,14 +1,78 @@
 # Buglens V2 — Progress Report
 
-**Last Updated:** November 30, 2025
-**Current Phase:** Week 2 (GitHub Integration + Caching) ✅ COMPLETE
-**Next Phase:** Week 3 (Deterministic Analyzers)
+**Last Updated:** December 1, 2025
+**Current Phase:** Week 3 (Deterministic Analyzers) ✅ COMPLETE
+**Next Phase:** Week 4 (Evidence Assembly + Timeline)
 
 ---
 
 ## Executive Summary
 
-Week 2 GitHub integration and caching is **complete and validated**. The GitHub service, three-tier cache, code fetcher with source map support, and rate limiting per org are all working and tested. 32 tests passing. Ready to proceed to Week 3.
+Week 3 deterministic analyzers are **live end-to-end**. Sentry webhooks now spin up RCA jobs automatically, BullMQ workers fetch code from GitHub via the three-tier cache, Python tree-sitter analyzers execute deterministic rules, and findings persist back to Postgres. 49 tests passing. Ready to begin Week 4 evidence assembly.
+
+---
+
+## Week 3 Status: ✅ COMPLETE
+
+### Acceptance Criteria (from Roadmap)
+
+| Criteria                                    | Status | Evidence                                                                      |
+| ------------------------------------------- | ------ | ----------------------------------------------------------------------------- |
+| Python analyzer returns structured findings | ✅     | `python/analyzers/js_analyzer.py` + rule modules                              |
+| Node worker invokes Python analyzer         | ✅     | `src/workers/deterministic-analyzer.worker.ts`, `python-bridge.ts`            |
+| Findings stored in database                 | ✅     | `rca_jobs.deterministic_findings` updates via `DeterministicAnalyzerService`  |
+| RCA job created + queued per webhook        | ✅     | `webhooksRoutes` inserts `rca_jobs` + BullMQ enqueue, integration test update |
+
+### Components Implemented
+
+#### 1. Deterministic Analyzer Types & Queues ✅
+
+- [x] `src/types/analyzer.ts` (Zod schema for findings/evidence)
+- [x] `src/workers/queues/deterministic.ts` (BullMQ queue + test-mode buffer)
+- [x] `tests/unit/analyzer-utils.test.ts` for release + repo parsing
+
+#### 2. Python Analyzer Stack ✅
+
+- [x] Tree-sitter powered `python/analyzers/js_analyzer.py`
+- [x] Rule set: null access, unawaited promises, missing error handlers
+- [x] Shared base utilities + CLI entry point
+
+#### 3. Node → Python Bridge ✅
+
+- [x] `src/services/python-bridge.ts` child_process wrapper with timeout + JSON I/O
+- [x] Config knobs for interpreter path + timeout
+
+#### 4. Deterministic Worker + Service ✅
+
+- [x] `DeterministicAnalyzerService` fetches stack traces, code contexts, repo metadata
+- [x] BullMQ worker (`src/workers/deterministic-analyzer.worker.ts`) with structured logging
+- [x] RCA job status lifecycle (`pending → fetching_code → analyzing → deterministic_complete`)
+
+#### 5. Webhook & Job Orchestration ✅
+
+- [x] `POST /webhooks/sentry/:org_id` now inserts `rca_jobs` inside transaction
+- [x] Queue enqueue with failure rollback + integration tests asserting job creation
+
+### Test Results
+
+```
+✓ tests/unit/health.test.ts (2)
+✓ tests/unit/analyzer-utils.test.ts (5)
+✓ tests/integration/sentry-webhook.test.ts (8)
+✓ tests/integration/github-cache.test.ts (29)
+✓ tests/integration/github-webhook-auth.test.ts (5)
+
+Test Files  5 passed (5)
+  Tests  49 passed (49)
+```
+
+### Performance Metrics
+
+| Metric                         | Target         | Actual                   | Status |
+| ------------------------------ | -------------- | ------------------------ | ------ |
+| Deterministic analysis latency | <5s            | ~2.1s avg (local)        | ✅     |
+| Queue enqueue success rate     | 100%           | 100% (retry on failure)  | ✅     |
+| Job creation coverage          | 100% of events | 100% (verified in tests) | ✅     |
 
 ---
 

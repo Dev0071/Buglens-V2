@@ -1,15 +1,19 @@
 /**
  * CodeFetcher Service
  *
- * Fetches source code files from GitHub with 3-tier cache support.
- * Handles minified files by resolving source maps to original locations.
+ * Fetches source code files from GitHub for production/staging errors.
+ * Designed for hosted environments where:
+ * - Release tags contain commit SHAs
+ * - Source maps may be embedded or uploaded to Sentry
+ * - Code exists in the repository at the specified commit
  *
  * Data Flow:
- * 1. Check 3-tier cache (Redis → S3 → Database)
- * 2. If cache miss, fetch from GitHub API
- * 3. If minified, fetch and apply source map
- * 4. Store in cache for future requests
- * 5. Return code context with surrounding lines
+ * 1. Normalize file path from stack frame (strip deployment prefixes)
+ * 2. Check 3-tier cache (Redis → S3 → Database)
+ * 3. If cache miss, fetch from GitHub API
+ * 4. If minified, resolve via inline source map
+ * 5. Store in cache for future requests
+ * 6. Return code context with surrounding lines
  */
 
 import {
@@ -33,6 +37,7 @@ import type {
 } from "../types/github.js";
 import { pool } from "../db/client.js";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
+import path from "node:path";
 
 // ============================================
 // Configuration
@@ -111,6 +116,22 @@ const PATH_TRAVERSAL_PATTERNS = [
   /\0/, // null bytes
 ];
 
+export function normalizeBundlerPath(
+  rawPath: string | null | undefined
+): string {
+  if (!rawPath) {
+    return "";
+  }
+
+  const schemeMatch = rawPath.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//);
+  if (!schemeMatch) {
+    return rawPath;
+  }
+
+  const withoutScheme = rawPath.slice(schemeMatch[0].length);
+  return withoutScheme.replace(/^\/+/g, "").replace(/\/{2,}/g, "/");
+}
+
 class CodeFetcherService {
   /**
    * Validate that a file path is safe and doesn't attempt path traversal
@@ -130,7 +151,11 @@ class CodeFetcherService {
     }
 
     // Ensure path doesn't have multiple consecutive slashes (normalization attack)
-    if (/\/\/+/.test(filePath)) {
+    if (
+      /\/{2,}/.test(filePath) &&
+      !filePath.startsWith(".next/") &&
+      !filePath.startsWith("_next/")
+    ) {
       throw new Error("Invalid file path: malformed path");
     }
   }
@@ -140,23 +165,31 @@ class CodeFetcherService {
    * e.g., /app/src/index.ts -> src/index.ts
    */
   private stripPathPrefix(filePath: string): string {
+    let normalized = normalizeBundlerPath(filePath);
+    if (normalized.startsWith("_next/")) {
+      normalized = `.next/${normalized.slice("_next/".length)}`;
+    }
+    if (normalized.startsWith("./")) {
+      normalized = normalized.slice(2);
+    }
+
     for (const prefix of STRIP_PATH_PREFIXES) {
-      if (filePath.startsWith(prefix)) {
-        return filePath.slice(prefix.length);
+      if (normalized.startsWith(prefix)) {
+        return normalized.slice(prefix.length);
       }
     }
     // Also handle paths that start with / but aren't prefixed
-    if (filePath.startsWith("/") && !filePath.startsWith("/node_modules")) {
+    if (normalized.startsWith("/") && !normalized.startsWith("/node_modules")) {
       // Try to find src/, lib/, or similar common directories
-      const commonDirs = ["src/", "lib/", "dist/", "build/", "app/"];
+      const commonDirs = ["src/", "lib/", "dist/", "build/", "app/", ".next/"];
       for (const dir of commonDirs) {
-        const idx = filePath.indexOf(dir);
+        const idx = normalized.indexOf(dir);
         if (idx !== -1) {
-          return filePath.slice(idx);
+          return normalized.slice(idx);
         }
       }
     }
-    return filePath;
+    return normalized;
   }
 
   /**
@@ -180,9 +213,201 @@ class CodeFetcherService {
     };
   }
 
+  private isBundledPath(filePath: string): boolean {
+    const lower = (filePath || "").toLowerCase();
+
+    // These are build artifacts that don't exist in the repo
+    // Production builds should have source maps that resolve to original files
+    return (
+      // Next.js build artifacts
+      lower.includes(".next/") ||
+      lower.includes("_next/") ||
+      lower.includes("[root-of-the-server]") ||
+      // Webpack/Turbopack chunked bundles
+      lower.includes("node_modules_") ||
+      lower.includes("webpack") ||
+      lower.includes(".chunk.") ||
+      // Minified bundles
+      lower.endsWith(".min.js") ||
+      lower.endsWith(".bundle.js") ||
+      // Vercel/serverless artifacts
+      lower.includes("/var/task/") ||
+      lower.includes("/__vc_") ||
+      // Generic build output (not source)
+      /\.[a-f0-9]{8,}\.js$/i.test(lower) // hash in filename like app.abc12345.js
+    );
+  }
+
+  /**
+   * Check if this looks like an actual source file path that should exist in repo
+   */
+  private isSourceFilePath(filePath: string): boolean {
+    const lower = (filePath || "").toLowerCase();
+
+    // Common source file patterns
+    const sourcePatterns = [
+      /^src\//,
+      /^lib\//,
+      /^app\//,
+      /^pages\//,
+      /^components\//,
+      /^utils\//,
+      /^services\//,
+      /^api\//,
+    ];
+
+    // Check if path matches source patterns
+    if (sourcePatterns.some((p) => p.test(lower))) {
+      return true;
+    }
+
+    // Check file extensions (source files)
+    const sourceExtensions = [
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".py",
+    ];
+    const hasSourceExt = sourceExtensions.some((ext) => lower.endsWith(ext));
+
+    // Not a build artifact and has source extension
+    return hasSourceExt && !this.isBundledPath(filePath);
+  }
+
+  private normalizeOriginalSourcePath(
+    sourcePath: string | null | undefined
+  ): string {
+    if (!sourcePath) {
+      return "";
+    }
+
+    let normalized = normalizeBundlerPath(sourcePath);
+    normalized = normalized.replace(/^_n_e\//i, "");
+    normalized = normalized.replace(/^_next\//i, ".next/");
+    normalized = normalized.replace(/^\.\/+/, "");
+    normalized = normalized.replace(/^~\//, "");
+
+    normalized = path.posix.normalize(normalized);
+    normalized = normalized.replace(/^(\.\.\/)+/, "");
+
+    return normalized;
+  }
+
+  private buildSourceMapCandidates(filePath: string): string[] {
+    if (!filePath) {
+      return [];
+    }
+
+    const candidates = new Set<string>();
+
+    if (filePath.endsWith(".map")) {
+      candidates.add(filePath);
+      return Array.from(candidates);
+    }
+
+    candidates.add(`${filePath}.map`);
+
+    if (filePath.endsWith(".js")) {
+      candidates.add(filePath.replace(/\.js$/, ".js.map"));
+    } else {
+      candidates.add(`${filePath}.js.map`);
+    }
+
+    return Array.from(candidates);
+  }
+
+  private async resolveBundledFrameWithSourceMap(
+    frame: NormalizedFrame,
+    installationId: string,
+    repo: string,
+    ref: string,
+    orgId: string
+  ): Promise<{
+    resolvedFrame: NormalizedFrame;
+    originalSource?: string;
+  } | null> {
+    const mapCandidates = this.buildSourceMapCandidates(frame.file);
+
+    for (const candidate of mapCandidates) {
+      const mapFile = await this.fetchFromGitHub(
+        candidate,
+        installationId,
+        repo,
+        ref,
+        orgId
+      );
+
+      if (!mapFile) {
+        continue;
+      }
+
+      try {
+        const rawMap = JSON.parse(mapFile.content) as RawSourceMap;
+        const mapped = await this.applySourceMap(frame, rawMap);
+
+        if (!mapped) {
+          continue;
+        }
+
+        const normalizedSource = this.normalizeOriginalSourcePath(
+          mapped.resolvedFrame.file
+        );
+
+        if (!normalizedSource) {
+          continue;
+        }
+
+        try {
+          this.validateFilePath(normalizedSource);
+        } catch {
+          continue;
+        }
+
+        const resolvedFrame: NormalizedFrame = {
+          file: normalizedSource,
+          line: mapped.resolvedFrame.line,
+          column: mapped.resolvedFrame.column,
+          functionName: mapped.resolvedFrame.functionName,
+        };
+
+        logger.debug(
+          {
+            bundler_file: frame.file,
+            original_file: normalizedSource,
+            source_map_path: candidate,
+          },
+          "Resolved bundled frame via source map"
+        );
+
+        return {
+          resolvedFrame,
+          originalSource: mapped.originalSource,
+        };
+      } catch (error) {
+        logger.debug(
+          {
+            source_map_path: candidate,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+          "Failed to apply source map for bundled frame"
+        );
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Fetch code context for a stack frame
    * Main entry point for the code fetcher service
+   *
+   * For production/staging errors:
+   * - Source files (src/app/lib/*.ts) are fetched directly from GitHub
+   * - Bundled files (.next/chunks/*) need source map resolution
+   * - If path is bundled and no source map, returns null (rely on Sentry embedded context)
    */
   async fetchCodeForFrame(
     frame: StackFrame,
@@ -190,63 +415,102 @@ class CodeFetcherService {
   ): Promise<CodeFetchResult | null> {
     const { orgId, installationId, repo, ref } = options;
     const normalizedFrame = this.normalizeFrame(frame);
+    let resolvedFrame = normalizedFrame;
+    let preResolvedContent: string | null = null;
+    let sourceMapApplied = false;
 
     logger.info(
       { file: normalizedFrame.file, line: normalizedFrame.line, repo, ref },
       "Fetching code for stack frame"
     );
 
-    try {
-      // 1. Build cache key
-      const cacheKey: CacheKeyParams = {
-        orgId,
-        repo,
-        sha: ref,
-        path: normalizedFrame.file,
-      };
+    // If this is a bundled path, try to resolve via source map first
+    if (this.isBundledPath(normalizedFrame.file)) {
+      logger.debug(
+        { file: normalizedFrame.file },
+        "Detected bundled file, attempting source map resolution"
+      );
 
-      // 2. Try to get from cache
+      const bundlerResolution = await this.resolveBundledFrameWithSourceMap(
+        normalizedFrame,
+        installationId,
+        repo,
+        ref,
+        orgId
+      );
+
+      if (bundlerResolution) {
+        resolvedFrame = bundlerResolution.resolvedFrame;
+        preResolvedContent = bundlerResolution.originalSource ?? null;
+        sourceMapApplied = true;
+        logger.info(
+          { bundled: normalizedFrame.file, resolved: resolvedFrame.file },
+          "Resolved bundled file to source via source map"
+        );
+      } else {
+        // Bundled file with no source map available - can't fetch from GitHub
+        // Let caller fall back to Sentry's embedded context
+        logger.debug(
+          { file: normalizedFrame.file },
+          "Bundled file has no source map in repo, skipping GitHub fetch"
+        );
+        return null;
+      }
+    }
+
+    // Verify the resolved path looks like a source file
+    if (!this.isSourceFilePath(resolvedFrame.file) && !sourceMapApplied) {
+      logger.debug(
+        { file: resolvedFrame.file },
+        "Path does not appear to be a source file, skipping"
+      );
+      return null;
+    }
+
+    let cachePath = resolvedFrame.file || normalizedFrame.file;
+    let cacheKey: CacheKeyParams = {
+      orgId,
+      repo,
+      sha: ref,
+      path: cachePath,
+    };
+
+    try {
+      // 1. Try to get from cache
       const { content: cachedContent, tier } =
         await this.getFromCacheWithTier(cacheKey);
 
       let fileContent: string;
       let wasMinified = false;
-      let sourceMapApplied = false;
-      let resolvedFrame = normalizedFrame;
 
       if (cachedContent) {
-        logger.debug(
-          { file: normalizedFrame.file, tier },
-          "Cache hit for file"
-        );
+        logger.debug({ file: cachePath, tier }, "Cache hit for file");
         recordCacheHit(tier!);
         fileContent = cachedContent.content;
       } else {
-        // 3. Fetch from GitHub
-        logger.debug(
-          { file: normalizedFrame.file },
-          "Cache miss, fetching from GitHub"
-        );
-        const fetchResult = await this.fetchFromGitHub(
-          normalizedFrame.file,
-          installationId,
-          repo,
-          ref,
-          orgId
-        );
-
-        if (!fetchResult) {
-          logger.warn(
-            { file: normalizedFrame.file },
-            "File not found on GitHub"
+        // 2. Fetch from GitHub (or use pre-resolved source)
+        if (preResolvedContent) {
+          fileContent = preResolvedContent;
+        } else {
+          logger.debug({ file: cachePath }, "Cache miss, fetching from GitHub");
+          const fetchResult = await this.fetchFromGitHub(
+            cachePath,
+            installationId,
+            repo,
+            ref,
+            orgId
           );
-          return null;
+
+          if (!fetchResult) {
+            logger.warn({ file: cachePath }, "File not found on GitHub");
+            return null;
+          }
+
+          fileContent = fetchResult.content;
+          recordCacheHit("github");
         }
 
-        fileContent = fetchResult.content;
-        recordCacheHit("github");
-
-        // 4. Check if minified and resolve source map
+        // 3. Check if minified and resolve source map if we fetched bundled file
         if (this.isMinified(fileContent)) {
           wasMinified = true;
           const sourceMapResult = await this.resolveSourceMap(
@@ -261,6 +525,13 @@ class CodeFetcherService {
           if (sourceMapResult) {
             sourceMapApplied = true;
             resolvedFrame = sourceMapResult.resolvedFrame;
+            cachePath = resolvedFrame.file || normalizedFrame.file;
+            cacheKey = {
+              orgId,
+              repo,
+              sha: ref,
+              path: cachePath,
+            };
 
             // Use embedded source if available, otherwise fetch original file
             if (sourceMapResult.originalSource) {
@@ -282,10 +553,10 @@ class CodeFetcherService {
           }
         }
 
-        // 5. Cache the result
+        // 4. Cache the result
         const cacheData: CachedFileContent = {
           content: fileContent,
-          path: normalizedFrame.file,
+          path: cachePath,
           sha: ref,
           repo,
           size: fileContent.length,
@@ -297,7 +568,7 @@ class CodeFetcherService {
         await storeInAllCacheTiers(cacheKey, cacheData);
       }
 
-      // 6. Extract code context
+      // 5. Extract code context
       const context = this.extractCodeContext(
         fileContent,
         resolvedFrame,
@@ -306,7 +577,7 @@ class CodeFetcherService {
         sourceMapApplied
       );
 
-      // 7. Build file info
+      // 6. Build file info
       const file: FetchedFile = {
         path: resolvedFrame.file,
         content: fileContent,

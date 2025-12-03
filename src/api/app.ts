@@ -20,9 +20,13 @@ const server = Fastify({
   disableRequestLogging: false,
 });
 
+// Remove the default JSON parser so we can use our custom one
+server.removeContentTypeParser("application/json");
+
 // Preserve raw body for HMAC verification (GitHub/Sentry)
+// This MUST override the default parser to capture raw bytes
 server.addContentTypeParser(
-  /^application\/json/,
+  "application/json",
   { parseAs: "buffer" },
   (request, body, done) => {
     try {

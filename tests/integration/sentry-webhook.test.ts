@@ -11,6 +11,11 @@ import { server } from "../../src/api/app.js";
 import * as dbClient from "../../src/db/client.js";
 import { RATE_LIMITS } from "../../src/utils/rate-limits.js";
 import crypto from "crypto";
+import { enqueueDeterministicJob } from "../../src/workers/queues/deterministic.js";
+
+vi.mock("../../src/workers/queues/deterministic.js", () => ({
+  enqueueDeterministicJob: vi.fn().mockResolvedValue(undefined),
+}));
 
 const { pool, transaction } = dbClient;
 
@@ -46,6 +51,8 @@ describe("Sentry Webhook", () => {
   beforeEach(async () => {
     // Clean up events table for test org only
     await pool.query("DELETE FROM events WHERE org_id = $1", [TEST_ORG_ID]);
+    await pool.query("DELETE FROM rca_jobs WHERE org_id = $1", [TEST_ORG_ID]);
+    vi.mocked(enqueueDeterministicJob).mockClear();
   });
 
   it("should accept valid Sentry webhook", async () => {
@@ -97,6 +104,20 @@ describe("Sentry Webhook", () => {
     );
     expect(result.rows.length).toBe(1);
     expect(result.rows[0].environment).toBe("production");
+
+    const jobs = await pool.query(
+      "SELECT * FROM rca_jobs WHERE event_id = $1",
+      [result.rows[0].id]
+    );
+    expect(jobs.rows.length).toBe(1);
+
+    expect(enqueueDeterministicJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: result.rows[0].id,
+        orgId: TEST_ORG_ID,
+        jobId: jobs.rows[0].id,
+      })
+    );
   });
 
   it("should reject invalid payload", async () => {

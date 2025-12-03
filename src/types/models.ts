@@ -1,3 +1,5 @@
+import type { AnalyzerResult } from "./analyzer.js";
+
 export interface Organization {
   id: string;
   name: string;
@@ -35,11 +37,12 @@ export interface RCAJob {
     | "pending"
     | "fetching_code"
     | "analyzing"
+    | "deterministic_complete"
     | "reasoning"
     | "done"
     | "failed";
   code_context_s3_url?: string;
-  deterministic_findings?: unknown;
+  deterministic_findings?: AnalyzerResult | null;
   error_message?: string;
   retry_count: number;
   started_at?: Date;
@@ -74,7 +77,7 @@ export interface RCAResult {
     code?: unknown;
     logs?: unknown;
     commits?: unknown;
-    deterministic_findings?: unknown;
+    deterministic_findings?: AnalyzerResult | null;
   };
   confidence: number;
   llm_model: string;

@@ -1,11 +1,101 @@
 import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import crypto from "crypto";
 import { config } from "../../utils/config.js";
-import { sentryWebhookSchema } from "../../types/sentry.js";
+import { sentryWebhookSchema, SentryEventPayload } from "../../types/sentry.js";
 import { transaction } from "../../db/client.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
+import { enqueueDeterministicJob } from "../../workers/queues/deterministic.js";
 
 type WebhookRequestWithRaw = FastifyRequest & { rawBody?: Buffer };
+
+// ============================================
+// Environment Filtering
+// ============================================
+
+// Environments that should NOT be processed (local development)
+const IGNORED_ENVIRONMENTS = new Set([
+  "local",
+  "localhost",
+  "development",
+  "dev",
+  "test",
+  "testing",
+]);
+
+// Environments that SHOULD be processed (hosted/deployed)
+const ALLOWED_ENVIRONMENTS = new Set([
+  "production",
+  "prod",
+  "staging",
+  "stage",
+  "stg",
+  "preview",
+  "qa",
+  "uat",
+]);
+
+/**
+ * Determine if an error from this environment should be processed.
+ * Returns { shouldProcess: boolean, reason?: string }
+ */
+function shouldProcessEnvironment(environment: string | undefined | null): {
+  shouldProcess: boolean;
+  reason?: string;
+} {
+  // If no environment is set, we process it (user may not have configured Sentry properly)
+  if (!environment) {
+    return { shouldProcess: true };
+  }
+
+  const normalizedEnv = environment.toLowerCase().trim();
+
+  // Explicitly ignored environments
+  if (IGNORED_ENVIRONMENTS.has(normalizedEnv)) {
+    return {
+      shouldProcess: false,
+      reason: `Environment '${environment}' is a local/development environment`,
+    };
+  }
+
+  // Explicitly allowed environments
+  if (ALLOWED_ENVIRONMENTS.has(normalizedEnv)) {
+    return { shouldProcess: true };
+  }
+
+  // For unknown environments, process them (could be custom staging names like "preprod")
+  return { shouldProcess: true };
+}
+
+/**
+ * Check if the error has sufficient data for analysis.
+ * Production errors should have release/commit info for proper code fetching.
+ */
+function hasRequiredProductionData(event: SentryEventPayload): {
+  valid: boolean;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+
+  // Check for release info (needed to fetch correct code version)
+  if (!event.release) {
+    warnings.push("No release tag - will use default branch for code fetching");
+  }
+
+  // Check for stack trace
+  const hasStackTrace =
+    event.exception?.values?.some(
+      (v) => v.stacktrace?.frames && v.stacktrace.frames.length > 0
+    ) ?? false;
+
+  if (!hasStackTrace) {
+    warnings.push("No stack trace frames found");
+  }
+
+  return {
+    valid: hasStackTrace, // Must have stack trace to analyze
+    warnings,
+  };
+}
 
 const resolvePayloadBuffer = (request: WebhookRequestWithRaw): Buffer => {
   if (request.rawBody && Buffer.isBuffer(request.rawBody)) {
@@ -15,6 +105,19 @@ const resolvePayloadBuffer = (request: WebhookRequestWithRaw): Buffer => {
   const body = request.body ?? {};
   const textPayload = typeof body === "string" ? body : JSON.stringify(body);
   return Buffer.from(textPayload ?? "", "utf8");
+};
+
+// Helper to extract the event from envelope or direct payload
+const extractEventFromPayload = (
+  payload: ReturnType<typeof sentryWebhookSchema.parse>
+): SentryEventPayload => {
+  // Check if it's an envelope (has action and data.error)
+  if ("action" in payload && "data" in payload) {
+    const data = payload.data as { error?: SentryEventPayload };
+    return data.error as SentryEventPayload;
+  }
+  // Otherwise it's a direct event payload
+  return payload as SentryEventPayload;
 };
 
 export const webhooksRoutes: FastifyPluginAsync = async (server) => {
@@ -56,6 +159,21 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
         }
 
         const payloadBuffer = resolvePayloadBuffer(requestWithRawBody);
+
+        // DEBUG: Log what we're working with
+        request.log.info(
+          {
+            secretLength: config.SENTRY_WEBHOOK_SECRET.length,
+            secretPrefix: config.SENTRY_WEBHOOK_SECRET.substring(0, 8) + "...",
+            payloadLength: payloadBuffer.length,
+            payloadPreview: payloadBuffer.toString("utf8").substring(0, 200),
+            rawBodyExists: !!requestWithRawBody.rawBody,
+            rawBodyIsBuffer: Buffer.isBuffer(requestWithRawBody.rawBody),
+            contentType: request.headers["content-type"],
+          },
+          "DEBUG: HMAC inputs"
+        );
+
         const hmac = crypto.createHmac("sha256", config.SENTRY_WEBHOOK_SECRET);
         hmac.update(payloadBuffer);
         const expectedBuffer = hmac.digest();
@@ -107,8 +225,45 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
-      const payload = parseResult.data;
-      const sentryEventId = payload.event_id;
+      // Extract the actual event from envelope or direct payload
+      const rawPayload = parseResult.data;
+      const event = extractEventFromPayload(rawPayload);
+      const sentryEventId = event.event_id;
+
+      // Filter out local/development environments
+      const envCheck = shouldProcessEnvironment(event.environment);
+      if (!envCheck.shouldProcess) {
+        request.log.info(
+          { environment: event.environment, reason: envCheck.reason },
+          "Ignoring local/development error"
+        );
+        return reply.status(200).send({
+          status: "ignored",
+          reason: envCheck.reason,
+        });
+      }
+
+      // Validate that we have enough data for production analysis
+      const dataCheck = hasRequiredProductionData(event);
+      if (!dataCheck.valid) {
+        request.log.warn(
+          { warnings: dataCheck.warnings },
+          "Event missing required data for analysis"
+        );
+        return reply.status(200).send({
+          status: "ignored",
+          reason: "Event missing stack trace for analysis",
+          warnings: dataCheck.warnings,
+        });
+      }
+
+      // Log warnings but continue processing
+      if (dataCheck.warnings.length > 0) {
+        request.log.info(
+          { warnings: dataCheck.warnings },
+          "Event has missing optional data"
+        );
+      }
 
       try {
         const orgContext = request.orgContext;
@@ -133,10 +288,10 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
             .slice(0, 1000); // Limit total signature length
         };
 
-        const eventSignature = payload.fingerprint
-          ? sanitizeFingerprint(payload.fingerprint)
-          : `${payload.exception?.values?.[0]?.type || "unknown"}:${
-              payload.exception?.values?.[0]?.value?.slice(0, 500) || "unknown"
+        const eventSignature = event.fingerprint
+          ? sanitizeFingerprint(event.fingerprint)
+          : `${event.exception?.values?.[0]?.type || "unknown"}:${
+              event.exception?.values?.[0]?.value?.slice(0, 500) || "unknown"
             }`.slice(0, 1000);
 
         const txnResult = await transaction(org_id, async (client) => {
@@ -156,9 +311,15 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
               "Duplicate webhook ignored"
             );
 
+            const existingJob = await client.query(
+              "SELECT id FROM rca_jobs WHERE org_id = $1 AND event_id = $2 LIMIT 1",
+              [org_id, existingEventId]
+            );
+
             return {
               status: "duplicate" as const,
               eventId: existingEventId,
+              jobId: existingJob.rows[0]?.id ?? null,
             };
           }
 
@@ -187,31 +348,47 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
               "sentry",
               sentryEventId,
               eventSignature,
-              payload.platform,
-              payload.message ||
-                payload.exception?.values?.[0]?.value ||
+              event.platform,
+              event.message ||
+                event.exception?.values?.[0]?.value ||
                 "Unknown error",
-              JSON.stringify(payload.exception?.values?.[0]?.stacktrace),
-              JSON.stringify(payload.breadcrumbs),
+              JSON.stringify(event.exception?.values?.[0]?.stacktrace),
+              JSON.stringify(event.breadcrumbs),
               JSON.stringify({
-                user: payload.user,
-                request: payload.request,
-                contexts: payload.contexts,
-                tags: payload.tags,
+                user: event.user,
+                request: event.request,
+                contexts: event.contexts,
+                tags: event.tags,
               }),
-              payload.environment,
-              payload.release,
+              event.environment,
+              event.release,
               new Date(
-                typeof payload.timestamp === "number"
-                  ? payload.timestamp * 1000
-                  : payload.timestamp
+                typeof event.timestamp === "number"
+                  ? event.timestamp * 1000
+                  : event.timestamp
               ),
               "received",
-              JSON.stringify(payload),
+              JSON.stringify(rawPayload),
             ]
           );
 
           const eventId = insertResult.rows[0].id as string;
+
+          const jobResult = await client.query(
+            `
+            INSERT INTO rca_jobs (
+              org_id,
+              event_id,
+              status,
+              created_at,
+              updated_at
+            ) VALUES ($1, $2, 'pending', NOW(), NOW())
+            RETURNING id
+          `,
+            [org_id, eventId]
+          );
+
+          const jobId = jobResult.rows[0].id as string;
           request.log.info(
             {
               org_id,
@@ -224,6 +401,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           return {
             status: "received" as const,
             eventId,
+            jobId,
           };
         });
 
@@ -231,6 +409,35 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           return reply.status(200).send({
             status: "duplicate",
             event_id: txnResult.eventId,
+          });
+        }
+
+        try {
+          if (txnResult.jobId) {
+            await enqueueDeterministicJob({
+              jobId: txnResult.jobId,
+              eventId: txnResult.eventId,
+              orgId: org_id,
+            });
+          }
+        } catch (error) {
+          request.log.error(
+            { error, job_id: txnResult.jobId },
+            "Failed to enqueue deterministic analyzer job"
+          );
+
+          if (txnResult.jobId) {
+            await transaction(org_id, async (client) => {
+              await client.query(
+                `UPDATE rca_jobs SET status = 'failed', error_message = $1 WHERE id = $2`,
+                ["deterministic_queue_enqueue_failed", txnResult.jobId]
+              );
+            });
+          }
+
+          return reply.status(500).send({
+            error: "Internal Server Error",
+            message: "Failed to enqueue analysis job",
           });
         }
 

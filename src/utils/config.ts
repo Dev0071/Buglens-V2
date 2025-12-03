@@ -48,6 +48,10 @@ const envSchema = z.object({
   GITHUB_APP_PRIVATE_KEY_SECRET_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
 
+  // Python integration
+  PYTHON_BIN: z.string().default("python3"),
+  PYTHON_ANALYZER_TIMEOUT_MS: z.coerce.number().default(10000),
+
   // Rate Limits
   RATE_LIMIT_FREE_EVENTS_PER_HOUR: z.coerce.number().default(100),
   RATE_LIMIT_FREE_RCA_JOBS_PER_DAY: z.coerce.number().default(50),
