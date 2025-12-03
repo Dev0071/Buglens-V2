@@ -11,6 +11,7 @@
  */
 
 import { FastifyPluginAsync } from "fastify";
+import type { FastifyRequest } from "fastify";
 import crypto from "crypto";
 import { config } from "../../utils/config.js";
 import { pool } from "../../db/client.js";
@@ -86,6 +87,17 @@ function verifyGitHubSignature(
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
+function resolveGitHubPayloadBuffer(request: FastifyRequest): Buffer {
+  const rawBody = (request as FastifyRequest & { rawBody?: Buffer }).rawBody;
+  if (rawBody && Buffer.isBuffer(rawBody)) {
+    return rawBody;
+  }
+
+  const body = request.body ?? {};
+  const textPayload = typeof body === "string" ? body : JSON.stringify(body);
+  return Buffer.from(textPayload ?? "", "utf8");
+}
+
 // ============================================
 // Webhook Routes
 // ============================================
@@ -106,9 +118,9 @@ export const githubWebhooksRoutes: FastifyPluginAsync = async (server) => {
 
     // Verify signature if secret is configured
     if (config.GITHUB_WEBHOOK_SECRET) {
-      const rawBody = JSON.stringify(request.body);
+      const payloadBuffer = resolveGitHubPayloadBuffer(request);
       const isValid = verifyGitHubSignature(
-        Buffer.from(rawBody),
+        payloadBuffer,
         signature,
         config.GITHUB_WEBHOOK_SECRET
       );
@@ -321,32 +333,61 @@ async function registerRepositories(
   installationId: number,
   repositories: z.infer<typeof installationRepoSchema>[]
 ): Promise<void> {
-  for (const repo of repositories) {
-    const [owner, name] = repo.full_name.split("/");
+  if (repositories.length === 0) {
+    return;
+  }
 
-    await pool.query(
-      `INSERT INTO repos (
+  const startTime = Date.now();
+  const installationIdText = installationId.toString();
+
+  const normalizedRepos = repositories.map((repo) => {
+    const [owner, name] = repo.full_name.split("/", 2);
+    return {
+      owner: owner ?? repo.full_name,
+      name: name ?? repo.name,
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch ?? "main",
+    };
+  });
+
+  const values = normalizedRepos.flatMap((repo) => [
+    orgId,
+    repo.owner,
+    repo.name,
+    repo.fullName,
+    repo.defaultBranch,
+    installationIdText,
+  ]);
+
+  const valuePlaceholders = normalizedRepos
+    .map((_, index) => {
+      const offset = index * 6;
+      return `($${offset + 1}, 'github', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, 'auto-registered', true)`;
+    })
+    .join(", ");
+
+  await pool.query(
+    `INSERT INTO repos (
         org_id, provider, owner, name, full_name,
         default_branch, installation_id, secret_id, is_active
-      ) VALUES ($1, 'github', $2, $3, $4, $5, $6, 'auto-registered', true)
+      ) VALUES ${valuePlaceholders}
       ON CONFLICT (org_id, provider, full_name) DO UPDATE SET
         installation_id = EXCLUDED.installation_id,
         default_branch = EXCLUDED.default_branch,
         is_active = true,
         updated_at = NOW()`,
-      [
-        orgId,
-        owner,
-        name,
-        repo.full_name,
-        repo.default_branch || "main",
-        installationId.toString(),
-      ]
-    );
+    values
+  );
 
-    logger.info(
-      { orgId, repo: repo.full_name, installationId },
-      "Repository registered"
-    );
-  }
+  const durationMs = Date.now() - startTime;
+  logger.info(
+    {
+      orgId,
+      installationId,
+      repoCount: normalizedRepos.length,
+      repos: normalizedRepos.map((repo) => repo.fullName),
+      durationMs,
+    },
+    "Repositories registered"
+  );
 }

@@ -12,7 +12,19 @@ export function createRateLimitMiddleware(options: RateLimitOptions) {
     const orgId = request.getOrgId();
     const orgPlan = request.getOrgPlan() as OrgPlan;
 
+    if (!orgId) {
+      request.log.warn(
+        { resource: options.resource },
+        "Rate limit skipped: missing org context"
+      );
+      return;
+    }
+
     const limits = RATE_LIMITS[orgPlan];
+    if (!limits) {
+      request.log.warn({ orgPlan }, "Unknown org plan for rate limiting");
+      return;
+    }
     const limitKey =
       `${options.resource}_per_${options.period}` as keyof (typeof RATE_LIMITS)[OrgPlan];
     const maxAllowed = limits[limitKey] as number;
@@ -45,6 +57,10 @@ export function createRateLimitMiddleware(options: RateLimitOptions) {
       currentUsage = result.rows[0]?.llm_tokens_used || 0;
     }
 
+    // Add usage headers
+    reply.header("X-RateLimit-Limit", maxAllowed);
+    reply.header("X-RateLimit-Remaining", maxAllowed - currentUsage);
+
     if (currentUsage >= maxAllowed) {
       request.log.warn(
         {
@@ -71,9 +87,5 @@ export function createRateLimitMiddleware(options: RateLimitOptions) {
         },
       });
     }
-
-    // Add usage headers
-    reply.header("X-RateLimit-Limit", maxAllowed);
-    reply.header("X-RateLimit-Remaining", maxAllowed - currentUsage);
   };
 }
