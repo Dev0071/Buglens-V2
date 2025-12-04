@@ -214,6 +214,257 @@ await redis.setex(f"rca:cache:{cache_key}", 604800, json.dumps(rca))
 
 ---
 
+## ✅ LLM-Assisted Event Extraction (Week 4 - Hybrid Architecture)
+
+**Problem:** Source maps, file paths, and malformed Sentry events prevent reliable code fetching.
+
+**Solution:** A three-stage extraction pipeline where LLM assists only when deterministic extraction fails.
+
+### Pipeline Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    HYBRID EVENT EXTRACTION PIPELINE                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Stage 1: DETERMINISTIC EXTRACTOR (80% of events)                       │
+│  ────────────────────────────────────────────────                       │
+│  • Rule-based field extraction (filenames, line numbers, commit SHA)    │
+│  • If complete → STOP (fast path, no LLM cost)                         │
+│                                                                          │
+│                              ↓ (incomplete)                              │
+│                                                                          │
+│  Stage 2: LLM ASSIST LAYER (20% of events)                              │
+│  ────────────────────────────────────────────────                       │
+│  • GPT-4o-mini or local model (DeepSeek-R1 7B / Qwen-7B)               │
+│  • RESTRICTED: Clean, interpret, classify - NEVER invent               │
+│                                                                          │
+│                              ↓ (all outputs)                             │
+│                                                                          │
+│  Stage 3: VERIFICATION (Always runs)                                    │
+│  ────────────────────────────────────────────────                       │
+│  • Validate against GitHub: repo? commit? file? line?                   │
+│  • Fallback strategies if validation fails                              │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### LLM Safe Tasks (Stage 2)
+
+**What the LLM CAN do:**
+
+| Task | Example | Why Safe |
+|------|---------|----------|
+| Clean stacktrace noise | Filter `node_modules`, polyfills | Removing, not adding |
+| Classify user vs vendor frames | Mark `src/api/user.ts` as user code | Classification only |
+| Repair malformed JSON | Fix truncated payload | Repair existing data |
+| Interpret custom contexts | Parse `sentry.contexts.custom` | Reading, not writing |
+| Deminify filenames | `a.js:42` → `src/app.js:42` with sourcemap hints | Using existing hints |
+| Pick true frame from 100 frames | Select most likely error location | Selection, not creation |
+
+**What the LLM CANNOT do:**
+
+- ❌ Invent repository names
+- ❌ Create commit SHAs
+- ❌ Assume file paths that don't exist
+- ❌ Override Stage 3 verification results
+
+### Implementation
+
+```python
+# python/extractors/llm_assist_extractor.py
+class LLMAssistExtractor:
+    """LLM-assisted extraction for incomplete/malformed events.
+    
+    CRITICAL: This class ONLY cleans and interprets existing data.
+    It NEVER invents or assumes repository/commit information.
+    """
+    
+    EXTRACTION_PROMPT = """You are extracting structured data from a Sentry error event.
+    
+    STRICT RULES:
+    1. ONLY identify fields that EXIST in the payload
+    2. NEVER invent repository or commit information  
+    3. If you cannot find a field, return null
+    4. Clean and normalize paths, but don't create them
+    5. Mark your confidence level for each extraction
+    
+    Tasks:
+    - Identify the most likely user code frame (not vendor/internal)
+    - Clean minified file paths IF source map hints exist
+    - Extract release/version information
+    - Classify frames as user vs vendor code
+    
+    Return JSON: {
+        "primary_frame": {"file": str, "line": int, "function": str} | null,
+        "suggested_repo": str | null,  // Only if found in payload
+        "suggested_commit": str | null,  // Only if found in payload
+        "user_frames": [{"file": str, "line": int, "confidence": float}],
+        "vendor_frames_removed": int,
+        "cleaned_paths": [{"original": str, "cleaned": str}],
+        "reasoning": str  // Explain your extraction decisions
+    }
+    """
+    
+    def enhance(self, event: dict, deterministic_result: dict) -> dict:
+        """Enhance extraction with LLM assistance.
+        
+        Only called when deterministic extraction is incomplete.
+        """
+        missing_fields = self.identify_missing(deterministic_result)
+        
+        if not missing_fields:
+            return deterministic_result  # Nothing to enhance
+        
+        response = self.llm.complete(
+            system=self.EXTRACTION_PROMPT,
+            user=json.dumps({
+                'event': self._sanitize_event(event),
+                'missing_fields': missing_fields,
+                'partial_extraction': deterministic_result
+            }),
+            temperature=0.1,  # Low for consistency
+            response_format={'type': 'json_object'},
+            max_tokens=1000  # Extraction is small
+        )
+        
+        # Parse and validate LLM response
+        llm_result = json.loads(response.choices[0].message.content)
+        self._validate_llm_response(llm_result)
+        
+        # Merge with deterministic results (deterministic wins on conflict)
+        return self.merge_results(
+            deterministic_result, 
+            llm_result, 
+            confidence_penalty=0.3  # LLM suggestions are lower confidence
+        )
+    
+    def _sanitize_event(self, event: dict) -> dict:
+        """Remove PII and large blobs before sending to LLM."""
+        sanitized = {
+            'exception': event.get('exception'),
+            'release': event.get('release'),
+            'environment': event.get('environment'),
+            'platform': event.get('platform'),
+            'contexts': event.get('contexts'),
+            'tags': event.get('tags')
+        }
+        # Limit stack trace size
+        if sanitized.get('exception', {}).get('values'):
+            for exc in sanitized['exception']['values']:
+                if exc.get('stacktrace', {}).get('frames'):
+                    exc['stacktrace']['frames'] = exc['stacktrace']['frames'][:20]
+        return sanitized
+```
+
+### Verification Layer (Stage 3)
+
+```typescript
+// services/event-extractor/extraction-validator.ts
+class ExtractionValidator {
+    async verify(
+        extraction: ExtractionResult, 
+        orgId: string
+    ): Promise<VerifiedExtraction> {
+        const warnings: string[] = [];
+        let finalExtraction = { ...extraction };
+        
+        // 1. Verify repo exists in org's GitHub
+        const repoExists = await this.github.repoExists(
+            orgId, 
+            extraction.repo
+        );
+        if (!repoExists) {
+            warnings.push(`Repository ${extraction.repo} not found`);
+            finalExtraction.repo = await this.inferRepo(orgId, extraction);
+        }
+        
+        // 2. Verify commit exists
+        const commitExists = await this.github.commitExists(
+            orgId, 
+            finalExtraction.repo, 
+            extraction.commitSha
+        );
+        if (!commitExists) {
+            warnings.push(`Commit ${extraction.commitSha} not found, using default branch`);
+            finalExtraction.commitSha = await this.getDefaultBranchHead(
+                orgId, 
+                finalExtraction.repo
+            );
+        }
+        
+        // 3. Verify file exists at commit
+        const fileExists = await this.github.fileExists(
+            orgId,
+            finalExtraction.repo,
+            finalExtraction.commitSha,
+            extraction.filePath
+        );
+        if (!fileExists) {
+            warnings.push(`File ${extraction.filePath} not found at commit`);
+            // Try to find similar file
+            finalExtraction.filePath = await this.fuzzyMatchFile(
+                orgId,
+                finalExtraction.repo,
+                finalExtraction.commitSha,
+                extraction.filePath
+            );
+        }
+        
+        // 4. Verify line exists in file
+        if (extraction.lineNumber) {
+            const lineCount = await this.github.getFileLineCount(
+                orgId,
+                finalExtraction.repo,
+                finalExtraction.commitSha,
+                finalExtraction.filePath
+            );
+            if (extraction.lineNumber > lineCount) {
+                warnings.push(`Line ${extraction.lineNumber} exceeds file length ${lineCount}`);
+                finalExtraction.lineNumber = Math.min(extraction.lineNumber, lineCount);
+            }
+        }
+        
+        return {
+            ...finalExtraction,
+            verified: warnings.length === 0,
+            warnings,
+            source: extraction.source === 'llm_assisted' ? 'llm_verified' : 'deterministic_verified'
+        };
+    }
+}
+```
+
+### Cost & Latency Impact
+
+| Scenario | Latency | Cost | Frequency |
+|----------|---------|------|-----------|
+| Stage 1 only (happy path) | 50-200ms | $0 | ~80% |
+| Stage 1 + 2 (LLM assist) | 1-3s | ~$0.002 | ~18% |
+| Stage 1 + 2 + fallback | 2-5s | ~$0.002 | ~2% |
+
+**Target metrics:**
+- Stage 2 trigger rate: <20%
+- Stage 3 verification success: >90%
+- Overall extraction latency P95: <3s
+
+### Tracking & Alerts
+
+```sql
+-- Extend cost_metrics table
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_1_count INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_2_count INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_3_failures INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
+```
+
+**Alert thresholds:**
+- Stage 2 rate > 30% for 1 hour → Customer source map configuration issues
+- Stage 3 failure rate > 10% → Investigation needed
+- Extraction latency P95 > 5s → Performance degradation
+
+---
+
 ## ✅ Guardrails + Safety Layer
 
 **Critical for credibility.**

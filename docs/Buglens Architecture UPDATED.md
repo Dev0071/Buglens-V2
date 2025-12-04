@@ -138,12 +138,123 @@ You don't need 12 services. You need bounded modules, not distributed systems.
 
 ---
 
+### ✔️ Hybrid LLM-Assisted Event Extraction (Week 4 Priority)
+
+**Problem:** Source maps, file paths, and malformed Sentry events prevent reliable code fetching.
+
+**Solution:** A three-stage extraction pipeline that uses LLM only when deterministic extraction fails.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    HYBRID EVENT EXTRACTION PIPELINE                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Stage 1: DETERMINISTIC EXTRACTOR (Primary - handles 80% of events)     │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Rule-based, schema-driven field extraction                           │
+│  • Extracts: filenames, line numbers, commit SHA, repo name,            │
+│    release tags, environment, platform                                  │
+│  • If all required fields present → STOP HERE (fast path)              │
+│                                                                          │
+│                              ↓ (if data incomplete)                      │
+│                                                                          │
+│  Stage 2: LLM ASSIST LAYER (When data missing/malformed)                │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Uses GPT-4o-mini (or local model: DeepSeek-R1 7B / Qwen-7B)         │
+│  • RESTRICTED SCOPE - LLM can ONLY:                                     │
+│    ✔ Identify existing fields in payload                                │
+│    ✔ Suggest likely commit/branch when missing                          │
+│    ✔ Repair malformed JSON                                              │
+│    ✔ Interpret custom Sentry contexts                                   │
+│    ✔ Deminify filenames using sourcemaps                                │
+│    ✔ Clean path noise (node_modules, polyfills, etc.)                   │
+│    ✔ Pick the most likely "true" frame among 20-100 frames              │
+│  • LLM CANNOT invent or assume repo/commit                              │
+│                                                                          │
+│                              ↓ (all outputs)                             │
+│                                                                          │
+│  Stage 3: VERIFICATION / SANITY CHECKER (Always runs)                   │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Deterministic validator confirms:                                    │
+│    ✔ Does this repo exist in the org's GitHub?                          │
+│    ✔ Does this commit exist?                                            │
+│    ✔ Does this filepath exist in the fetched repo tree?                 │
+│    ✔ Does this line number exist in the file?                           │
+│  • If validation fails → fallback strategies:                           │
+│    - Branch inference                                                   │
+│    - HEAD fallback                                                      │
+│    - Default branch                                                     │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**What the LLM is Safe For (Stage 2):**
+
+| Task | Why It's Safe |
+|------|---------------|
+| Cleaning stacktrace noise | Filtering, not creating |
+| Grouping user vs library frames | Classification, not invention |
+| Detecting missing release config | Identifying gaps, not filling them |
+| Determining root crash location | Reordering existing data |
+| Bridging ecosystems (JS/Python/Mobile) | Universal interpretation |
+
+**What the LLM Cannot Do:**
+- ❌ Invent repository names
+- ❌ Create commit SHAs
+- ❌ Assume file paths
+- ❌ Override Stage 3 verification
+
+**Architecture Benefits:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Safety** | LLM never invents data, only cleans/interprets |
+| **Proof** | Every extraction has audit trail |
+| **Reproducibility** | Deterministic stage gives consistent results |
+| **Coverage** | Handle malformed events competitors can't |
+| **Cross-platform** | React Native, Electron, mobile all work |
+
+**File Structure:**
+
+```
+src/services/event-extractor/
+├── extraction-pipeline.ts      # Orchestrates 3 stages
+├── deterministic-extractor.ts  # Stage 1 - rule-based
+├── llm-assist-extractor.ts     # Stage 2 - LLM enhancement
+├── extraction-validator.ts     # Stage 3 - GitHub verification
+└── prompts/
+    └── frame-classifier.txt    # User vs vendor frames
+
+python/extractors/
+├── __init__.py
+├── llm_assist_extractor.py     # LLM-assisted extraction
+└── frame_classifier.py         # Frame classification
+```
+
+**Metrics:**
+
+```sql
+-- Track extraction stages in cost_metrics
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_1_count INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_2_count INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_stage_3_failures INT DEFAULT 0;
+ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
+```
+
+**Alert Thresholds:**
+- Stage 2 trigger rate > 30% → Customer source map configuration issues
+- Stage 3 failure rate > 10% → LLM quality degradation
+- Extraction latency P95 > 5s → Performance investigation needed
+
+---
+
 ## AI Architecture Table (Enterprise-Safe, Deterministic Core)
 
 **Updated for MVP Scope: JS/TS + Python only, GPT-4o-mini only**
 
 | **Component**                | **Use AI?**            | **Recommended Model (MVP)**      | **Why This Choice**                                                   |
 | ---------------------------- | ---------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| **Event Extractor**          | **Hybrid (3-stage)**   | Deterministic + GPT-4o-mini assist | Stage 1: rule-based. Stage 2: LLM for cleaning. Stage 3: verification. |
 | **Context Fusion Engine**    | **No (MVP)**           | Simple timestamp correlation     | Deterministic only for MVP. Embeddings in Phase 2.                    |
 | **Evidence Graph Builder**   | **No (strict)**        | Deterministic graph construction | Graph built from AST, logs, commits. AI never creates edges.          |
 | **Deterministic RCA Engine** | **NO (strict)**        | Tree-sitter + rule engine        | 100% rules, AST patterns, static analysis. Core of trust.             |

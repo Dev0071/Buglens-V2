@@ -637,26 +637,274 @@ CREATE TABLE integrations (
 
 ---
 
-### Week 4 — Evidence Assembly + Timeline Reconstruction
+### Week 4 — Evidence Assembly + Timeline Reconstruction + Hybrid Event Extraction
 
 **Goals:**
 
 -   Collect all evidence (code, logs, breadcrumbs, commits)
 -   Build timeline from Sentry breadcrumbs
+-   **NEW: Implement 3-stage hybrid event extraction pipeline**
 -   Prepare structured context for LLM
+
+---
+
+#### 🆕 Hybrid LLM-Assisted Event Extractor (Critical Architecture)
+
+**Problem Solved:** Source maps, file paths, and malformed Sentry events prevent reliable code fetching.
+
+**Solution:** A three-stage extraction pipeline that uses LLM only when deterministic extraction fails.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    HYBRID EVENT EXTRACTION PIPELINE                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Stage 1: DETERMINISTIC EXTRACTOR (Primary - handles 80% of events)     │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Rule-based, schema-driven field extraction                           │
+│  • Extracts: filenames, line numbers, commit SHA, repo name,            │
+│    release tags, environment, platform                                  │
+│  • If all required fields present → STOP HERE (fast path)              │
+│                                                                          │
+│                              ↓ (if data incomplete)                      │
+│                                                                          │
+│  Stage 2: LLM ASSIST LAYER (When data missing/malformed)                │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Uses GPT-4o-mini (or local model: DeepSeek-R1 7B / Qwen-7B)         │
+│  • RESTRICTED SCOPE - LLM can ONLY:                                     │
+│    ✔ Identify existing fields in payload                                │
+│    ✔ Suggest likely commit/branch when missing                          │
+│    ✔ Repair malformed JSON                                              │
+│    ✔ Interpret custom Sentry contexts                                   │
+│    ✔ Deminify filenames using sourcemaps                                │
+│    ✔ Clean path noise (node_modules, polyfills, etc.)                   │
+│    ✔ Pick the most likely "true" frame among 20-100 frames              │
+│  • LLM CANNOT invent or assume repo/commit                              │
+│                                                                          │
+│                              ↓ (all outputs)                             │
+│                                                                          │
+│  Stage 3: VERIFICATION / SANITY CHECKER (Always runs)                   │
+│  ════════════════════════════════════════════════════════════════════   │
+│  • Deterministic validator confirms:                                    │
+│    ✔ Does this repo exist in the org's GitHub?                          │
+│    ✔ Does this commit exist?                                            │
+│    ✔ Does this filepath exist in the fetched repo tree?                 │
+│    ✔ Does this line number exist in the file?                           │
+│  • If validation fails → fallback strategies:                           │
+│    - Branch inference                                                   │
+│    - HEAD fallback                                                      │
+│    - Default branch                                                     │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why This Architecture:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Safety** | LLM never invents data, only cleans/interprets |
+| **Proof** | Every extraction has audit trail |
+| **Reproducibility** | Deterministic stage gives consistent results |
+| **Coverage** | Handle malformed events competitors can't |
+| **Cross-platform** | React Native, Electron, mobile all work |
+
+---
+
+#### What the LLM is Safe For (Stage 2)
+
+**✔ Cleaning stacktrace noise:**
+- Node internal frames
+- Browser polyfills
+- Native frames
+- Vendor libs
+- Eval frames
+- Minified bundles
+- Android/iOS frameworks
+
+**✔ Grouping frames into "user code vs library code":**
+- Critical for RCA accuracy
+- Filters out noise before analysis
+
+**✔ Detecting missing release configuration:**
+- Enterprises constantly misconfigure this
+- LLM can suggest corrections
+
+**✔ Determining the root crash location vs. the last logged frame:**
+- Most raw Sentry events misrepresent this
+- LLM can correctly reorder or interpret
+
+**✔ Bridging ecosystems:**
+- Python logs look nothing like JS logs
+- JS bundles look nothing like Java stacktraces
+- React Native errors look like hell
+- LLM provides universal extraction path
+
+---
 
 **Tasks:**
 
-1. **Evidence Collector**
+1. **Hybrid Event Extractor (NEW)**
+
+    ```typescript
+    // services/event-extractor/extraction-pipeline.ts
+    class ExtractionPipeline {
+        async extract(sentryEvent: SentryEvent, orgId: string): Promise<ExtractionResult> {
+            // Stage 1: Deterministic extraction
+            const deterministicResult = await this.deterministicExtractor.extract(sentryEvent);
+            
+            if (deterministicResult.isComplete) {
+                return this.verify(deterministicResult, orgId);
+            }
+            
+            // Stage 2: LLM-assisted extraction (only if needed)
+            const llmResult = await this.llmAssistExtractor.enhance(
+                sentryEvent, 
+                deterministicResult
+            );
+            
+            // Stage 3: Verification
+            return this.verify(llmResult, orgId);
+        }
+        
+        private async verify(result: ExtractionResult, orgId: string): Promise<ExtractionResult> {
+            // Verify repo exists
+            const repoExists = await this.github.repoExists(orgId, result.repo);
+            if (!repoExists) {
+                result.warnings.push('Repository not found, using fallback');
+                result.repo = await this.inferRepo(orgId, result);
+            }
+            
+            // Verify commit exists
+            const commitExists = await this.github.commitExists(
+                orgId, result.repo, result.commitSha
+            );
+            if (!commitExists) {
+                result.commitSha = await this.fallbackToDefaultBranch(orgId, result.repo);
+            }
+            
+            // Verify file exists
+            const fileExists = await this.github.fileExists(
+                orgId, result.repo, result.commitSha, result.filePath
+            );
+            if (!fileExists) {
+                result.warnings.push('File not found at specified path');
+            }
+            
+            return result;
+        }
+    }
+    ```
+
+2. **Deterministic Extractor (Stage 1)**
+
+    ```typescript
+    // services/event-extractor/deterministic-extractor.ts
+    class DeterministicExtractor {
+        extract(event: SentryEvent): ExtractionResult {
+            return {
+                filePath: this.extractFilePath(event),
+                lineNumber: this.extractLineNumber(event),
+                columnNumber: this.extractColumnNumber(event),
+                commitSha: this.extractCommitSha(event),
+                repo: this.extractRepo(event),
+                release: this.extractRelease(event),
+                environment: event.environment ?? 'production',
+                platform: event.platform ?? 'javascript',
+                userFrames: this.classifyFrames(event.exception?.values?.[0]?.stacktrace?.frames),
+                isComplete: this.checkCompleteness(),
+                source: 'deterministic',
+                warnings: []
+            };
+        }
+        
+        private classifyFrames(frames: StackFrame[]): ClassifiedFrames {
+            const userFrames = frames?.filter(f => 
+                f.in_app && 
+                !f.filename?.includes('node_modules') &&
+                !f.filename?.startsWith('node:')
+            ) ?? [];
+            
+            return {
+                user: userFrames,
+                vendor: frames?.filter(f => !userFrames.includes(f)) ?? [],
+                total: frames?.length ?? 0
+            };
+        }
+    }
+    ```
+
+3. **LLM Assist Extractor (Stage 2)**
+
+    ```python
+    # python/extractors/llm_assist_extractor.py
+    class LLMAssistExtractor:
+        """LLM-assisted extraction for incomplete/malformed events"""
+        
+        EXTRACTION_PROMPT = """You are extracting structured data from a Sentry error event.
+        
+        STRICT RULES:
+        1. ONLY identify fields that exist in the payload
+        2. NEVER invent repository or commit information
+        3. If you cannot find a field, return null
+        4. Clean and normalize paths, but don't create them
+        
+        Your task:
+        - Identify the most likely user code frame (not vendor/internal)
+        - Clean minified file paths if source map hints exist
+        - Extract release/version information
+        - Classify frames as user vs vendor code
+        
+        Return JSON: {
+            "primary_frame": {"file": str, "line": int, "function": str} | null,
+            "suggested_repo": str | null,
+            "suggested_commit": str | null,
+            "user_frames": [{"file": str, "line": int, "confidence": float}],
+            "cleaned_paths": {"original": str, "cleaned": str}[],
+            "reasoning": str
+        }
+        """
+        
+        def enhance(self, event: dict, deterministic_result: dict) -> dict:
+            # Only process what's missing
+            missing_fields = self.identify_missing(deterministic_result)
+            
+            if not missing_fields:
+                return deterministic_result
+            
+            response = self.llm.complete(
+                system=self.EXTRACTION_PROMPT,
+                user=json.dumps({
+                    'event': event,
+                    'missing_fields': missing_fields,
+                    'partial_extraction': deterministic_result
+                }),
+                temperature=0.1,  # Low for consistency
+                response_format={'type': 'json_object'}
+            )
+            
+            # Merge LLM suggestions (but mark as lower confidence)
+            return self.merge_results(deterministic_result, response, confidence=0.7)
+    ```
+
+4. **Evidence Collector (Updated)**
 
     ```typescript
     // services/evidence-collector.ts
     class EvidenceCollector {
         async collect(
             event: Event,
-            codeContext: CodeContext,
+            extraction: ExtractionResult,  // Now uses extraction pipeline
             findings: Finding[]
         ) {
+            // Use extraction result for code fetching
+            const codeContext = await this.codeFetcher.fetch({
+                repo: extraction.repo,
+                commitSha: extraction.commitSha,
+                filePath: extraction.filePath,
+                lineNumber: extraction.lineNumber,
+                orgId: event.org_id
+            });
+            
             return {
                 error: {
                     message: event.message,
@@ -669,6 +917,12 @@ CREATE TABLE integrations (
                     snippet: codeContext.snippet,
                     language: codeContext.language,
                 },
+                extraction_metadata: {
+                    source: extraction.source,  // 'deterministic' or 'llm_assisted'
+                    warnings: extraction.warnings,
+                    user_frames_count: extraction.userFrames.user.length,
+                    vendor_frames_filtered: extraction.userFrames.vendor.length
+                },
                 deterministic_findings: findings,
                 timeline: await this.buildTimeline(event.breadcrumbs),
                 recent_commits: await this.getRecentCommits(
@@ -676,16 +930,16 @@ CREATE TABLE integrations (
                     5
                 ),
                 environment: {
-                    release: event.release,
-                    environment: event.environment,
-                    user_agent: event.context.user_agent,
+                    release: extraction.release ?? event.release,
+                    environment: extraction.environment,
+                    user_agent: event.context?.user_agent,
                 },
             };
         }
     }
     ```
 
-2. **Timeline Builder**
+5. **Timeline Builder**
 
     ```python
     # python/timeline/reconstructor.py
@@ -716,28 +970,74 @@ CREATE TABLE integrations (
         }
     ```
 
-3. **Commit History**
+6. **Commit History**
 
     - Fetch last 5 commits touching the error file
     - Extract commit message, author, timestamp
     - Include diff if small (<500 lines)
 
-4. **Evidence Bundling**
+7. **Evidence Bundling**
     - Compress all evidence to JSON
     - Store in S3 for LLM processing
     - Keep reference in rca_jobs table
+
+---
+
+**New Files to Create:**
+
+```
+src/services/event-extractor/
+├── extraction-pipeline.ts      # Orchestrates 3 stages
+├── deterministic-extractor.ts  # Stage 1 - rule-based
+├── llm-assist-extractor.ts     # Stage 2 - LLM enhancement
+├── extraction-validator.ts     # Stage 3 - GitHub verification
+└── prompts/
+    ├── frame-classifier.txt    # User vs vendor frames
+    └── path-cleaner.txt        # Demangle minified paths
+
+python/extractors/
+├── __init__.py
+├── llm_assist_extractor.py     # LLM-assisted extraction
+└── frame_classifier.py         # Frame classification
+```
+
+---
 
 **Deliverables:**
 
 -   ✅ Evidence bundle created for each job
 -   ✅ Timeline shows chronological steps
 -   ✅ Recent commits included
+-   ✅ **NEW: 3-stage extraction pipeline implemented**
+-   ✅ **NEW: LLM-assisted frame classification**
+-   ✅ **NEW: GitHub verification for all extractions**
 
 **Acceptance Criteria:**
 
 -   Timeline has clear ordering
 -   Anomalies highlighted (timing gaps > 5s)
 -   Evidence bundle < 50KB compressed
+-   **NEW: Stage 2 (LLM) triggers for <20% of events**
+-   **NEW: Stage 3 verification passes for >90% of events**
+-   **NEW: Cross-platform events (React Native, Electron) extract correctly**
+
+---
+
+**Metrics to Track:**
+
+```typescript
+// Add to cost_metrics table
+extraction_stage_1_count: number;  // Deterministic only (target: >80%)
+extraction_stage_2_count: number;  // LLM triggered (target: <20%)
+extraction_stage_3_failures: number;  // Verification failed (target: <10%)
+extraction_llm_tokens: number;
+extraction_latency_ms: number;
+```
+
+**Alert Thresholds:**
+- Stage 2 trigger rate > 30% → Source map issues in customer config
+- Stage 3 failure rate > 10% → LLM quality degradation
+- LLM latency P95 > 5s → Model performance issue
 
 ---
 

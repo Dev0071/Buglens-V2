@@ -102,7 +102,7 @@ export const sentryEventSchema = z
   .passthrough(); // Allow additional fields we don't explicitly handle
 
 // Sentry webhook envelope structure (wraps the event)
-export const sentryWebhookEnvelopeSchema = z
+export const sentryWebhookEnvelopeSchema: z.ZodType<SentryWebhookEnvelope> = z
   .object({
     action: z.string(), // "created", "resolved", "assigned", etc.
     installation: z
@@ -128,11 +128,19 @@ export const sentryWebhookEnvelopeSchema = z
   .passthrough();
 
 // Support both direct event payload (legacy) and envelope format (current)
-export const sentryWebhookSchema = z.union([
+export const sentryWebhookSchema: z.ZodType<SentryWebhookPayload> = z.union([
   sentryWebhookEnvelopeSchema,
   sentryEventSchema,
 ]);
 
+// Type definitions - define interfaces explicitly to avoid TS7056
+export interface SentryWebhookEnvelope {
+  action: string;
+  installation?: { uuid: string; [key: string]: unknown };
+  data: { error: SentryEventPayload; [key: string]: unknown };
+  actor?: { type: string; id?: string; name?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 export type SentryEventPayload = z.infer<typeof sentryEventSchema>;
-export type SentryWebhookEnvelope = z.infer<typeof sentryWebhookEnvelopeSchema>;
-export type SentryWebhookPayload = z.infer<typeof sentryWebhookSchema>;
+export type SentryWebhookPayload = SentryWebhookEnvelope | SentryEventPayload;
