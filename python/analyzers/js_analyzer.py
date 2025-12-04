@@ -85,11 +85,21 @@ class JSAnalyzer:
 
 
 def main() -> None:
-    raw_input = sys.stdin.read().strip()
-    payload = json.loads(raw_input or "{}")
-    analyzer = JSAnalyzer()
-    result = analyzer.analyze(payload)
-    print(json.dumps(result))
+    try:
+        raw_input = sys.stdin.read().strip()
+        payload = json.loads(raw_input or "{}")
+        analyzer = JSAnalyzer()
+        result = analyzer.analyze(payload)
+        print(json.dumps(result))
+    except Exception as e:
+        error_result = {
+            "error": str(e),
+            "analyzer": {"name": ANALYZER_NAME, "version": ANALYZER_VERSION, "runtime_ms": 0},
+            "findings": [],
+            "stats": {"frames_analyzed": 0, "code_segments": 0}
+        }
+        print(json.dumps(error_result))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
