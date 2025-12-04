@@ -86,8 +86,18 @@ export class PythonBridge {
         }
       });
 
-      child.stdin.write(JSON.stringify(payload));
-      child.stdin.end();
-    });
+      try {
+        const serialized = JSON.stringify(payload);
+        child.stdin.write(serialized);
+        child.stdin.end();
+      } catch (error) {
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+        logger.error(
+          { module: this.module, error },
+          "Failed to serialize payload or write to Python stdin"
+        );
+        reject(error);
+      }
   }
 }
