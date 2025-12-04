@@ -459,7 +459,7 @@ export class DeterministicAnalyzerService {
       );
       // Use the release field as commit SHA if it looks like a SHA
       const commitSha = this.isValidCommitSha(jobRow.release)
-        ? jobRow.release!
+        ? jobRow.release
         : undefined;
       return {
         repoFullName: fallbackRepo.repoFullName,
