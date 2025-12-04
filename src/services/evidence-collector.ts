@@ -303,15 +303,10 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * Retrieve evidence bundle from S3
+   * Retrieve evidence bundle from S3 using the storage key
+   * Note: Use the key from EvidenceStorageRef returned by storeInS3()
    */
-  async retrieveFromS3(
-    orgId: string,
-    jobId: string,
-    bundleId: string
-  ): Promise<EvidenceBundle | null> {
-    const key = `evidence/${orgId}/${jobId}/${bundleId}.json.gz`;
-
+  async retrieveFromS3(key: string): Promise<EvidenceBundle | null> {
     try {
       const s3 = getS3Client();
       const response = await s3.send(
@@ -568,13 +563,16 @@ export class EvidenceCollectorService {
     }
 
     const timestamps = steps.map((s) => s.timestamp_ms).sort((a, b) => a - b);
-    const firstTs = timestamps[0];
-    const lastTs = timestamps[timestamps.length - 1];
+
+    // Guard against empty array to prevent NaN in duration calculation
+    const firstTs = timestamps[0] ?? 0;
+    const lastTs = timestamps[timestamps.length - 1] ?? 0;
+    const durationMs = timestamps.length > 0 ? lastTs - firstTs : 0;
 
     return {
       steps,
       anomalies_count: 0,
-      duration_ms: lastTs - firstTs,
+      duration_ms: durationMs,
       first_timestamp: steps[0]?.timestamp ?? null,
       last_timestamp: steps[steps.length - 1]?.timestamp ?? null,
       http_requests: httpRequests,
@@ -694,12 +692,13 @@ export class EvidenceCollectorService {
 
   private determineCodeFetchSource(
     codeResults: CodeFetchResult[]
-  ): "github" | "cache" | "embedded" | null {
+  ): "github" | "redis_cache" | "s3_cache" | "embedded" | null {
     if (codeResults.length === 0) {
       return null;
     }
 
     // Track actual source from code results for cache hit metrics
+    // Architecture requires >75% cache hit rate - need granular tracking
     const sources = codeResults
       .map((r) => r.source)
       .filter((s): s is NonNullable<typeof s> => s !== undefined);
@@ -718,8 +717,12 @@ export class EvidenceCollectorService {
     if (sources.includes("github")) {
       return "github";
     }
-    if (sources.includes("redis_cache") || sources.includes("s3_cache")) {
-      return "cache";
+    // Preserve granular cache source for metrics
+    if (sources.includes("s3_cache")) {
+      return "s3_cache";
+    }
+    if (sources.includes("redis_cache")) {
+      return "redis_cache";
     }
     if (sources.includes("embedded")) {
       return "embedded";

@@ -252,18 +252,31 @@ async function processEvidenceJob(
 function extractCodeResultsFromFindings(
   findings: AnalyzerResult | null
 ): CodeFetchResult[] {
-  // Extract code context from deterministic findings
-  // TODO(tech-debt): This extracts snippets from findings, NOT full file content.
-  // In production, we should store the actual fetched code in intermediate results
-  // during the deterministic analysis phase, then retrieve it here.
-  // See: https://github.com/buglens/buglens/issues/xxx (create tracking issue)
+  /**
+   * CRITICAL TECH DEBT - MUST FIX BEFORE BETA LAUNCH
+   * ================================================
+   * This extracts snippets from findings, NOT full file content.
+   *
+   * Impact on RCA Quality:
+   * - LLM won't have full context around the error location
+   * - Missing imports, function definitions, or relevant nearby code
+   * - Makes it harder to suggest accurate fixes
+   * - Directly impacts core value proposition (evidence-backed RCA)
+   *
+   * Fix Required:
+   * Store actual fetched code in intermediate results during the deterministic
+   * analysis phase, then retrieve full file content here.
+   *
+   * Tracking: https://github.com/buglens/buglens/issues/xxx
+   * Priority: P0 - Blocks accurate RCA generation
+   */
   if (!findings || findings.findings.length === 0) {
     return [];
   }
 
   logger.warn(
     { findingsCount: findings.findings.length },
-    "Using simplified code extraction from findings - may have incomplete context"
+    "CRITICAL: Using simplified code extraction from findings - LLM lacks full context for accurate RCA"
   );
 
   return findings.findings.map((finding) => ({
@@ -329,6 +342,10 @@ async function markEvidenceFailed(
   jobId: string,
   reason: string
 ): Promise<void> {
+  // UTF-8 safe truncation: use substring instead of slice to avoid
+  // cutting multi-byte characters in the middle
+  const truncatedReason = truncateUtf8Safe(reason, 512);
+
   await transaction(orgId, async (client) => {
     await client.query(
       `UPDATE rca_jobs
@@ -336,9 +353,37 @@ async function markEvidenceFailed(
            error_message = $1,
            updated_at = NOW()
        WHERE id = $2 AND org_id = $3`,
-      [reason.slice(0, 512), jobId, orgId]
+      [truncatedReason, jobId, orgId]
     );
   });
+}
+
+/**
+ * Truncate a string to maxBytes while respecting UTF-8 character boundaries.
+ * Prevents corruption of multi-byte characters (emoji, international chars).
+ */
+function truncateUtf8Safe(str: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(str);
+
+  if (encoded.length <= maxBytes) {
+    return str;
+  }
+
+  // Binary search for the right cut point
+  let low = 0;
+  let high = str.length;
+
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (encoder.encode(str.slice(0, mid)).length <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return str.slice(0, low);
 }
 
 // ============================================

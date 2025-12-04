@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { deterministicFindingSchema } from "./analyzer.js";
+
+// Re-export for consumers
+export { deterministicFindingSchema };
+export type { DeterministicFinding } from "./analyzer.js";
 
 // ============================================
 // Evidence Types for RCA Assembly (Week 4)
@@ -148,29 +153,6 @@ export const environmentContextSchema = z.object({
 export type EnvironmentContext = z.infer<typeof environmentContextSchema>;
 
 /**
- * Deterministic finding from analyzer (imported from analyzer.ts)
- */
-export const deterministicFindingSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  severity: z.enum(["low", "medium", "high", "critical"]),
-  confidence: z.number().min(0).max(1),
-  message: z.string(),
-  evidence: z.object({
-    file_path: z.string(),
-    line_number: z.number(),
-    column_number: z.number().optional(),
-    snippet: z.string(),
-    snippet_start_line: z.number().optional(),
-    snippet_end_line: z.number().optional(),
-    language: z.string(),
-  }),
-  metadata: z.record(z.unknown()).default({}),
-});
-
-export type DeterministicFinding = z.infer<typeof deterministicFindingSchema>;
-
-/**
  * Complete evidence bundle for LLM processing
  */
 export const evidenceBundleSchema = z.object({
@@ -208,7 +190,15 @@ export const evidenceBundleSchema = z.object({
   metadata: z.object({
     sentry_event_id: z.string(),
     processing_started_at: z.string(),
-    code_fetch_source: z.enum(["github", "cache", "embedded"]).nullable(),
+    /** Granular code fetch source for cache hit rate metrics (target >75%)
+     * - github: Direct API fetch (cache miss)
+     * - redis_cache: Hot cache hit (1hr TTL)
+     * - s3_cache: Warm cache hit (7 days TTL)
+     * - embedded: Code embedded in event payload
+     */
+    code_fetch_source: z
+      .enum(["github", "redis_cache", "s3_cache", "embedded"])
+      .nullable(),
     source_map_used: z.boolean(),
     /** Indicates if the bundle passed full schema validation.
      *  MUST be set explicitly after validation. No default. */
