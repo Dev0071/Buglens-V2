@@ -210,8 +210,9 @@ export const evidenceBundleSchema = z.object({
     processing_started_at: z.string(),
     code_fetch_source: z.enum(["github", "cache", "embedded"]).nullable(),
     source_map_used: z.boolean(),
-    /** Indicates if the bundle passed full schema validation */
-    validation_passed: z.boolean().default(true),
+    /** Indicates if the bundle passed full schema validation.
+     *  MUST be set explicitly after validation. No default. */
+    validation_passed: z.boolean(),
     /** Validation errors if validation_passed is false */
     validation_errors: z.array(z.string()).optional(),
   }),
