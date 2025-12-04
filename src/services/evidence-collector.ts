@@ -248,7 +248,10 @@ export class EvidenceCollectorService {
    * Store evidence bundle in S3
    */
   async storeInS3(bundle: EvidenceBundle): Promise<EvidenceStorageRef> {
-    const key = `evidence/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
+    // Add date-based prefix for better S3 performance and organization
+    const date = new Date(bundle.created_at);
+    const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`;
+    const key = `evidence/${datePrefix}/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
 
     const jsonContent = JSON.stringify(bundle);
     const compressed = await compressContent(jsonContent);
