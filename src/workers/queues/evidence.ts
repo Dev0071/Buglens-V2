@@ -262,7 +262,7 @@ function extractCodeResultsFromFindings(
     file: {
       path: finding.evidence.file_path,
       content: finding.evidence.snippet,
-      language: finding.evidence.language,
+      language: finding.evidence.language || "text",
     },
     context: {
       line_number: finding.evidence.line_number,
