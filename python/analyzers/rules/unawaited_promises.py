@@ -69,7 +69,7 @@ class UnawaitedPromiseRule(AnalyzerRule):
             if callee and callee.type == "member_expression":
                 property_node = callee.child_by_field_name("property")
                 if property_node:
-                    prop_name = property_node.text
+                    prop_name = property_node.text.decode('utf-8')
                     if prop_name in {"then", "catch", "finally"}:
                         return True
 
