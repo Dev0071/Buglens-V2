@@ -339,8 +339,8 @@ export class EvidenceCollectorService {
         `UPDATE rca_jobs
          SET code_context_s3_url = $1,
              updated_at = NOW()
-         WHERE id = $2`,
-        [`s3://${storageRef.bucket}/${storageRef.key}`, jobId]
+         WHERE id = $2 AND org_id = $3`,
+        [`s3://${storageRef.bucket}/${storageRef.key}`, jobId, orgId]
       );
     });
   }
