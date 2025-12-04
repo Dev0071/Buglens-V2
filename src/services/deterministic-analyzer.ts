@@ -235,7 +235,7 @@ export class DeterministicAnalyzerService {
       repo: repoRecord.full_name,
       commit_sha: commitRef,
       frames: framesToAnalyze.map((frame) => ({
-        file_path: frame.filename,
+        file_path: frame.filename ?? frame.abs_path ?? "unknown",
         line_number: frame.lineno ?? 0,
         column_number: frame.colno ?? undefined,
         function: frame.function ?? null,
