@@ -29,11 +29,11 @@ INSERT INTO repos (
 VALUES (
   '21111111-1111-1111-1111-111111111111',
   'github',
-  'Dev0071',  -- Replace with your GitHub username
-  'buglens-buggy',      -- Replace with your repo name
-  'Dev0071/buglens-buggy',  -- Replace: owner/repo format
+  'YOUR_GITHUB_USERNAME',  -- Replace with your GitHub username
+  'YOUR_REPO_NAME',        -- Replace with your repo name
+  'YOUR_GITHUB_USERNAME/YOUR_REPO_NAME',  -- Replace: owner/repo format
   'main',
-  '97691865',  -- Your GitHub App installation ID from .env
+  'YOUR_INSTALLATION_ID',  -- Your GitHub App installation ID from .env
   'nextjs-test-secret',
   true
 )
