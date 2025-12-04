@@ -285,6 +285,17 @@ Redirected to onboarding flow
 
 **Step 2: Connect Sentry (Error Source)**
 
+What's Missing for Production
+For a production system, you'd want to add:
+
+Feature	Status	Notes
+GitHub App install flow	✅ Works	Auto-creates org + repos
+Self-service web signup	❌ Missing	Would need auth (e.g., Auth0, Clerk)
+Sentry integration UI	❌ Missing	User needs to manually configure webhook URL
+API to list org_id	❌ Missing	Currently requires DB query
+Dashboard	❌ Week 6	Web UI planned for Week 6
+
+
 ```
 Client navigates to Settings → Integrations → Sentry
   ↓
