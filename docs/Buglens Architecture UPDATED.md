@@ -35,26 +35,26 @@ buglens/
 
 **Node.js handles:**
 
--   HTTP API (Fastify)
--   Job orchestration (BullMQ)
--   GitHub API integration
--   Slack notifications
--   Database operations
--   Caching (Redis)
+- HTTP API (Fastify)
+- Job orchestration (BullMQ)
+- GitHub API integration
+- Slack notifications
+- Database operations
+- Caching (Redis)
 
 **Python handles (via child_process):**
 
--   AST analysis (tree-sitter for JS/TS, Python)
--   Deterministic rule engine
--   LLM orchestration (GPT-4o-mini only for MVP)
--   Timeline reconstruction
+- AST analysis (tree-sitter for JS/TS, Python)
+- Deterministic rule engine
+- LLM orchestration (GPT-4o-mini only for MVP)
+- Timeline reconstruction
 
 **Integration Method:**
 
--   Node.js spawns Python processes via `child_process.spawn()`
--   Communication via stdin/stdout JSON
--   Python runs in isolated venv
--   Stateless execution (no shared state)
+- Node.js spawns Python processes via `child_process.spawn()`
+- Communication via stdin/stdout JSON
+- Python runs in isolated venv
+- Stateless execution (no shared state)
 
 ### ✔️ Multi-Tenancy from Day 1
 
@@ -102,24 +102,24 @@ CREATE POLICY events_isolation ON events
 
 ```typescript
 export const RATE_LIMITS = {
-    free: {
-        events_per_hour: 100,
-        rca_jobs_per_day: 50,
-        llm_tokens_per_day: 100_000,
-        github_api_calls_per_hour: 500,
-    },
-    pro: {
-        events_per_hour: 1000,
-        rca_jobs_per_day: 500,
-        llm_tokens_per_day: 1_000_000,
-        github_api_calls_per_hour: 2000,
-    },
-    enterprise: {
-        events_per_hour: 10000,
-        rca_jobs_per_day: 5000,
-        llm_tokens_per_day: 10_000_000,
-        github_api_calls_per_hour: 5000,
-    },
+  free: {
+    events_per_hour: 100,
+    rca_jobs_per_day: 50,
+    llm_tokens_per_day: 100_000,
+    github_api_calls_per_hour: 500,
+  },
+  pro: {
+    events_per_hour: 1000,
+    rca_jobs_per_day: 500,
+    llm_tokens_per_day: 1_000_000,
+    github_api_calls_per_hour: 2000,
+  },
+  enterprise: {
+    events_per_hour: 10000,
+    rca_jobs_per_day: 5000,
+    llm_tokens_per_day: 10_000_000,
+    github_api_calls_per_hour: 5000,
+  },
 };
 ```
 
@@ -190,15 +190,16 @@ You don't need 12 services. You need bounded modules, not distributed systems.
 
 **What the LLM is Safe For (Stage 2):**
 
-| Task | Why It's Safe |
-|------|---------------|
-| Cleaning stacktrace noise | Filtering, not creating |
-| Grouping user vs library frames | Classification, not invention |
-| Detecting missing release config | Identifying gaps, not filling them |
-| Determining root crash location | Reordering existing data |
-| Bridging ecosystems (JS/Python/Mobile) | Universal interpretation |
+| Task                                   | Why It's Safe                      |
+| -------------------------------------- | ---------------------------------- |
+| Cleaning stacktrace noise              | Filtering, not creating            |
+| Grouping user vs library frames        | Classification, not invention      |
+| Detecting missing release config       | Identifying gaps, not filling them |
+| Determining root crash location        | Reordering existing data           |
+| Bridging ecosystems (JS/Python/Mobile) | Universal interpretation           |
 
 **What the LLM Cannot Do:**
+
 - ❌ Invent repository names
 - ❌ Create commit SHAs
 - ❌ Assume file paths
@@ -206,13 +207,13 @@ You don't need 12 services. You need bounded modules, not distributed systems.
 
 **Architecture Benefits:**
 
-| Benefit | Description |
-|---------|-------------|
-| **Safety** | LLM never invents data, only cleans/interprets |
-| **Proof** | Every extraction has audit trail |
-| **Reproducibility** | Deterministic stage gives consistent results |
-| **Coverage** | Handle malformed events competitors can't |
-| **Cross-platform** | React Native, Electron, mobile all work |
+| Benefit             | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| **Safety**          | LLM never invents data, only cleans/interprets |
+| **Proof**           | Every extraction has audit trail               |
+| **Reproducibility** | Deterministic stage gives consistent results   |
+| **Coverage**        | Handle malformed events competitors can't      |
+| **Cross-platform**  | React Native, Electron, mobile all work        |
 
 **File Structure:**
 
@@ -242,6 +243,7 @@ ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
 ```
 
 **Alert Thresholds:**
+
 - Stage 2 trigger rate > 30% → Customer source map configuration issues
 - Stage 3 failure rate > 10% → LLM quality degradation
 - Extraction latency P95 > 5s → Performance investigation needed
@@ -252,18 +254,18 @@ ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
 
 **Updated for MVP Scope: JS/TS + Python only, GPT-4o-mini only**
 
-| **Component**                | **Use AI?**            | **Recommended Model (MVP)**      | **Why This Choice**                                                   |
-| ---------------------------- | ---------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| **Component**                | **Use AI?**            | **Recommended Model (MVP)**        | **Why This Choice**                                                    |
+| ---------------------------- | ---------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
 | **Event Extractor**          | **Hybrid (3-stage)**   | Deterministic + GPT-4o-mini assist | Stage 1: rule-based. Stage 2: LLM for cleaning. Stage 3: verification. |
-| **Context Fusion Engine**    | **No (MVP)**           | Simple timestamp correlation     | Deterministic only for MVP. Embeddings in Phase 2.                    |
-| **Evidence Graph Builder**   | **No (strict)**        | Deterministic graph construction | Graph built from AST, logs, commits. AI never creates edges.          |
-| **Deterministic RCA Engine** | **NO (strict)**        | Tree-sitter + rule engine        | 100% rules, AST patterns, static analysis. Core of trust.             |
-| **Intent Extractor**         | **Light AI (Phase 2)** | Deferred to Phase 2              | Not needed for MVP. Add in Month 4-6.                                 |
-| **LLM Reasoning Layer**      | **Yes**                | **GPT-4o-mini only**             | Produces narratives, explains RCA. Non-authoritative. Cost-effective. |
-| **Fix Suggestion Engine**    | **Partial AI**         | GPT-4o-mini + templates          | Templates + deterministic AST patches. AI writes explanations only.   |
-| **Confidence Scorer**        | **NO**                 | Deterministic scoring            | Scores based on graph density, rule matches, evidence strength.       |
-| **Explainability Store**     | **No**                 | Structured storage               | Stores decisions, prompts, evidence. No AI needed.                    |
-| **Investigation UI**         | **No**                 | Pure UI                          | React components. No reasoning needed.                                |
+| **Context Fusion Engine**    | **No (MVP)**           | Simple timestamp correlation       | Deterministic only for MVP. Embeddings in Phase 2.                     |
+| **Evidence Graph Builder**   | **No (strict)**        | Deterministic graph construction   | Graph built from AST, logs, commits. AI never creates edges.           |
+| **Deterministic RCA Engine** | **NO (strict)**        | Tree-sitter + rule engine          | 100% rules, AST patterns, static analysis. Core of trust.              |
+| **Intent Extractor**         | **Light AI (Phase 2)** | Deferred to Phase 2                | Not needed for MVP. Add in Month 4-6.                                  |
+| **LLM Reasoning Layer**      | **Yes**                | **GPT-4o-mini only**               | Produces narratives, explains RCA. Non-authoritative. Cost-effective.  |
+| **Fix Suggestion Engine**    | **Partial AI**         | GPT-4o-mini + templates            | Templates + deterministic AST patches. AI writes explanations only.    |
+| **Confidence Scorer**        | **NO**                 | Deterministic scoring              | Scores based on graph density, rule matches, evidence strength.        |
+| **Explainability Store**     | **No**                 | Structured storage                 | Stores decisions, prompts, evidence. No AI needed.                     |
+| **Investigation UI**         | **No**                 | Pure UI                            | React components. No reasoning needed.                                 |
 
 ---
 
@@ -271,27 +273,27 @@ ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
 
 Your product debugs:
 
--   AI-generated spaghetti code
--   Human-written production systems
--   Mixed pipelines
--   Fast-changing codebases
--   Multi-repo microservices
+- AI-generated spaghetti code
+- Human-written production systems
+- Mixed pipelines
+- Fast-changing codebases
+- Multi-repo microservices
 
 ### **1. Deterministic RCA is your competitive advantage**
 
 AI-generated code has:
 
--   Inconsistent patterns
--   Common LLM mistakes (unawaited promises, null checks, type errors)
--   Copy-paste anti-patterns
+- Inconsistent patterns
+- Common LLM mistakes (unawaited promises, null checks, type errors)
+- Copy-paste anti-patterns
 
 Deterministic RCA catches:
 
--   Signature bugs (null/undefined access)
--   Concurrency errors
--   Typical LLM mistakes
--   Off-by-one patterns
--   Silent failures
+- Signature bugs (null/undefined access)
+- Concurrency errors
+- Typical LLM mistakes
+- Off-by-one patterns
+- Silent failures
 
 **LLM-only competitors fail here.**
 
@@ -299,11 +301,11 @@ Deterministic RCA catches:
 
 The graph is built from:
 
--   AST edges (tree-sitter)
--   Commit diffs (git log)
--   Logs (Sentry breadcrumbs)
--   Stack traces
--   Deployment markers
+- AST edges (tree-sitter)
+- Commit diffs (git log)
+- Logs (Sentry breadcrumbs)
+- Stack traces
+- Deployment markers
 
 **AI is only allowed to:**
 ✔ Add labels
@@ -319,16 +321,16 @@ You **NEVER** allow the LLM to produce raw code patches.
 
 You use:
 
--   Historical fix patterns
--   AST-based patches
--   Validated deterministic templates
--   Language-specific rule libraries
+- Historical fix patterns
+- AST-based patches
+- Validated deterministic templates
+- Language-specific rule libraries
 
 **LLM only provides:**
 
--   English explanation
--   Reasoning summary
--   Context narrative
+- English explanation
+- Reasoning summary
+- Context narrative
 
 This avoids "AI debugging AI" failures.
 
@@ -339,11 +341,11 @@ This avoids "AI debugging AI" failures.
 
 This separation makes the system:
 
--   Trustworthy
--   Sellable to enterprises
--   Stable across model upgrades
--   Resistant to hallucination drift
--   Audit-compliant
+- Trustworthy
+- Sellable to enterprises
+- Stable across model upgrades
+- Resistant to hallucination drift
+- Audit-compliant
 
 ---
 
@@ -357,24 +359,24 @@ This separation makes the system:
 
 ### ✅ In Scope
 
--   **Languages:** JavaScript/TypeScript only
--   **Error Source:** Sentry only
--   **Code Source:** GitHub only
--   **LLM:** GPT-4o-mini only
--   **Delivery:** Slack + basic web UI
--   **Multi-tenancy:** Full support
--   **Caching:** Three-tier GitHub cache
--   **Cost controls:** Per-org rate limits
+- **Languages:** JavaScript/TypeScript only
+- **Error Source:** Sentry only
+- **Code Source:** GitHub only
+- **LLM:** GPT-4o-mini only
+- **Delivery:** Slack + basic web UI
+- **Multi-tenancy:** Full support
+- **Caching:** Three-tier GitHub cache
+- **Cost controls:** Per-org rate limits
 
 ### ❌ Out of Scope (Phase 2+)
 
--   Python language support → Week 8
--   Datadog integration → Month 4
--   Local LLM models → Month 5
--   Vector search → Month 5
--   On-prem deployment → Week 11
--   SSO/SCIM → Month 5
--   Auto-PR generation → Month 6+
+- Python language support → Week 8
+- Datadog integration → Month 4
+- Local LLM models → Month 5
+- Vector search → Month 5
+- On-prem deployment → Week 11
+- SSO/SCIM → Month 5
+- Auto-PR generation → Month 6+
 
 ---
 
@@ -399,13 +401,12 @@ Redirected to onboarding flow
 What's Missing for Production
 For a production system, you'd want to add:
 
-Feature	Status	Notes
-GitHub App install flow	✅ Works	Auto-creates org + repos
-Self-service web signup	❌ Missing	Would need auth (e.g., Auth0, Clerk)
-Sentry integration UI	❌ Missing	User needs to manually configure webhook URL
-API to list org_id	❌ Missing	Currently requires DB query
-Dashboard	❌ Week 6	Web UI planned for Week 6
-
+Feature Status Notes
+GitHub App install flow ✅ Works Auto-creates org + repos
+Self-service web signup ❌ Missing Would need auth (e.g., Auth0, Clerk)
+Sentry integration UI ❌ Missing User needs to manually configure webhook URL
+API to list org_id ❌ Missing Currently requires DB query
+Dashboard ❌ Week 6 Web UI planned for Week 6
 
 ```
 Client navigates to Settings → Integrations → Sentry
@@ -599,28 +600,28 @@ Setup complete! 🎉
 
 **1. Sentry Account**
 
--   Active Sentry project with error tracking enabled
--   Admin access to add webhooks
--   Project DSN already configured in their app
+- Active Sentry project with error tracking enabled
+- Admin access to add webhooks
+- Project DSN already configured in their app
 
 **2. GitHub Repository**
 
--   Code hosted on GitHub (public or private)
--   Admin or owner access to install GitHub Apps
--   Repository contains the code that Sentry is tracking
+- Code hosted on GitHub (public or private)
+- Admin or owner access to install GitHub Apps
+- Repository contains the code that Sentry is tracking
 
 **3. Slack Workspace**
 
--   Active Slack workspace
--   Permission to add apps to workspace
--   Channel where notifications should be sent
+- Active Slack workspace
+- Permission to add apps to workspace
+- Channel where notifications should be sent
 
 **4. Application Requirements**
 
--   JavaScript/TypeScript application (MVP)
--   Source maps generated and available (for minified code)
--   Sentry SDK already integrated
--   Errors being captured by Sentry
+- JavaScript/TypeScript application (MVP)
+- Source maps generated and available (for minified code)
+- Sentry SDK already integrated
+- Errors being captured by Sentry
 
 ### What Clients DON'T Need
 
@@ -638,26 +639,26 @@ Setup complete! 🎉
 
 **From Sentry:**
 
--   ✅ Error messages and stack traces
--   ✅ Breadcrumbs (user actions leading to error)
--   ✅ Environment context (release, environment name)
--   ❌ **NOT** user PII (automatically redacted)
--   ❌ **NOT** sensitive environment variables
+- ✅ Error messages and stack traces
+- ✅ Breadcrumbs (user actions leading to error)
+- ✅ Environment context (release, environment name)
+- ❌ **NOT** user PII (automatically redacted)
+- ❌ **NOT** sensitive environment variables
 
 **From GitHub:**
 
--   ✅ Source code files (read-only, specific files only)
--   ✅ Commit history (last 5 commits per file)
--   ✅ File metadata (language, size)
--   ❌ **NOT** write access (can't modify code)
--   ❌ **NOT** access to issues, PRs, or discussions
--   ❌ **NOT** repository settings
+- ✅ Source code files (read-only, specific files only)
+- ✅ Commit history (last 5 commits per file)
+- ✅ File metadata (language, size)
+- ❌ **NOT** write access (can't modify code)
+- ❌ **NOT** access to issues, PRs, or discussions
+- ❌ **NOT** repository settings
 
 **From Slack:**
 
--   ✅ Permission to post messages to selected channel
--   ❌ **NOT** read message history
--   ❌ **NOT** access to DMs or private channels (unless explicitly added)
+- ✅ Permission to post messages to selected channel
+- ❌ **NOT** read message history
+- ❌ **NOT** access to DMs or private channels (unless explicitly added)
 
 ### Data Retention
 
@@ -671,14 +672,14 @@ Setup complete! 🎉
 
 ### Compliance
 
--   ✅ **TLS 1.3** for all data in transit
--   ✅ **Encryption at rest** (RDS, S3)
--   ✅ **PII auto-redaction** in logs
--   ✅ **HMAC validation** prevents webhook spoofing
--   ✅ **Read-only GitHub access** (can't modify code)
--   ✅ **Row-level security** (multi-tenant isolation)
--   ✅ **SOC2 prep** (Week 11)
--   ✅ **Self-hosted option** (Week 11 - for enterprise)
+- ✅ **TLS 1.3** for all data in transit
+- ✅ **Encryption at rest** (RDS, S3)
+- ✅ **PII auto-redaction** in logs
+- ✅ **HMAC validation** prevents webhook spoofing
+- ✅ **Read-only GitHub access** (can't modify code)
+- ✅ **Row-level security** (multi-tenant isolation)
+- ✅ **SOC2 prep** (Week 11)
+- ✅ **Self-hosted option** (Week 11 - for enterprise)
 
 ---
 
@@ -754,21 +755,21 @@ Solution:
 
 ### Security Controls (Week 1)
 
--   ✅ Multi-tenancy with row-level security
--   ✅ HMAC signature validation (webhooks)
--   ✅ JWT authentication (API)
--   ✅ Secrets in AWS Secrets Manager
--   ✅ GitHub tokens: read-only scope
--   ✅ Rate limiting per org
--   ✅ PII redaction in logs
+- ✅ Multi-tenancy with row-level security
+- ✅ HMAC signature validation (webhooks)
+- ✅ JWT authentication (API)
+- ✅ Secrets in AWS Secrets Manager
+- ✅ GitHub tokens: read-only scope
+- ✅ Rate limiting per org
+- ✅ PII redaction in logs
 
 ### Compliance (Week 11)
 
--   Audit logging for all data access
--   Encryption at rest (RDS, S3)
--   Encryption in transit (TLS 1.3)
--   SOC2 preparation documentation
--   Self-hosted option (basic)
+- Audit logging for all data access
+- Encryption at rest (RDS, S3)
+- Encryption in transit (TLS 1.3)
+- SOC2 preparation documentation
+- Self-hosted option (basic)
 
 ---
 
@@ -776,18 +777,18 @@ Solution:
 
 ### Infrastructure (per month)
 
--   ECS Fargate: ~$100
--   RDS Postgres: ~$50
--   Redis: ~$30
--   S3: ~$20
--   CloudWatch: ~$20
--   **Subtotal: ~$220/month**
+- ECS Fargate: ~$100
+- RDS Postgres: ~$50
+- Redis: ~$30
+- S3: ~$20
+- CloudWatch: ~$20
+- **Subtotal: ~$220/month**
 
 ### Variable Costs
 
--   LLM (GPT-4o-mini): ~$0.10-$0.15 per 1000 tokens
--   Average RCA: ~1500 tokens = $0.15-$0.20
--   **Target cost per RCA: <$0.15**
+- LLM (GPT-4o-mini): ~$0.10-$0.15 per 1000 tokens
+- Average RCA: ~1500 tokens = $0.15-$0.20
+- **Target cost per RCA: <$0.15**
 
 ### Optimization Strategies
 
@@ -803,19 +804,19 @@ Solution:
 
 ### Key Metrics
 
--   **Job success rate:** > 90%
--   **P95 latency:** < 45s (webhook → Slack)
--   **Cache hit rate:** > 75%
--   **RCA accuracy:** > 70% (on synthetic dataset)
--   **User satisfaction:** > 60% "helpful" feedback
+- **Job success rate:** > 90%
+- **P95 latency:** < 45s (webhook → Slack)
+- **Cache hit rate:** > 75%
+- **RCA accuracy:** > 70% (on synthetic dataset)
+- **User satisfaction:** > 60% "helpful" feedback
 
 ### Alerts
 
--   Job failure rate > 10% for 5+ minutes
--   Average latency > 60s
--   LLM cost > $50/hour
--   GitHub rate limit hit
--   Database connection errors
+- Job failure rate > 10% for 5+ minutes
+- Average latency > 60s
+- LLM cost > $50/hour
+- GitHub rate limit hit
+- Database connection errors
 
 ---
 
@@ -823,9 +824,9 @@ Solution:
 
 **MVP Team (Weeks 1-12):**
 
--   1 Full-stack Engineer (TypeScript/React)
--   1 Backend/ML Engineer (Python/LLM)
--   0.5 DevOps/SRE (Infrastructure)
+- 1 Full-stack Engineer (TypeScript/React)
+- 1 Backend/ML Engineer (Python/LLM)
+- 0.5 DevOps/SRE (Infrastructure)
 
 **Total: 2.5 engineers for 12 weeks**
 
@@ -835,24 +836,24 @@ Solution:
 
 ### Month 4-6: Optimization
 
--   Add Python language support
--   Implement local LLM option (cost reduction)
--   Advanced caching (vector embeddings)
--   Datadog integration
+- Add Python language support
+- Implement local LLM option (cost reduction)
+- Advanced caching (vector embeddings)
+- Datadog integration
 
 ### Month 7-9: Enterprise
 
--   SSO/SCIM
--   On-prem deployment (full)
--   Advanced RBAC
--   SLA guarantees
+- SSO/SCIM
+- On-prem deployment (full)
+- Advanced RBAC
+- SLA guarantees
 
 ### Month 10-12: Expansion
 
--   More languages (Java, Go, Ruby)
--   Auto-PR generation (experimental)
--   Advanced analytics
--   API for third-party integrations
+- More languages (Java, Go, Ruby)
+- Auto-PR generation (experimental)
+- Advanced analytics
+- API for third-party integrations
 
 ---
 
