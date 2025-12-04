@@ -228,11 +228,17 @@ export class EvidenceCollectorService {
     // Validate the bundle and flag if invalid
     const validationResult = evidenceBundleSchema.safeParse(bundle);
     if (!validationResult.success) {
-      const errorMessages = validationResult.error.errors.map(
-        (e) => `${e.path.join(".")}: ${e.message}`
+      // SECURITY: Do NOT log bundle data or detailed error messages here.
+      // Only log error paths and types to avoid leaking sensitive information.
+      // See CodeQL finding: "Validation error logging includes bundle structure which could contain sensitive information."
+      const sanitizedErrors = validationResult.error.errors.map(
+        (e) => ({
+          path: e.path.join("."),
+          type: e.code, // e.g., "invalid_type", "required"
+        })
       );
       logger.error(
-        { errors: errorMessages, bundleId },
+        { errors: sanitizedErrors, bundleId },
         "Evidence bundle validation failed - flagging for downstream systems"
       );
       // Flag the bundle as invalid so downstream systems can handle appropriately
