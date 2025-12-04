@@ -324,8 +324,8 @@ async function markEvidenceFailed(
        SET status = 'evidence_failed',
            error_message = $1,
            updated_at = NOW()
-       WHERE id = $2`,
-      [reason.slice(0, 512), jobId]
+       WHERE id = $2 AND org_id = $3`,
+      [reason.slice(0, 512), jobId, orgId]
     );
   });
 }
