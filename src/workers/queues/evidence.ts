@@ -253,10 +253,18 @@ function extractCodeResultsFromFindings(
   findings: AnalyzerResult | null
 ): CodeFetchResult[] {
   // Extract code context from deterministic findings
-  // This is a simplified version - in production, we'd store the actual code fetched
+  // TODO(tech-debt): This extracts snippets from findings, NOT full file content.
+  // In production, we should store the actual fetched code in intermediate results
+  // during the deterministic analysis phase, then retrieve it here.
+  // See: https://github.com/buglens/buglens/issues/xxx (create tracking issue)
   if (!findings || findings.findings.length === 0) {
     return [];
   }
+
+  logger.warn(
+    { findingsCount: findings.findings.length },
+    "Using simplified code extraction from findings - may have incomplete context"
+  );
 
   return findings.findings.map((finding) => ({
     file: {
@@ -277,6 +285,9 @@ function extractCodeResultsFromFindings(
   }));
 }
 
+// Git short SHA (exactly 7 chars) or full SHA (exactly 40 chars)
+const GIT_SHA_REGEX = /^[0-9a-f]{7}$|^[0-9a-f]{40}$/i;
+
 function extractCommitSha(release: string | null): string | null {
   if (!release) return null;
 
@@ -285,13 +296,13 @@ function extractCommitSha(release: string | null): string | null {
   const atIndex = release.indexOf("@");
   if (atIndex !== -1) {
     const sha = release.slice(atIndex + 1);
-    if (/^[0-9a-f]{7,40}$/i.test(sha)) {
+    if (GIT_SHA_REGEX.test(sha)) {
       return sha;
     }
   }
 
   // Check if release itself is a SHA
-  if (/^[0-9a-f]{7,40}$/i.test(release)) {
+  if (GIT_SHA_REGEX.test(release)) {
     return release;
   }
 
@@ -307,8 +318,8 @@ async function markEvidenceComplete(
       `UPDATE rca_jobs
        SET status = 'evidence_complete',
            updated_at = NOW()
-       WHERE id = $1`,
-      [jobId]
+       WHERE id = $1 AND org_id = $2`,
+      [jobId, orgId]
     );
   });
 }

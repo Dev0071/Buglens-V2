@@ -134,6 +134,8 @@ export interface CodeFetchResult {
     snippet_end: number;
     source_map_resolved: boolean;
   };
+  /** Source of the code fetch - tracks cache hit rate (target >75%) */
+  source?: "github" | "redis_cache" | "s3_cache" | "embedded";
 }
 
 export class EvidenceCollectorService {
@@ -218,17 +220,26 @@ export class EvidenceCollectorService {
         processing_started_at: startedAt,
         code_fetch_source: codeFetchSource,
         source_map_used: codeResults.some((r) => r.context.source_map_resolved),
+        validation_passed: true, // Will be updated after validation
+        validation_errors: undefined,
       },
     };
 
-    // Validate the bundle
+    // Validate the bundle and flag if invalid
     const validationResult = evidenceBundleSchema.safeParse(bundle);
     if (!validationResult.success) {
-      logger.error(
-        { errors: validationResult.error.errors },
-        "Evidence bundle validation failed"
+      const errorMessages = validationResult.error.errors.map(
+        (e) => `${e.path.join(".")}: ${e.message}`
       );
-      // Continue anyway - partial evidence is better than none
+      logger.error(
+        { errors: errorMessages, bundleId },
+        "Evidence bundle validation failed - flagging for downstream systems"
+      );
+      // Flag the bundle as invalid so downstream systems can handle appropriately
+      bundle.metadata.validation_passed = false;
+      bundle.metadata.validation_errors = errorMessages;
+    } else {
+      bundle.metadata.validation_passed = true;
     }
 
     logger.info(
@@ -250,7 +261,7 @@ export class EvidenceCollectorService {
   async storeInS3(bundle: EvidenceBundle): Promise<EvidenceStorageRef> {
     // Add date-based prefix for better S3 performance and organization
     const date = new Date(bundle.created_at);
-    const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`;
+    const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
     const key = `evidence/${datePrefix}/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
 
     const jsonContent = JSON.stringify(bundle);
@@ -681,8 +692,33 @@ export class EvidenceCollectorService {
     if (codeResults.length === 0) {
       return null;
     }
-    // This would need to be tracked during code fetching
-    // For now, assume GitHub if we have results
+
+    // Track actual source from code results for cache hit metrics
+    const sources = codeResults
+      .map((r) => r.source)
+      .filter((s): s is NonNullable<typeof s> => s !== undefined);
+
+    if (sources.length === 0) {
+      // Fallback for results without source tracking (tech debt)
+      logger.debug(
+        { resultsCount: codeResults.length },
+        "Code results missing source field - cannot determine cache hit rate"
+      );
+      return "github"; // Conservative assumption
+    }
+
+    // Prioritize: if any came from GitHub, report github (worst case for metrics)
+    // This incentivizes improving cache hit rate
+    if (sources.includes("github")) {
+      return "github";
+    }
+    if (sources.includes("redis_cache") || sources.includes("s3_cache")) {
+      return "cache";
+    }
+    if (sources.includes("embedded")) {
+      return "embedded";
+    }
+
     return "github";
   }
 }
