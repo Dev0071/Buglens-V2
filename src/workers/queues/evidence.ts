@@ -267,7 +267,7 @@ function extractCodeResultsFromFindings(
    * Store actual fetched code in intermediate results during the deterministic
    * analysis phase, then retrieve full file content here.
    *
-   * Tracking: https://github.com/buglens/buglens/issues/xxx
+   * Tracking: https://github.com/Dev0071/Buglens-V2/issues/7
    * Priority: P0 - Blocks accurate RCA generation
    */
   if (!findings || findings.findings.length === 0) {
