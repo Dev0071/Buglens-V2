@@ -147,7 +147,7 @@ async function loadJobWithEventData(
          r.installation_id
        FROM rca_jobs j
        INNER JOIN events e ON e.id = j.event_id
-       LEFT JOIN repos r ON r.org_id = j.org_id AND r.is_active = true
+       INNER JOIN repos r ON r.org_id = j.org_id AND r.is_active = true
        WHERE j.id = $1 AND j.org_id = $2
        LIMIT 1`,
       [jobId, orgId]
