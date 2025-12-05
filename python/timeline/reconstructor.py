@@ -74,10 +74,12 @@ def parse_timestamp(ts: Any) -> tuple[str, int]:
         try:
             # Try ISO format
             if ts.endswith("Z"):
-                dt = datetime.fromisoformat(ts[:-1])
+                dt = datetime.fromisoformat(ts[:-1]).replace(tzinfo=timezone.utc)
             else:
                 dt = datetime.fromisoformat(ts)
-            return dt.isoformat() + "Z", int(dt.timestamp() * 1000)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            return dt.isoformat().replace("+00:00", "Z"), int(dt.timestamp() * 1000)
         except ValueError:
             pass
 
