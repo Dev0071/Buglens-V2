@@ -199,7 +199,7 @@ describe("Evidence Queue Error Handling", () => {
     it("should validate job data structure at runtime with Zod", () => {
       // Runtime validation for job data - TypeScript alone doesn't catch runtime issues
       const { z } = require("zod");
-      
+
       const EvidenceJobSchema = z.object({
         jobId: z.string().min(1),
         eventId: z.string().min(1),
