@@ -196,6 +196,25 @@ describe("Sentry Webhook", () => {
       event_id: `idempotent-event-${Date.now()}`,
       timestamp: Date.now() / 1000,
       platform: "javascript",
+      environment: "production",
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Cannot read property 'foo' of undefined",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "app.js",
+                  function: "processUser",
+                  lineno: 42,
+                  colno: 15,
+                },
+              ],
+            },
+          },
+        ],
+      },
     };
     const signature = generateSignature(payload);
 
@@ -249,6 +268,25 @@ describe("Sentry Webhook", () => {
         event_id: `context-check-${Date.now()}`,
         timestamp: Date.now() / 1000,
         platform: "javascript",
+        environment: "production",
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "Context test error",
+              stacktrace: {
+                frames: [
+                  {
+                    filename: "test.js",
+                    function: "testFn",
+                    lineno: 10,
+                    colno: 5,
+                  },
+                ],
+              },
+            },
+          ],
+        },
       };
       const signature = generateSignature(payload);
 

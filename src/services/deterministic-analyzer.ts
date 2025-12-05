@@ -15,6 +15,7 @@ import {
   parseReleaseString,
   type RepoReference,
 } from "./analyzer-utils.js";
+import { enqueueEvidenceAssembly } from "../workers/queues/evidence.js";
 
 interface JobRow {
   id: string;
@@ -85,6 +86,17 @@ export class DeterministicAnalyzerService {
 
       await this.persistFindings(job, parsedResult);
       await this.markDeterministicComplete(job);
+
+      // Enqueue evidence assembly job for LLM reasoning
+      await enqueueEvidenceAssembly({
+        jobId: job.jobId,
+        eventId: jobRow.event_id,
+        orgId: job.orgId,
+      });
+      logger.info(
+        { jobId: job.jobId, eventId: jobRow.event_id },
+        "Evidence assembly job enqueued"
+      );
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       logger.error(
