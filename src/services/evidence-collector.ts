@@ -726,5 +726,6 @@ export class EvidenceCollectorService {
   }
 }
 
-// Export singleton instance
-export const evidenceCollectorService = new EvidenceCollectorService();
+// Note: Do NOT export a singleton instance here.
+// Consumers should instantiate EvidenceCollectorService directly to enable
+// dependency injection for testing and configuration flexibility.

@@ -196,15 +196,31 @@ describe("Evidence Queue Error Handling", () => {
   });
 
   describe("Job validation errors", () => {
-    it("should fail when job data is missing required fields", () => {
-      // TypeScript enforces this at compile time, but runtime validation needed
-      const incompleteJob = {
-        jobId: "job-123",
-        // Missing eventId and orgId
-      } as EvidenceAssemblyJobData;
+    it("should validate job data structure at runtime with Zod", () => {
+      // Runtime validation for job data - TypeScript alone doesn't catch runtime issues
+      const { z } = require("zod");
+      
+      const EvidenceJobSchema = z.object({
+        jobId: z.string().min(1),
+        eventId: z.string().min(1),
+        orgId: z.string().min(1),
+      });
 
-      expect(incompleteJob.eventId).toBeUndefined();
-      expect(incompleteJob.orgId).toBeUndefined();
+      // Valid job should pass
+      const validJob = {
+        jobId: "job-123",
+        eventId: "evt-456",
+        orgId: "org-789",
+      };
+      expect(() => EvidenceJobSchema.parse(validJob)).not.toThrow();
+
+      // Missing fields should fail at runtime
+      const incompleteJob = { jobId: "job-123" };
+      expect(() => EvidenceJobSchema.parse(incompleteJob)).toThrow();
+
+      // Empty strings should fail
+      const emptyFieldsJob = { jobId: "", eventId: "", orgId: "" };
+      expect(() => EvidenceJobSchema.parse(emptyFieldsJob)).toThrow();
     });
   });
 

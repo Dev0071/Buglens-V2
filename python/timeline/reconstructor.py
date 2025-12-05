@@ -7,7 +7,7 @@ Called from Node.js via stdin/stdout JSON protocol.
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, TypedDict, Optional
 
 # ============================================
@@ -58,8 +58,8 @@ ERROR_ACCUMULATION_THRESHOLD = 3
 def parse_timestamp(ts: Any) -> tuple[str, int]:
     """Parse timestamp to ISO string and milliseconds."""
     if ts is None:
-        now = datetime.utcnow()
-        return now.isoformat() + "Z", int(now.timestamp() * 1000)
+        now = datetime.now(timezone.utc)
+        return now.isoformat().replace("+00:00", "Z"), int(now.timestamp() * 1000)
 
     if isinstance(ts, (int, float)):
         # Unix timestamp (could be seconds or milliseconds)
@@ -67,8 +67,8 @@ def parse_timestamp(ts: Any) -> tuple[str, int]:
             ms = int(ts)
         else:  # Seconds
             ms = int(ts * 1000)
-        dt = datetime.utcfromtimestamp(ms / 1000)
-        return dt.isoformat() + "Z", ms
+        dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z"), ms
 
     if isinstance(ts, str):
         try:
@@ -82,8 +82,8 @@ def parse_timestamp(ts: Any) -> tuple[str, int]:
             pass
 
     # Fallback to current time
-    now = datetime.utcnow()
-    return now.isoformat() + "Z", int(now.timestamp() * 1000)
+    now = datetime.now(timezone.utc)
+    return now.isoformat().replace("+00:00", "Z"), int(now.timestamp() * 1000)
 
 
 def map_breadcrumb_type(bc_type: Optional[str]) -> str:
