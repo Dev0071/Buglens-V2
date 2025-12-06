@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence
 import re
 
 from tree_sitter import Node, Tree
@@ -16,13 +16,8 @@ class CodeSegment:
   error_column: Optional[int] = None
 
 
-class AnalyzerRule(Protocol):
-  rule_id: str
-  title: str
-  severity: str
-
-  def evaluate(self, context: "AnalysisContext") -> List[Dict[str, Any]]:
-    ...
+# Type alias for rule functions (pure functions)
+RuleFunction = Callable[["AnalysisContext"], List[Dict[str, Any]]]
 
 
 class AnalysisContext:

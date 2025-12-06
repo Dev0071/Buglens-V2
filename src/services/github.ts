@@ -233,6 +233,62 @@ async function withRetry<T>(
 }
 
 /**
+ * Check if a git ref (commit SHA or branch) exists in a repository
+ * Uses GitHub's proper commit API endpoint for validation
+ */
+export async function checkRefExists(
+  installationId: string,
+  owner: string,
+  repo: string,
+  ref: string,
+  orgId: string
+): Promise<boolean> {
+  // Check rate limit
+  const rateLimit = await checkGitHubRateLimit(orgId);
+  if (!rateLimit.allowed) {
+    logger.warn(
+      { orgId, remaining: rateLimit.remaining },
+      "GitHub rate limit exceeded"
+    );
+    throw new GitHubRateLimitError(
+      `GitHub API rate limit exceeded. Remaining: ${rateLimit.remaining}`
+    );
+  }
+
+  const octokit = await getInstallationOctokit(installationId);
+
+  try {
+    // Use the commits endpoint which validates both commits and branch refs
+    // GET /repos/{owner}/{repo}/commits/{ref}
+    // This is more efficient than fetching file content and works for all repos
+    await withRetry(
+      () =>
+        octokit.rest.repos.getCommit({
+          owner,
+          repo,
+          ref,
+        }),
+      { operation: "getCommit", owner, repo }
+    );
+
+    // Track API call
+    await trackGitHubAPICall(orgId);
+
+    return true;
+  } catch (error: unknown) {
+    const e = error as { status?: number };
+    if (e.status === 404 || e.status === 422) {
+      // 404 = ref not found, 422 = invalid ref format
+      logger.debug({ owner, repo, ref }, "Git ref not found");
+      return false;
+    }
+    // Rethrow other errors
+    logger.error({ error, owner, repo, ref }, "Failed to check git ref");
+    throw error;
+  }
+}
+
+/**
  * Fetch file content from GitHub repository
  */
 export async function fetchFileContent(
