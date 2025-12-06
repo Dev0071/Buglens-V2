@@ -338,7 +338,7 @@ export class DeterministicAnalyzerService {
    * Prepare analyzer request using extraction pipeline results
    * This is the preferred path when extraction succeeds
    *
-   * Note: jobRow is kept in the interface for potential future use in fallback
+   * Note: _jobRow is kept in the interface for potential future use in fallback
    * scenarios where extraction result lacks metadata. Currently extraction
    * provides all needed data.
    */
