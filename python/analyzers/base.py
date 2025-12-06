@@ -61,9 +61,24 @@ class AnalysisContext:
     root_identifier = re.split(r"[.[]", identifier)[0]
     escaped = re.escape(root_identifier)
     guard_patterns = [
+      # if (!x)
       re.compile(rf"if\s*\(\s*!\s*{escaped}\s*\)"),
-      re.compile(rf"if\s*\(\s*{escaped}\s*==\s*null"),
-      re.compile(rf"if\s*\(\s*{escaped}\s*===\s*undefined"),
+      # if (x == null) or if (x === null)
+      re.compile(rf"if\s*\(\s*{escaped}\s*==+\s*null"),
+      # if (x == undefined) or if (x === undefined)
+      re.compile(rf"if\s*\(\s*{escaped}\s*==+\s*undefined"),
+      # if (null == x) or if (undefined == x)
+      re.compile(rf"if\s*\(\s*(null|undefined)\s*==+\s*{escaped}"),
+      # if (!x || !x.property)
+      re.compile(rf"if\s*\(\s*!\s*{escaped}\s*\|\|"),
+      # if (x && x.property)
+      re.compile(rf"if\s*\(\s*{escaped}\s*&&"),
+      # if (x?.property)
+      re.compile(rf"if\s*\(\s*{escaped}\s*\?\.\w+"),
+      # x ?? default
+      re.compile(rf"{escaped}\s*\?\?"),
+      # typeof x !== 'undefined'
+      re.compile(rf"typeof\s+{escaped}\s*!==?\s*['\"]undefined['\"]"),
     ]
 
     start = max(1, line_number - 5)

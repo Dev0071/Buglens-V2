@@ -110,4 +110,21 @@ class UnawaitedPromiseRule:
         return _looks_async(callee_text)
 
     def _is_awaited(self, node) -> bool:
-        return _is_awaited(node)
+        parent = node.parent
+        while parent and parent.type in {"expression_statement", "parenthesized_expression"}:
+            parent = parent.parent
+
+        if parent and parent.type in {"await_expression", "yield_expression"}:
+            return True
+
+        call_parent = parent
+        if call_parent and call_parent.type == "call_expression":
+            callee = call_parent.child_by_field_name("function")
+            if callee and callee.type == "member_expression":
+                property_node = callee.child_by_field_name("property")
+                if property_node:
+                    prop_name = property_node.text.decode('utf-8')
+                    if prop_name in {"then", "catch", "finally"}:
+                        return True
+
+        return False
