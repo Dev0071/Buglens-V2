@@ -15,7 +15,7 @@ Capabilities:
 import json
 import sys
 import os
-from typing import Any, TypedDict, Optional
+from typing import TypedDict, Optional
 
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
