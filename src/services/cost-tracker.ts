@@ -65,8 +65,12 @@ interface ExtractionMetricsUpdate {
  */
 const LLM_PRICING = {
   // GPT-4o-mini: $0.15 per 1M input tokens, $0.60 per 1M output tokens
-  input_per_token: parseFloat(process.env.LLM_INPUT_PRICE_PER_TOKEN || "0.00000015"),
-  output_per_token: parseFloat(process.env.LLM_OUTPUT_PRICE_PER_TOKEN || "0.0000006"),
+  input_per_token: parseFloat(
+    process.env.LLM_INPUT_PRICE_PER_TOKEN || "0.00000015"
+  ),
+  output_per_token: parseFloat(
+    process.env.LLM_OUTPUT_PRICE_PER_TOKEN || "0.0000006"
+  ),
   // Fallback ratio when actual input/output breakdown not available
   // Based on typical extraction prompts: ~70% input, ~30% output
   fallback_input_ratio: 0.7,
@@ -100,8 +104,12 @@ function calculateLLMCost(
   );
 
   return (
-    totalTokens * LLM_PRICING.fallback_input_ratio * LLM_PRICING.input_per_token +
-    totalTokens * LLM_PRICING.fallback_output_ratio * LLM_PRICING.output_per_token
+    totalTokens *
+      LLM_PRICING.fallback_input_ratio *
+      LLM_PRICING.input_per_token +
+    totalTokens *
+      LLM_PRICING.fallback_output_ratio *
+      LLM_PRICING.output_per_token
   );
 }
 
@@ -159,7 +167,10 @@ export class CostTracker {
         "Extraction metrics recorded"
       );
     } catch (error) {
-      logger.error({ error, org_id, date }, "Failed to record extraction metrics");
+      logger.error(
+        { error, org_id, date },
+        "Failed to record extraction metrics"
+      );
       // Don't throw - metrics are non-critical
     }
   }
@@ -219,7 +230,10 @@ export class CostTracker {
   /**
    * Get current daily metrics for an organization
    */
-  async getDailyMetrics(org_id: string, date?: string): Promise<DailyMetrics | null> {
+  async getDailyMetrics(
+    org_id: string,
+    date?: string
+  ): Promise<DailyMetrics | null> {
     const targetDate = date ?? this.getDateString();
 
     try {
@@ -254,7 +268,10 @@ export class CostTracker {
         extraction_total_ms: 0, // Not tracked in current schema
       };
     } catch (error) {
-      logger.error({ error, org_id, date: targetDate }, "Failed to get daily metrics");
+      logger.error(
+        { error, org_id, date: targetDate },
+        "Failed to get daily metrics"
+      );
       return null;
     }
   }
@@ -262,7 +279,11 @@ export class CostTracker {
   /**
    * Check if organization is within daily LLM token quota
    */
-  async checkLLMQuota(org_id: string, tokensNeeded: number, dailyLimit: number): Promise<{
+  async checkLLMQuota(
+    org_id: string,
+    tokensNeeded: number,
+    dailyLimit: number
+  ): Promise<{
     allowed: boolean;
     current: number;
     limit: number;
@@ -279,7 +300,11 @@ export class CostTracker {
   /**
    * Check if organization is within daily GitHub API quota
    */
-  async checkGitHubQuota(org_id: string, callsNeeded: number, dailyLimit: number): Promise<{
+  async checkGitHubQuota(
+    org_id: string,
+    callsNeeded: number,
+    dailyLimit: number
+  ): Promise<{
     allowed: boolean;
     current: number;
     limit: number;
@@ -296,16 +321,21 @@ export class CostTracker {
   /**
    * Get monthly cost summary for an organization
    */
-  async getMonthlyCostSummary(org_id: string, year: number, month: number): Promise<{
+  async getMonthlyCostSummary(
+    org_id: string,
+    year: number,
+    month: number
+  ): Promise<{
     total_cost_usd: number;
     llm_tokens_used: number;
     github_api_calls: number;
     days_active: number;
   }> {
     const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-    const endDate = month === 12
-      ? `${year + 1}-01-01`
-      : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const endDate =
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, "0")}-01`;
 
     try {
       const result = await query(
@@ -327,7 +357,10 @@ export class CostTracker {
         days_active: parseInt(row.days_active, 10),
       };
     } catch (error) {
-      logger.error({ error, org_id, year, month }, "Failed to get monthly cost summary");
+      logger.error(
+        { error, org_id, year, month },
+        "Failed to get monthly cost summary"
+      );
       return {
         total_cost_usd: 0,
         llm_tokens_used: 0,

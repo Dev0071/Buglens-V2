@@ -1,5 +1,9 @@
 import { logger } from "../../utils/logger.js";
-import { fetchFileContent, getRepoByFullName, checkRefExists } from "../github.js";
+import {
+  fetchFileContent,
+  getRepoByFullName,
+  checkRefExists,
+} from "../github.js";
 import {
   type ValidationInput,
   type ValidationOutput,

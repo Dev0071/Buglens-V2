@@ -20,19 +20,19 @@ exports.up = (pgm) => {
   //
   // Using jsonb_path_ops for better performance on containment queries
   pgm.sql(`
-    CREATE INDEX idx_rca_jobs_extraction_id ON rca_jobs 
+    CREATE INDEX idx_rca_jobs_extraction_id ON rca_jobs
     USING btree ((extraction_result->>'extraction_id'))
     WHERE extraction_result IS NOT NULL;
 
-    CREATE INDEX idx_rca_jobs_is_complete ON rca_jobs 
+    CREATE INDEX idx_rca_jobs_is_complete ON rca_jobs
     USING btree (((extraction_result->>'is_complete')::boolean))
     WHERE extraction_result IS NOT NULL;
 
-    CREATE INDEX idx_rca_jobs_extraction_repo ON rca_jobs 
+    CREATE INDEX idx_rca_jobs_extraction_repo ON rca_jobs
     USING btree ((extraction_result->>'repo'))
     WHERE extraction_result IS NOT NULL AND extraction_result->>'repo' IS NOT NULL;
 
-    CREATE INDEX idx_rca_jobs_extraction_stage ON rca_jobs 
+    CREATE INDEX idx_rca_jobs_extraction_stage ON rca_jobs
     USING btree ((extraction_result->>'extraction_stage'))
     WHERE extraction_result IS NOT NULL;
   `);

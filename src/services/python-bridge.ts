@@ -55,7 +55,11 @@ export class PythonBridge {
           child.kill("SIGKILL");
           clearTimeout(timer);
           rejected = true;
-          reject(new Error(`Python output from module ${this.module} exceeded size limit (${MAX_OUTPUT_SIZE} bytes)`));
+          reject(
+            new Error(
+              `Python output from module ${this.module} exceeded size limit (${MAX_OUTPUT_SIZE} bytes)`
+            )
+          );
           return;
         }
         stdoutChunks.push(chunk);
@@ -68,7 +72,11 @@ export class PythonBridge {
           child.kill("SIGKILL");
           clearTimeout(timer);
           rejected = true;
-          reject(new Error(`Python stderr from module ${this.module} exceeded size limit (${MAX_OUTPUT_SIZE} bytes)`));
+          reject(
+            new Error(
+              `Python stderr from module ${this.module} exceeded size limit (${MAX_OUTPUT_SIZE} bytes)`
+            )
+          );
           return;
         }
         stderrChunks.push(chunk);
