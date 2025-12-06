@@ -46,7 +46,63 @@ interface ExtractionMetricsUpdate {
   is_complete: boolean;
   extraction_ms: number;
   llm_tokens_used?: number;
+  /** Actual input tokens from LLM API response.usage.prompt_tokens */
+  llm_input_tokens?: number;
+  /** Actual output tokens from LLM API response.usage.completion_tokens */
+  llm_output_tokens?: number;
   validation_passed: boolean;
+}
+
+// =============================================================================
+// LLM PRICING CONFIGURATION
+// =============================================================================
+
+/**
+ * GPT-4o-mini pricing per token (as of Dec 2024)
+ * Source: https://openai.com/pricing
+ *
+ * Make these environment-configurable for easy updates when pricing changes.
+ */
+const LLM_PRICING = {
+  // GPT-4o-mini: $0.15 per 1M input tokens, $0.60 per 1M output tokens
+  input_per_token: parseFloat(process.env.LLM_INPUT_PRICE_PER_TOKEN || "0.00000015"),
+  output_per_token: parseFloat(process.env.LLM_OUTPUT_PRICE_PER_TOKEN || "0.0000006"),
+  // Fallback ratio when actual input/output breakdown not available
+  // Based on typical extraction prompts: ~70% input, ~30% output
+  fallback_input_ratio: 0.7,
+  fallback_output_ratio: 0.3,
+} as const;
+
+/**
+ * Calculate LLM cost from token usage
+ *
+ * Prefers actual input/output token counts from API response.
+ * Falls back to estimated ratio when only total tokens available.
+ */
+function calculateLLMCost(
+  totalTokens: number,
+  inputTokens?: number,
+  outputTokens?: number
+): number {
+  if (inputTokens !== undefined && outputTokens !== undefined) {
+    // Use actual token breakdown from API response
+    return (
+      inputTokens * LLM_PRICING.input_per_token +
+      outputTokens * LLM_PRICING.output_per_token
+    );
+  }
+
+  // Fallback to estimated ratio when actual breakdown not available
+  // Log this for monitoring - we should aim to always have actual counts
+  logger.debug(
+    { totalTokens },
+    "Using estimated token ratio - consider updating caller to pass actual input/output counts"
+  );
+
+  return (
+    totalTokens * LLM_PRICING.fallback_input_ratio * LLM_PRICING.input_per_token +
+    totalTokens * LLM_PRICING.fallback_output_ratio * LLM_PRICING.output_per_token
+  );
 }
 
 // =============================================================================
@@ -59,13 +115,21 @@ export class CostTracker {
    */
   async recordExtraction(metrics: ExtractionMetricsUpdate): Promise<void> {
     const date = this.getDateString();
-    const { org_id, stage_reached, is_complete, extraction_ms, llm_tokens_used, validation_passed } = metrics;
+    const {
+      org_id,
+      stage_reached,
+      is_complete,
+      extraction_ms,
+      llm_tokens_used,
+      llm_input_tokens,
+      llm_output_tokens,
+      validation_passed,
+    } = metrics;
 
     try {
-      // Calculate LLM cost (GPT-4o-mini: $0.15/1M input, $0.60/1M output)
-      // Assume 70/30 input/output split for simplicity
+      // Calculate LLM cost using actual token counts when available
       const llm_cost_usd = llm_tokens_used
-        ? (llm_tokens_used * 0.7 * 0.00000015) + (llm_tokens_used * 0.3 * 0.0000006)
+        ? calculateLLMCost(llm_tokens_used, llm_input_tokens, llm_output_tokens)
         : 0;
 
       await query(
@@ -121,12 +185,22 @@ export class CostTracker {
 
   /**
    * Record LLM tokens used (for non-extraction LLM calls)
+   *
+   * @param org_id - Organization ID
+   * @param tokens - Total tokens used
+   * @param inputTokens - Optional: actual input tokens from response.usage.prompt_tokens
+   * @param outputTokens - Optional: actual output tokens from response.usage.completion_tokens
    */
-  async recordLLMTokens(org_id: string, tokens: number): Promise<void> {
+  async recordLLMTokens(
+    org_id: string,
+    tokens: number,
+    inputTokens?: number,
+    outputTokens?: number
+  ): Promise<void> {
     const date = this.getDateString();
 
-    // GPT-4o-mini pricing (assume 70/30 input/output)
-    const llm_cost_usd = (tokens * 0.7 * 0.00000015) + (tokens * 0.3 * 0.0000006);
+    // Use actual token breakdown when available
+    const llm_cost_usd = calculateLLMCost(tokens, inputTokens, outputTokens);
 
     try {
       await query(

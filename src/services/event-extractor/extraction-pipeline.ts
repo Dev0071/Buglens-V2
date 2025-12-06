@@ -56,6 +56,12 @@ export class ExtractionPipeline {
     const stagesUsed: ExtractionStage[] = [];
     const issues: string[] = [];
 
+    // Track partial extraction state for error recovery
+    let partialPlatform: string | null = null;
+    let partialEnvironment: string | null = null;
+    let partialErrorType: string | null = null;
+    let partialErrorMessage: string | null = null;
+
     logger.info(
       { extractionId, eventId, orgId },
       "Starting extraction pipeline"
@@ -75,6 +81,12 @@ export class ExtractionPipeline {
 
       const stage1Output =
         await this.deterministicExtractor.extract(stage1Input);
+
+      // Store partial state for error recovery
+      partialPlatform = stage1Output.platform || null;
+      partialEnvironment = stage1Output.environment || null;
+      partialErrorType = stage1Output.error_type || null;
+      partialErrorMessage = stage1Output.error_message || null;
 
       logger.debug(
         {
@@ -247,7 +259,8 @@ export class ExtractionPipeline {
         "Extraction pipeline failed"
       );
 
-      // Return error result
+      // Return error result using partial state from successful stages
+      // Falls back to 'unknown' when extraction didn't capture platform/environment
       return {
         extraction_id: extractionId,
         event_id: eventId,
@@ -262,10 +275,10 @@ export class ExtractionPipeline {
         release_tag: null,
         frames: [],
         primary_frame: null,
-        error_type: null,
-        error_message: null,
-        platform: "javascript",
-        environment: "production",
+        error_type: partialErrorType,
+        error_message: partialErrorMessage,
+        platform: partialPlatform ?? "unknown", // 'unknown' when extraction failed before capturing
+        environment: partialEnvironment ?? "unknown", // 'unknown' when extraction failed before capturing
         confidence: 0,
         issues: [`Pipeline error: ${(error as Error).message}`],
         is_complete: false,

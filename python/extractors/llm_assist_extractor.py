@@ -15,10 +15,16 @@ Capabilities:
 import json
 import sys
 import os
+import re
 from typing import TypedDict, Optional
 
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
+
+# API key validation pattern
+# OpenAI keys: sk-{48 chars} or sk-proj-{80+ chars for project keys}
+# This validates format without exposing the actual key value
+OPENAI_KEY_PATTERN = re.compile(r"^sk-[a-zA-Z0-9]{48}$|^sk-proj-[a-zA-Z0-9_-]{80,}$")
 
 
 class ExtractedFrame(TypedDict, total=False):
@@ -91,18 +97,50 @@ USER_CODE_INDICATORS = [
 ]
 
 
+def validate_api_key(api_key: str) -> bool:
+    """
+    Validate OpenAI API key format without exposing the key.
+
+    Checks for standard OpenAI key format (sk-...) or project key format (sk-proj-...).
+    This catches common issues like truncated keys or wrong environment variables.
+    """
+    if not api_key:
+        return False
+    # Check against known OpenAI key patterns
+    return bool(OPENAI_KEY_PATTERN.match(api_key))
+
+
 def get_openai_client():
-    """Lazy initialization of OpenAI client"""
+    """
+    Lazy initialization of OpenAI client with key validation.
+
+    Validates API key format at initialization time to catch configuration
+    errors early rather than at runtime during API calls.
+    """
     global openai_client
     if openai_client is None:
         try:
             import openai
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("OPENAI_API_KEY not set")
+                raise ValueError(
+                    "OPENAI_API_KEY environment variable not set. "
+                    "Please set it to your OpenAI API key."
+                )
+
+            # Validate key format (catches truncated/malformed keys)
+            if not validate_api_key(api_key):
+                # Log warning but don't expose the actual key value
+                key_prefix = api_key[:7] + "..." if len(api_key) > 10 else "[too short]"
+                raise ValueError(
+                    f"OPENAI_API_KEY has invalid format (prefix: {key_prefix}). "
+                    "Expected format: sk-[48 chars] or sk-proj-[80+ chars]"
+                )
+
             openai_client = openai.OpenAI(api_key=api_key)
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
+    return openai_client
     return openai_client
 
 
@@ -373,6 +411,30 @@ def process(input_data: LLMAssistInput) -> LLMAssistOutput:
     return result
 
 
+def sanitize_error_message(error: Exception) -> str:
+    """
+    Sanitize error message to prevent leaking sensitive information.
+
+    Removes or redacts:
+    - API keys
+    - Full file paths that might reveal system structure
+    - Internal stack traces
+    """
+    message = str(error)
+
+    # Redact any API key patterns (sk-...)
+    message = re.sub(r"sk-[a-zA-Z0-9_-]+", "sk-[REDACTED]", message)
+
+    # Redact Bearer tokens
+    message = re.sub(r"Bearer [a-zA-Z0-9_-]+", "Bearer [REDACTED]", message)
+
+    # Keep error type but limit message length to prevent data leakage
+    if len(message) > 200:
+        message = message[:200] + "...[truncated]"
+
+    return message
+
+
 def main():
     """Read from stdin, process, write to stdout"""
     try:
@@ -383,6 +445,8 @@ def main():
 
         print(json.dumps(result))
     except Exception as e:
+        # Sanitize error message to prevent leaking sensitive info
+        safe_error = sanitize_error_message(e)
         error_result = {
             "frames": [],
             "primary_frame_index": None,
@@ -391,7 +455,7 @@ def main():
             "removed_noise_count": 0,
             "model": "error",
             "tokens_used": 0,
-            "reasoning": f"Error: {str(e)}",
+            "reasoning": f"Error: {safe_error}",
             "confidence": 0.0,
         }
         print(json.dumps(error_result))

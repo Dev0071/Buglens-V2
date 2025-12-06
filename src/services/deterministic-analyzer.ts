@@ -337,10 +337,14 @@ export class DeterministicAnalyzerService {
   /**
    * Prepare analyzer request using extraction pipeline results
    * This is the preferred path when extraction succeeds
+   *
+   * Note: jobRow is kept in the interface for potential future use in fallback
+   * scenarios where extraction result lacks metadata. Currently extraction
+   * provides all needed data.
    */
   private async prepareFromExtractionResult(
     job: DeterministicAnalyzerJobData,
-    _jobRow: JobRow, // Kept for interface consistency, may be used for fallback
+    _jobRow: JobRow,
     extractionResult: ExtractionResult
   ): Promise<AnalyzerRequestPayload> {
     logger.info(

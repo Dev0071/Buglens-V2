@@ -1,5 +1,5 @@
 import { logger } from "../../utils/logger.js";
-import { fetchFileContent, getRepoByFullName } from "../github.js";
+import { fetchFileContent, getRepoByFullName, checkRefExists } from "../github.js";
 import {
   type ValidationInput,
   type ValidationOutput,
@@ -317,6 +317,7 @@ export class ExtractionValidator {
 
   /**
    * Check if a git ref (commit or branch) exists
+   * Uses proper GitHub API endpoint for validation
    */
   private async refExists(
     installationId: string,
@@ -326,32 +327,11 @@ export class ExtractionValidator {
     orgId: string
   ): Promise<boolean> {
     try {
-      // Try to fetch a known file to verify ref
-      // We use a simple path check - if the ref doesn't exist, GitHub returns 404
-      const result = await fetchFileContent(
-        installationId,
-        owner,
-        repo,
-        "package.json", // Common file in JS projects
-        ref,
-        orgId
-      );
-      return result !== null;
+      // Use the proper GitHub API endpoint for ref validation
+      // This is more efficient and works for all repos (not just those with package.json)
+      return await checkRefExists(installationId, owner, repo, ref, orgId);
     } catch {
-      // Also try README as fallback
-      try {
-        const result = await fetchFileContent(
-          installationId,
-          owner,
-          repo,
-          "README.md",
-          ref,
-          orgId
-        );
-        return result !== null;
-      } catch {
-        return false;
-      }
+      return false;
     }
   }
 
