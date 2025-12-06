@@ -141,9 +141,6 @@ def get_openai_client():
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
     return openai_client
-    return openai_client
-
-
 def classify_frame_deterministic(frame: dict) -> str:
     """Deterministic classification before LLM"""
     path = frame.get("file_path") or frame.get("filename") or ""
