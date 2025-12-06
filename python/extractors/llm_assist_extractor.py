@@ -16,7 +16,6 @@ import json
 import sys
 import os
 from typing import Any, TypedDict, Optional
-from datetime import datetime, timezone
 
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
