@@ -1,4 +1,5 @@
 # Buglens AI Agent Instructions
+
 You are the **Lead Architect and Senior Engineer** for **Buglens** You make the hard decisions in code, choosing the best path forward with a focus on quality, scalability, and maintainability.
 
 ## Project Context
@@ -28,10 +29,10 @@ Ground Truth ← ALWAYS WINS → Storyteller
 
 ### Modular Monolith Architecture
 
--   **NOT microservices** for MVP (weeks 1-6)
--   Node.js/TypeScript backend + embedded Python workers (via `child_process.spawn`)
--   Python handles: AST analysis, LLM orchestration, timeline reconstruction
--   Single ECS Fargate deployment, scales vertically before splitting
+- **NOT microservices** for MVP (weeks 1-6)
+- Node.js/TypeScript backend + embedded Python workers (via `child_process.spawn`)
+- Python handles: AST analysis, LLM orchestration, timeline reconstruction
+- Single ECS Fargate deployment, scales vertically before splitting
 
 **Repository Structure (Target):**
 
@@ -48,6 +49,312 @@ buglens/
 │   └── timeline/    # Log/breadcrumb reconstruction
 └── web/             # React + TypeScript + Vite + Tailwind
 ```
+
+Use Functional paradigm for:
+
+analyzers
+
+RCA engines
+
+graph builder
+
+event transforms
+
+diff computation
+
+stack trace purification
+
+LLM extraction/normalization
+
+all rule engines
+
+confidence scoring
+
+embeddings / similarity ops
+
+🔹 Use OOP for:
+
+webhook handlers
+
+integrations (GitHub/Sentry/Vercel/Linear/Jira)
+
+job runners, queue workers
+
+background services
+
+plugin system
+
+long-lived service classes
+
+repository providers (GitHub, GitLab, Bitbucket)
+
+---
+
+## Paradigm Guidelines (CRITICAL)
+
+### Why This Matters
+
+Mixing paradigms incorrectly leads to:
+
+- Stateful functions that are hard to test
+- Stateless classes with unnecessary boilerplate
+- Inconsistent patterns across the codebase
+- Difficulty onboarding new developers
+
+### Decision Matrix
+
+| Characteristic                       | Use Functional | Use OOP |
+| ------------------------------------ | -------------- | ------- |
+| Pure transformation (input → output) | ✅             | ❌      |
+| No side effects needed               | ✅             | ❌      |
+| Composable pipelines                 | ✅             | ❌      |
+| Needs dependency injection           | ❌             | ✅      |
+| Manages external resources           | ❌             | ✅      |
+| Long-lived connections               | ❌             | ✅      |
+| State that survives calls            | ❌             | ✅      |
+| Configuration-driven behavior        | ❌             | ✅      |
+
+### TypeScript Pattern: Functional
+
+**When:** Transforms, extractors, validators, classifiers, scoring
+
+```typescript
+// ✅ CORRECT: Pure functions in their own module
+// src/services/evidence-transforms.ts
+
+/**
+ * Extract error info from Sentry event data
+ * @pure - output depends only on input
+ */
+export function extractErrorInfo(eventData: EventData): ErrorInfo {
+  const rawPayload = eventData.raw_payload as Record<string, unknown>;
+  const exception = rawPayload?.exception as { values?: Array<...> };
+
+  return {
+    message: eventData.message,
+    type: exception?.values?.[0]?.type ?? "Error",
+    value: exception?.values?.[0]?.value ?? eventData.message,
+    stack_trace: transformStackFrames(stacktrace?.frames ?? []),
+  };
+}
+
+/**
+ * Classify a stack frame based on path patterns
+ * @pure
+ */
+export function classifyFrame(
+  raw: RawFrame,
+  cleanedPath: string
+): FrameClassification {
+  if (raw.in_app === false) return "third_party";
+  if (NOISE_PATTERNS.NODE_MODULES.test(cleanedPath)) return "third_party";
+  if (USER_CODE_PATTERNS.SRC_DIR.test(cleanedPath)) return "user_code";
+  return "user_code"; // benefit of the doubt
+}
+
+// Composable pipeline
+export const processFrames = (frames: RawFrame[]) =>
+  frames
+    .map(cleanFilePath)
+    .filter(Boolean)
+    .map(classifyFrame);
+```
+
+```typescript
+// ❌ WRONG: Stateless class with unnecessary this
+class FrameClassifier {
+  classify(raw: RawFrame): FrameClassification {
+    // This class has no state, no dependencies, no reason to exist
+    if (raw.in_app === false) return "third_party";
+    // ...
+  }
+}
+```
+
+### TypeScript Pattern: OOP
+
+**When:** Services with dependencies, I/O operations, configuration
+
+```typescript
+// ✅ CORRECT: Class for service with dependencies and I/O
+// src/services/evidence-collector.ts
+
+export class EvidenceCollectorService {
+  private readonly pythonBridge: PythonBridge;
+  private readonly config: EvidenceCollectorConfig;
+
+  constructor(
+    deps: {
+      pythonBridge?: PythonBridge;
+      config?: Partial<EvidenceCollectorConfig>;
+    } = {}
+  ) {
+    this.pythonBridge =
+      deps.pythonBridge ??
+      new PythonBridge({ module: "timeline.reconstructor" });
+    this.config = { ...DEFAULT_EVIDENCE_CONFIG, ...deps.config };
+  }
+
+  async collect(params: CollectEvidenceParams): Promise<EvidenceBundle> {
+    // 1. Use pure functions for transforms
+    const errorInfo = extractErrorInfo(eventData); // ← functional
+    const codeContext = buildCodeContext(codeResults); // ← functional
+
+    // 2. I/O operations stay in the class
+    const recentCommits = await this.fetchRecentCommits(params);
+    const timeline = await this.reconstructTimeline(breadcrumbs);
+
+    // 3. Orchestrate the results
+    return { errorInfo, codeContext, recentCommits, timeline };
+  }
+}
+```
+
+### Python Pattern: Functional
+
+**When:** Rules, analyzers, extractors, validators
+
+```python
+# ✅ CORRECT: Pure functions with constants for metadata
+# python/analyzers/rules/null_access.py
+
+# Constants for rule metadata
+RULE_ID = "null-access"
+RULE_TITLE = "Potential null/undefined property access"
+RULE_SEVERITY = "high"
+RULE_CONFIDENCE = 0.85
+
+def evaluate_null_access(context: AnalysisContext) -> List[Dict[str, Any]]:
+    """
+    Detect potential null/undefined property access patterns.
+
+    @pure - output depends only on input context
+    """
+    findings = []
+
+    if not _matches_null_access_pattern(context.error_message):
+        return findings
+
+    for node in _find_member_access_nodes(context.ast_tree):
+        if _is_unchecked_access(node, context.ast_tree):
+            findings.append(_create_finding(node, context))
+
+    return findings
+
+
+def _matches_null_access_pattern(message: str) -> bool:
+    """Check if error message suggests null access."""
+    return bool(NULL_ACCESS_PATTERN.search(message))
+
+
+def _is_unchecked_access(node: Any, tree: Any) -> bool:
+    """Check if property access lacks null guard."""
+    # Pure logic, no side effects
+    pass
+
+
+# OOP wrapper for backward compatibility only
+class NullAccessRule:
+    """Wrapper class - delegates to pure function."""
+
+    rule_id = RULE_ID
+    title = RULE_TITLE
+
+    def evaluate(self, context: AnalysisContext) -> List[Dict]:
+        return evaluate_null_access(context)
+```
+
+```python
+# ❌ WRONG: Stateless class pretending to be OOP
+class NullAccessRule:
+    rule_id = "null-access"  # This is just a constant
+
+    def evaluate(self, context):
+        # No self usage, pure logic
+        # This should be a function
+        pass
+```
+
+### Python Pattern: OOP
+
+**When:** Services, bridges, integrations
+
+```python
+# ✅ CORRECT: Class for service with state/resources
+# python/llm/orchestrator.py
+
+class RCAOrchestrator:
+    """LLM orchestration service with configuration and clients."""
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.1,
+        client: Optional[OpenAI] = None,
+    ):
+        self.model = model
+        self.temperature = temperature
+        self.client = client or OpenAI()
+        self._request_count = 0  # Stateful
+
+    async def generate_rca(self, evidence: EvidenceBundle) -> RCAResult:
+        # Uses instance state
+        prompt = build_prompt(evidence)  # ← Pure function
+        response = await self.client.chat.completions.create(...)
+        self._request_count += 1
+        return validate_and_transform(response)  # ← Pure function
+```
+
+### Hybrid Pattern: Service + Functions
+
+The recommended pattern for complex modules:
+
+```typescript
+// evidence-transforms.ts - Pure functions
+export function extractErrorInfo(data: EventData): ErrorInfo { ... }
+export function buildCodeContext(results: CodeFetchResult[]): CodeContext { ... }
+export function transformCommit(commit: GitHubCommit): CommitInfo { ... }
+
+// evidence-collector.ts - Service that orchestrates
+export class EvidenceCollectorService {
+  async collect(params: Params): Promise<Bundle> {
+    // Use pure functions for transforms
+    const error = extractErrorInfo(data);
+    const code = buildCodeContext(results);
+
+    // Keep I/O in the service
+    const commits = await this.fetchCommits();
+
+    return { error, code, commits };
+  }
+}
+```
+
+### Quick Reference Checklist
+
+Before writing a new module, ask:
+
+1. **Does it have dependencies that need injection?** → OOP
+2. **Does it manage external resources (DB, API, files)?** → OOP
+3. **Does it need configuration that varies?** → OOP
+4. **Is it a pure transformation (input → output)?** → Functional
+5. **Can it be tested without mocks?** → Functional
+6. **Will it be composed in pipelines?** → Functional
+
+### File Naming Convention
+
+```
+src/services/
+├── evidence-collector.ts      # OOP service
+├── evidence-transforms.ts     # Pure functions
+├── github.ts                  # OOP integration
+├── github-utils.ts            # Pure functions (if needed)
+├── event-extractor/
+│   ├── deterministic-extractor.ts  # Exports pure functions + OOP wrapper
+│   └── extraction-validator.ts     # Pure functions
+```
+
+---
 
 ## Multi-Tenancy is Non-Negotiable
 
@@ -80,7 +387,7 @@ await db.query("SET LOCAL app.current_org_id = $1", [orgId]);
 // ALWAYS check before expensive operations
 const limits = RATE_LIMITS[org.plan];
 if (usage.llm_tokens_today > limits.llm_tokens_per_day) {
-    throw new QuotaExceededError();
+  throw new QuotaExceededError();
 }
 ```
 
@@ -105,7 +412,7 @@ if (cached) return JSON.parse(cached);
 // 2. S3 (warm, 7 days, gzipped)
 const s3File = await s3.getObject(`cache/${orgId}/${repo}/${sha}/${path}`);
 if (s3File) {
-    /* decompress, cache in Redis, return */
+  /* decompress, cache in Redis, return */
 }
 
 // 3. Fetch from GitHub API (LAST RESORT)
@@ -146,10 +453,10 @@ class RCAOrchestrator:
 
 **Guardrails:**
 
--   Schema validation (jsonschema)
--   Evidence verification (every claim must reference actual data)
--   Confidence thresholds (if < 0.7, queue for human review)
--   Deterministic fallback (if LLM fails, return findings-only RCA)
+- Schema validation (jsonschema)
+- Evidence verification (every claim must reference actual data)
+- Confidence thresholds (if < 0.7, queue for human review)
+- Deterministic fallback (if LLM fails, return findings-only RCA)
 
 ## Source Maps are Required (Week 2)
 
@@ -244,21 +551,21 @@ Run nightly to catch regressions. Target: >70% accuracy in Phase 1, >80% in Phas
 
 ## Key Files to Reference
 
--   `Buglens Architecture UPDATED.md` - Complete system architecture, integration flow
--   `Buglens Roadmap Phase 1 (Week 1-6).md` - Detailed week-by-week implementation plan
--   `Buglens Roadmap Phase 2 (Week 7-12).md` - Evaluation, monitoring, enterprise features
--   `buglens llm architecture UPDATED.md` - LLM strategy, prompt engineering, cost model
--   `buglens_prd.md` - Product requirements, success metrics
--   `Founders note.md` - Critical cost/scale insights (GitHub rate limits, LLM costs, uneven traffic)
+- `Buglens Architecture UPDATED.md` - Complete system architecture, integration flow
+- `Buglens Roadmap Phase 1 (Week 1-6).md` - Detailed week-by-week implementation plan
+- `Buglens Roadmap Phase 2 (Week 7-12).md` - Evaluation, monitoring, enterprise features
+- `buglens llm architecture UPDATED.md` - LLM strategy, prompt engineering, cost model
+- `buglens_prd.md` - Product requirements, success metrics
+- `Founders note.md` - Critical cost/scale insights (GitHub rate limits, LLM costs, uneven traffic)
 
 ## Success Metrics (Phase 1 Complete)
 
--   End-to-end latency: <45s P95
--   Job success rate: >90%
--   Cache hit rate: >75%
--   Cost per RCA: <$0.15
--   RCA accuracy: >70%
--   Multi-tenant isolation verified (10+ orgs)
+- End-to-end latency: <45s P95
+- Job success rate: >90%
+- Cache hit rate: >75%
+- Cost per RCA: <$0.15
+- RCA accuracy: >70%
+- Multi-tenant isolation verified (10+ orgs)
 
 ## When Implementing
 
@@ -297,7 +604,8 @@ Before outputting code, verify:
 
 4.  **Safety:** Are there any `eval()` calls or unsafe regex? (Reject them).
 
-------
+---
+
 ### TypeScript Standards
 
 1.  **Strict Typing:** `noImplicitAny` is ON. Do not use `any`. Use `unknown` with type guards if necessary.
@@ -309,7 +617,9 @@ Before outputting code, verify:
 4.  **Environment Variables:** Use `dotenv` and validate with `zod` at startup.
 5.  **Database Access:** Use parameterized queries to prevent SQL injection.
 6.  **Security:** Sanitize all inputs. Use libraries like `xss` for HTML content.
+
 ### Python Standards
+
 1.  **Type Hints:** Use type hints for all functions and methods.
 2.  **Error Handling:** Use try/except blocks. Log errors with structured logging (e.g., `structlog`).
 3.  **Async Operations:** Use `asyncio` for I/O-bound operations.
@@ -321,6 +631,7 @@ After every week:
 I need a full technical review of this codebase with the rigor of a senior staff engineer performing a pre-production audit.
 
 Your tasks:
+
 1. Map the overall architecture: modules, data flow, responsibilities, external dependencies, and coupling points.
 2. Identify hidden complexity, unnecessary abstractions, duplicated logic, or brittle areas that will fail under scale or change.
 3. Evaluate code quality: readability, clarity, naming, documentation gaps, testing coverage, error handling, and type safety.
@@ -332,13 +643,12 @@ Your tasks:
 9. Surface any discrepancies between intended design and actual implementation.
 
 Deliver:
+
 - A concise architecture overview.
 - A prioritized list of issues with severity and rationale.
 - Specific, implementable fixes (not abstract “improve X” suggestions).
 - A short “technical debt roadmap” ordered by ROI.
 
 Ask clarifying questions only if absolutely required to complete the audit.
-
-
 
 Acknowledgement: If you understand these instructions, respond only with: "Buglens Architect Online. Deterministic protocols active. 3-Tier Cache and Cost Controls engaged."

@@ -16,6 +16,8 @@ import {
   type RepoReference,
 } from "./analyzer-utils.js";
 import { enqueueEvidenceAssembly } from "../workers/queues/evidence.js";
+import { ExtractionPipeline } from "./event-extractor/extraction-pipeline.js";
+import type { ExtractionResult } from "../types/extraction.js";
 
 interface JobRow {
   id: string;
@@ -35,24 +37,54 @@ interface RepoRecord {
 export class DeterministicAnalyzerService {
   private readonly codeFetcher: CodeFetcherService;
   private readonly pythonBridge: PythonBridge;
+  private readonly extractionPipeline: ExtractionPipeline;
 
   constructor(
     deps: {
       codeFetcher?: CodeFetcherService;
       pythonBridge?: PythonBridge;
+      extractionPipeline?: ExtractionPipeline;
     } = {}
   ) {
     this.codeFetcher = deps.codeFetcher ?? codeFetcherService;
     this.pythonBridge =
       deps.pythonBridge ??
       new PythonBridge({ module: "analyzers.js_analyzer" });
+    this.extractionPipeline =
+      deps.extractionPipeline ?? new ExtractionPipeline();
   }
 
   async process(job: DeterministicAnalyzerJobData): Promise<void> {
     try {
       const jobRow = await this.loadJob(job);
+
+      // =================================================================
+      // RUN EXTRACTION PIPELINE (3-stage hybrid extraction)
+      // =================================================================
+      const extractionResult = await this.runExtractionPipeline(job, jobRow);
+
+      // Persist extraction results for later use
+      await this.persistExtractionResult(job, extractionResult);
+
+      // If extraction failed to find usable data, we can still try legacy flow
+      if (!extractionResult.is_complete) {
+        logger.warn(
+          {
+            jobId: job.jobId,
+            extractionId: extractionResult.extraction_id,
+            issues: extractionResult.issues,
+            confidence: extractionResult.confidence,
+          },
+          "Extraction incomplete - attempting legacy flow"
+        );
+      }
+
       await this.markFetchingCode(job);
-      const requestPayload = await this.prepareAnalyzerRequest(job, jobRow);
+      const requestPayload = await this.prepareAnalyzerRequest(
+        job,
+        jobRow,
+        extractionResult
+      );
 
       // If no user code to analyze, skip Python analyzer and mark complete
       if (requestPayload.metadata?.no_user_code) {
@@ -108,6 +140,43 @@ export class DeterministicAnalyzerService {
     }
   }
 
+  /**
+   * Run the 3-stage hybrid extraction pipeline
+   */
+  private async runExtractionPipeline(
+    job: DeterministicAnalyzerJobData,
+    jobRow: JobRow
+  ): Promise<ExtractionResult> {
+    logger.info(
+      { jobId: job.jobId, eventId: jobRow.event_id },
+      "Running extraction pipeline"
+    );
+
+    return this.extractionPipeline.extract(
+      jobRow.event_id,
+      job.orgId,
+      jobRow.raw_payload
+    );
+  }
+
+  /**
+   * Persist extraction results to the rca_jobs table
+   */
+  private async persistExtractionResult(
+    job: DeterministicAnalyzerJobData,
+    result: ExtractionResult
+  ): Promise<void> {
+    await transaction(job.orgId, async (client) => {
+      await client.query(
+        `UPDATE rca_jobs
+         SET extraction_result = $1::jsonb,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [JSON.stringify(result), job.jobId]
+      );
+    });
+  }
+
   private async loadJob(job: DeterministicAnalyzerJobData): Promise<JobRow> {
     return transaction(job.orgId, async (client) => {
       const result = await client.query<JobRow>(
@@ -129,8 +198,15 @@ export class DeterministicAnalyzerService {
 
   private async prepareAnalyzerRequest(
     job: DeterministicAnalyzerJobData,
-    jobRow: JobRow
+    jobRow: JobRow,
+    extractionResult?: ExtractionResult
   ): Promise<AnalyzerRequestPayload> {
+    // Use extraction result if available and complete
+    if (extractionResult?.is_complete && extractionResult.repo) {
+      return this.prepareFromExtractionResult(job, jobRow, extractionResult);
+    }
+
+    // Fall back to legacy extraction
     const frames = this.extractStackFrames(jobRow);
     if (frames.length === 0) {
       throw new Error("Missing stack frames for event");
@@ -256,6 +332,148 @@ export class DeterministicAnalyzerService {
     };
 
     return requestPayload;
+  }
+
+  /**
+   * Prepare analyzer request using extraction pipeline results
+   * This is the preferred path when extraction succeeds
+   */
+  private async prepareFromExtractionResult(
+    job: DeterministicAnalyzerJobData,
+    _jobRow: JobRow, // Kept for interface consistency, may be used for fallback
+    extractionResult: ExtractionResult
+  ): Promise<AnalyzerRequestPayload> {
+    logger.info(
+      {
+        jobId: job.jobId,
+        extractionId: extractionResult.extraction_id,
+        repo: extractionResult.repo,
+        framesCount: extractionResult.frames.length,
+        confidence: extractionResult.confidence,
+      },
+      "Preparing analyzer request from extraction result"
+    );
+
+    // Get user_code frames for analysis
+    const userFrames = extractionResult.frames.filter(
+      (f) => f.classification === "user_code"
+    );
+
+    if (userFrames.length === 0) {
+      // No user code found in extraction
+      return {
+        org_id: job.orgId,
+        repo: extractionResult.repo!,
+        commit_sha:
+          extractionResult.commit_sha ?? extractionResult.branch ?? "main",
+        frames: extractionResult.frames.map((frame) => ({
+          file_path: frame.file_path,
+          line_number: frame.line_number,
+          column_number: frame.column_number,
+          function: frame.function_name ?? null,
+        })),
+        code_segments: [],
+        metadata: {
+          no_user_code: true,
+          reason: "No user code frames identified by extraction pipeline",
+          extraction_id: extractionResult.extraction_id,
+        },
+      } as AnalyzerRequestPayload;
+    }
+
+    // Load repository for code fetching
+    const repoRecord = await this.loadRepository(job, extractionResult.repo!);
+    if (!repoRecord.installation_id) {
+      throw new Error("Repository missing GitHub installation id");
+    }
+
+    const commitRef =
+      extractionResult.commit_sha ?? repoRecord.default_branch ?? "main";
+
+    // Fetch code for user frames
+    const codeSegments = [];
+    const framesToAnalyze = userFrames.slice(0, 3); // Analyze top 3 user frames
+
+    for (const frame of framesToAnalyze) {
+      // Convert ExtractedFrame to StackFrame for code fetcher
+      const stackFrame: StackFrame = {
+        filename: frame.file_path,
+        abs_path: frame.abs_path ?? null,
+        lineno: frame.line_number,
+        colno: frame.column_number ?? null,
+        function: frame.function_name ?? null,
+        context_line: frame.context_line ?? null,
+        pre_context: null,
+        post_context: null,
+        in_app: frame.classification === "user_code",
+      };
+
+      const result = await this.codeFetcher.fetchCodeForFrame(stackFrame, {
+        orgId: job.orgId,
+        installationId: repoRecord.installation_id,
+        repo: repoRecord.full_name,
+        ref: commitRef,
+      });
+
+      if (result) {
+        codeSegments.push({
+          file_path: result.file.path,
+          language: result.file.language ?? "text",
+          content: result.file.content,
+          error_line: frame.line_number,
+          error_column: frame.column_number,
+        });
+      } else if (frame.context_line) {
+        // Fall back to embedded context from Sentry
+        codeSegments.push({
+          file_path: frame.file_path,
+          language: this.inferLanguageFromPath(frame.file_path),
+          content: frame.context_line,
+          error_line: frame.line_number,
+          error_column: frame.column_number,
+        });
+      }
+    }
+
+    if (codeSegments.length === 0) {
+      throw new Error("Unable to collect code contexts for extracted frames");
+    }
+
+    return {
+      org_id: job.orgId,
+      repo: extractionResult.repo!,
+      commit_sha: commitRef,
+      frames: framesToAnalyze.map((frame) => ({
+        file_path: frame.file_path,
+        line_number: frame.line_number,
+        column_number: frame.column_number,
+        function: frame.function_name ?? null,
+      })),
+      code_segments: codeSegments,
+      metadata: {
+        extraction_id: extractionResult.extraction_id,
+        extraction_confidence: extractionResult.confidence,
+      },
+    } as AnalyzerRequestPayload;
+  }
+
+  /**
+   * Infer language from file path extension
+   */
+  private inferLanguageFromPath(filePath: string): string {
+    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    const extMap: Record<string, string> = {
+      js: "javascript",
+      jsx: "javascript",
+      ts: "typescript",
+      tsx: "typescript",
+      py: "python",
+      rb: "ruby",
+      go: "go",
+      rs: "rust",
+      java: "java",
+    };
+    return extMap[ext] ?? "text";
   }
 
   private shouldAttemptRepoFetch(frame: StackFrame): boolean {

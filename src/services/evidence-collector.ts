@@ -14,24 +14,26 @@ import {
   GitHubRateLimitError,
 } from "./github.js";
 import { PythonBridge } from "./python-bridge.js";
-import type { GitHubCommit } from "../types/github.js";
-import type {
-  AnalyzerResult,
-  DeterministicFinding,
-} from "../types/analyzer.js";
+import type { AnalyzerResult } from "../types/analyzer.js";
 import {
   type EvidenceBundle,
   type CommitInfo,
-  type ErrorInfo,
-  type CodeContext,
   type Timeline,
-  type TimelineStep,
-  type EnvironmentContext,
   type EvidenceStorageRef,
   type EvidenceCollectorConfig,
   DEFAULT_EVIDENCE_CONFIG,
   evidenceBundleSchema,
 } from "../types/evidence.js";
+// Import pure transform functions (functional paradigm)
+import {
+  extractErrorInfo,
+  buildCodeContext,
+  transformCommit,
+  extractEnvironmentContext,
+  extractDeterministicFindings,
+  determineCodeFetchSource,
+  buildFallbackTimeline,
+} from "./evidence-transforms.js";
 
 // ============================================
 // S3 Client for Evidence Storage
@@ -156,6 +158,9 @@ export class EvidenceCollectorService {
 
   /**
    * Collect all evidence for an RCA job
+   *
+   * This method orchestrates the evidence collection process using pure
+   * transform functions from evidence-transforms.ts for all stateless operations.
    */
   async collect(
     params: CollectEvidenceParams,
@@ -171,34 +176,33 @@ export class EvidenceCollectorService {
       "Starting evidence collection"
     );
 
-    // 1. Extract error info from event
-    const errorInfo = this.extractErrorInfo(eventData);
+    // 1. Extract error info from event (pure function)
+    const errorInfo = extractErrorInfo(eventData);
 
-    // 2. Build code context from fetched code
-    const codeContext = this.buildCodeContext(
+    // 2. Build code context from fetched code (pure function)
+    const codeContext = buildCodeContext(
       codeResults,
       params.repo,
       params.commitSha
     );
 
-    // 3. Get recent commits for the error file
+    // 3. Get recent commits for the error file (async I/O operation)
     const recentCommits = await this.fetchRecentCommits(
       params,
       codeContext.primary?.file_path ?? null
     );
 
-    // 4. Reconstruct timeline from breadcrumbs
+    // 4. Reconstruct timeline from breadcrumbs (async - may call Python)
     const timeline = await this.reconstructTimeline(eventData.breadcrumbs);
 
-    // 5. Extract environment context
-    const environmentContext = this.extractEnvironmentContext(eventData);
+    // 5. Extract environment context (pure function)
+    const environmentContext = extractEnvironmentContext(eventData);
 
-    // 6. Extract deterministic findings
-    const deterministicFindings =
-      this.extractDeterministicFindings(analyzerResult);
+    // 6. Extract deterministic findings (pure function)
+    const deterministicFindings = extractDeterministicFindings(analyzerResult);
 
-    // 7. Determine code fetch source
-    const codeFetchSource = this.determineCodeFetchSource(codeResults);
+    // 7. Determine code fetch source (pure function)
+    const codeFetchSource = determineCodeFetchSource(codeResults);
 
     // Build the complete evidence bundle
     const bundle: EvidenceBundle = {
@@ -352,86 +356,13 @@ export class EvidenceCollectorService {
   }
 
   // ============================================
-  // Private Helper Methods
+  // Private Helper Methods (I/O operations only)
   // ============================================
 
-  private extractErrorInfo(eventData: EventData): ErrorInfo {
-    const rawPayload = eventData.raw_payload as Record<string, unknown> | null;
-    const exception = rawPayload?.exception as
-      | {
-          values?: Array<{
-            type?: string;
-            value?: string;
-            stacktrace?: unknown;
-          }>;
-        }
-      | undefined;
-
-    const primaryException = exception?.values?.[0];
-    const stacktrace = eventData.stack_trace as
-      | { frames?: Array<unknown> }
-      | undefined;
-
-    const frames = (stacktrace?.frames ?? []) as Array<{
-      filename?: string;
-      lineno?: number;
-      colno?: number;
-      function?: string;
-      in_app?: boolean;
-    }>;
-
-    return {
-      message: eventData.message,
-      type: primaryException?.type ?? "Error",
-      value: primaryException?.value ?? eventData.message,
-      stack_trace: frames.map((frame) => ({
-        file: frame.filename ?? "unknown",
-        line: frame.lineno ?? null,
-        column: frame.colno ?? null,
-        function: frame.function ?? null,
-        in_app: frame.in_app ?? true,
-      })),
-    };
-  }
-
-  private buildCodeContext(
-    codeResults: CodeFetchResult[],
-    repo: string,
-    commitSha: string | null
-  ): {
-    primary: CodeContext | null;
-    related: CodeContext[];
-    repo: string;
-    commit_sha: string | null;
-  } {
-    if (codeResults.length === 0) {
-      return {
-        primary: null,
-        related: [],
-        repo,
-        commit_sha: commitSha,
-      };
-    }
-
-    const toCodeContext = (result: CodeFetchResult): CodeContext => ({
-      file_path: result.file.path,
-      line_number: result.context.line_number,
-      column_number: result.context.column_number,
-      snippet: result.file.content,
-      snippet_start_line: result.context.snippet_start,
-      snippet_end_line: result.context.snippet_end,
-      language: result.file.language ?? "text",
-      source_map_resolved: result.context.source_map_resolved,
-    });
-
-    return {
-      primary: toCodeContext(codeResults[0]),
-      related: codeResults.slice(1).map(toCodeContext),
-      repo,
-      commit_sha: commitSha,
-    };
-  }
-
+  /**
+   * Fetch recent commits from GitHub for a file path
+   * Note: This method handles I/O and delegates to pure transforms
+   */
   private async fetchRecentCommits(
     params: CollectEvidenceParams,
     filePath: string | null
@@ -455,7 +386,8 @@ export class EvidenceCollectorService {
         params.orgId
       );
 
-      return commits.map((commit) => this.transformCommit(commit));
+      // Use pure transform function
+      return commits.map(transformCommit);
     } catch (error) {
       if (error instanceof GitHubRateLimitError) {
         logger.warn(
@@ -469,24 +401,10 @@ export class EvidenceCollectorService {
     }
   }
 
-  private transformCommit(commit: GitHubCommit): CommitInfo {
-    return {
-      sha: commit.sha,
-      short_sha: commit.sha.slice(0, 7),
-      message: commit.commit.message,
-      author: {
-        name: commit.commit.author.name,
-        email: commit.commit.author.email,
-        date: commit.commit.author.date,
-        github_username: commit.author?.login ?? null,
-      },
-      url: commit.html_url,
-      files_changed: undefined, // Would require additional API call
-      additions: undefined,
-      deletions: undefined,
-    };
-  }
-
+  /**
+   * Reconstruct timeline from breadcrumbs
+   * Note: Attempts Python bridge, falls back to pure function
+   */
   private async reconstructTimeline(
     breadcrumbs: unknown
   ): Promise<Timeline | null> {
@@ -518,211 +436,9 @@ export class EvidenceCollectorService {
       return result;
     } catch (error) {
       logger.error({ error }, "Timeline reconstruction failed, using fallback");
-      // Fallback: basic timeline without anomaly detection
-      return this.buildFallbackTimeline(breadcrumbs);
+      // Fallback: use pure function for basic timeline
+      return buildFallbackTimeline(breadcrumbs, this.config.maxTimelineSteps);
     }
-  }
-
-  private buildFallbackTimeline(breadcrumbs: unknown[]): Timeline {
-    const steps: TimelineStep[] = [];
-    let httpRequests = 0;
-    let errorsBefore = 0;
-
-    for (const crumb of breadcrumbs.slice(0, this.config.maxTimelineSteps)) {
-      const bc = crumb as Record<string, unknown>;
-      const timestamp = bc.timestamp as string | number | undefined;
-      const timestampMs =
-        typeof timestamp === "number"
-          ? timestamp * 1000
-          : timestamp
-            ? new Date(timestamp).getTime()
-            : Date.now();
-
-      const type = this.mapBreadcrumbType(bc.type as string | undefined);
-      const level = this.mapBreadcrumbLevel(bc.level as string | undefined);
-
-      if (type === "http") httpRequests++;
-      if (level === "error" || level === "fatal") errorsBefore++;
-
-      steps.push({
-        timestamp: new Date(timestampMs).toISOString(),
-        timestamp_ms: timestampMs,
-        type,
-        category: bc.category as string | undefined,
-        message: (bc.message as string) ?? "",
-        data: bc.data as Record<string, unknown> | undefined,
-        level,
-        is_anomaly: false,
-      });
-    }
-
-    const timestamps = steps.map((s) => s.timestamp_ms).sort((a, b) => a - b);
-
-    // Guard against empty array to prevent NaN in duration calculation
-    const firstTs = timestamps[0] ?? 0;
-    const lastTs = timestamps[timestamps.length - 1] ?? 0;
-    const durationMs = timestamps.length > 0 ? lastTs - firstTs : 0;
-
-    return {
-      steps,
-      anomalies_count: 0,
-      duration_ms: durationMs,
-      first_timestamp: steps[0]?.timestamp ?? null,
-      last_timestamp: steps[steps.length - 1]?.timestamp ?? null,
-      http_requests: httpRequests,
-      errors_before_crash: errorsBefore,
-    };
-  }
-
-  private mapBreadcrumbType(type: string | undefined): TimelineStep["type"] {
-    const typeMap: Record<string, TimelineStep["type"]> = {
-      navigation: "navigation",
-      http: "http",
-      fetch: "http",
-      xhr: "http",
-      console: "console",
-      ui: "ui",
-      click: "ui",
-      input: "ui",
-      user: "user",
-      error: "error",
-      debug: "debug",
-      query: "query",
-      transaction: "transaction",
-    };
-    return typeMap[type ?? ""] ?? "default";
-  }
-
-  private mapBreadcrumbLevel(level: string | undefined): TimelineStep["level"] {
-    const levelMap: Record<string, TimelineStep["level"]> = {
-      debug: "debug",
-      info: "info",
-      warning: "warning",
-      warn: "warning",
-      error: "error",
-      fatal: "fatal",
-      critical: "fatal",
-    };
-    return levelMap[level ?? ""] ?? "info";
-  }
-
-  private extractEnvironmentContext(eventData: EventData): EnvironmentContext {
-    const context = eventData.context as Record<string, unknown> | null;
-    const rawPayload = eventData.raw_payload as Record<string, unknown> | null;
-    const contexts = (context?.contexts ?? rawPayload?.contexts) as
-      | Record<string, unknown>
-      | undefined;
-    const tags = (context?.tags ?? rawPayload?.tags) as
-      | Record<string, string>
-      | undefined;
-
-    const browser = contexts?.browser as
-      | { name?: string; version?: string }
-      | undefined;
-    const os = contexts?.os as { name?: string; version?: string } | undefined;
-    const device = contexts?.device as
-      | { family?: string; model?: string }
-      | undefined;
-    const runtime = contexts?.runtime as
-      | { name?: string; version?: string }
-      | undefined;
-
-    const request = (context?.request ?? rawPayload?.request) as
-      | { headers?: Record<string, string> }
-      | undefined;
-    const userAgent = request?.headers?.["User-Agent"] ?? null;
-
-    const sdk = rawPayload?.sdk as
-      | { name?: string; version?: string }
-      | undefined;
-
-    return {
-      environment: eventData.environment,
-      release: eventData.release,
-      server_name: (rawPayload?.server_name as string) ?? null,
-      user_agent: userAgent,
-      browser: browser
-        ? { name: browser.name ?? null, version: browser.version ?? null }
-        : null,
-      os: os ? { name: os.name ?? null, version: os.version ?? null } : null,
-      device: device
-        ? { family: device.family ?? null, model: device.model ?? null }
-        : null,
-      runtime: runtime
-        ? { name: runtime.name ?? null, version: runtime.version ?? null }
-        : null,
-      sdk: sdk
-        ? { name: sdk.name ?? null, version: sdk.version ?? null }
-        : null,
-      tags: tags ?? {},
-    };
-  }
-
-  private extractDeterministicFindings(
-    analyzerResult: AnalyzerResult | null
-  ): DeterministicFinding[] {
-    if (!analyzerResult) {
-      return [];
-    }
-
-    return analyzerResult.findings.map((finding) => ({
-      id: finding.id,
-      title: finding.title,
-      severity: finding.severity,
-      confidence: finding.confidence,
-      message: finding.message,
-      evidence: {
-        file_path: finding.evidence.file_path,
-        line_number: finding.evidence.line_number,
-        column_number: finding.evidence.column_number,
-        snippet: finding.evidence.snippet,
-        snippet_start_line: finding.evidence.snippet_start_line,
-        snippet_end_line: finding.evidence.snippet_end_line,
-        language: finding.evidence.language,
-      },
-      metadata: finding.metadata,
-    }));
-  }
-
-  private determineCodeFetchSource(
-    codeResults: CodeFetchResult[]
-  ): "github" | "redis_cache" | "s3_cache" | "embedded" | null {
-    if (codeResults.length === 0) {
-      return null;
-    }
-
-    // Track actual source from code results for cache hit metrics
-    // Architecture requires >75% cache hit rate - need granular tracking
-    const sources = codeResults
-      .map((r) => r.source)
-      .filter((s): s is NonNullable<typeof s> => s !== undefined);
-
-    if (sources.length === 0) {
-      // Fallback for results without source tracking (tech debt)
-      logger.debug(
-        { resultsCount: codeResults.length },
-        "Code results missing source field - cannot determine cache hit rate"
-      );
-      return "github"; // Conservative assumption
-    }
-
-    // Prioritize: if any came from GitHub, report github (worst case for metrics)
-    // This incentivizes improving cache hit rate
-    if (sources.includes("github")) {
-      return "github";
-    }
-    // Preserve granular cache source for metrics
-    if (sources.includes("s3_cache")) {
-      return "s3_cache";
-    }
-    if (sources.includes("redis_cache")) {
-      return "redis_cache";
-    }
-    if (sources.includes("embedded")) {
-      return "embedded";
-    }
-
-    return "github";
   }
 }
 
