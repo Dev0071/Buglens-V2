@@ -692,8 +692,9 @@ export class DeterministicAnalyzerService {
         "Using single registered repo as fallback"
       );
       // Use the release field as commit SHA if it looks like a SHA
+      // Note: jobRow.release can be null, but RepoReference.commitSha expects undefined
       const commitSha = this.isValidCommitSha(jobRow.release)
-        ? jobRow.release
+        ? (jobRow.release ?? undefined)
         : undefined;
       return {
         repoFullName: fallbackRepo.repoFullName,

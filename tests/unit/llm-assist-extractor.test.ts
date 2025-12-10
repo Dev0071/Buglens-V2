@@ -4,7 +4,6 @@ import { PythonBridge } from "../../src/services/python-bridge.js";
 import type {
   DeterministicExtractorOutput,
   ExtractedFrame,
-  LLMAssistTask,
 } from "../../src/types/extraction.js";
 
 // Mock the PythonBridge

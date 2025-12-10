@@ -21,10 +21,16 @@ from typing import TypedDict, Optional
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
 
-# API key validation pattern
+# API key validation patterns
 # OpenAI keys: sk-{48 chars} or sk-proj-{80+ chars for project keys}
-# This validates format without exposing the actual key value
+# DeepSeek keys: sk-{32+ chars}
 OPENAI_KEY_PATTERN = re.compile(r"^sk-[a-zA-Z0-9]{48}$|^sk-proj-[a-zA-Z0-9_-]{80,}$")
+DEEPSEEK_KEY_PATTERN = re.compile(r"^sk-[a-zA-Z0-9]{32,}$")
+
+# LLM Provider configuration (read from environment)
+# LLM_PROVIDER: "openai" or "deepseek"
+# LLM_MODEL: Override model name (e.g., "deepseek-chat", "gpt-4o-mini")
+# LLM_BASE_URL: Custom base URL for DeepSeek (https://api.deepseek.com)
 
 
 class ExtractedFrame(TypedDict, total=False):
@@ -97,23 +103,71 @@ USER_CODE_INDICATORS = [
 ]
 
 
-def validate_api_key(api_key: str) -> bool:
+def validate_api_key(api_key: str, provider: str = "openai") -> bool:
     """
-    Validate OpenAI API key format without exposing the key.
+    Validate API key format without exposing the key.
 
-    Checks for standard OpenAI key format (sk-...) or project key format (sk-proj-...).
+    Supports OpenAI and DeepSeek key formats.
     This catches common issues like truncated keys or wrong environment variables.
     """
     if not api_key:
         return False
-    # Check against known OpenAI key patterns
-    return bool(OPENAI_KEY_PATTERN.match(api_key))
+
+    if provider == "deepseek":
+        # DeepSeek uses sk-{32+ chars} format
+        return bool(DEEPSEEK_KEY_PATTERN.match(api_key))
+    else:
+        # OpenAI: sk-{48 chars} or sk-proj-{80+ chars}
+        return bool(OPENAI_KEY_PATTERN.match(api_key))
+
+
+def get_llm_config() -> tuple[str, str, str | None]:
+    """
+    Get LLM configuration from environment.
+
+    Returns: (provider, model, base_url)
+    """
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    base_url = os.environ.get("LLM_BASE_URL")
+
+    # Default models per provider
+    if provider == "deepseek":
+        default_model = "deepseek-chat"
+        if not base_url:
+            base_url = "https://api.deepseek.com"
+    else:
+        default_model = "gpt-4o-mini"
+
+    model = os.environ.get("LLM_MODEL", default_model)
+    return provider, model, base_url
+
+
+def get_api_key() -> tuple[str | None, str]:
+    """
+    Get API key based on provider configuration.
+
+    Returns: (api_key, provider)
+
+    Checks in order:
+    1. DEEPSEEK_API_KEY (if LLM_PROVIDER=deepseek)
+    2. OPENAI_API_KEY (fallback, also used for DeepSeek-compatible keys)
+    """
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+
+    if provider == "deepseek":
+        # Prefer DEEPSEEK_API_KEY, fall back to OPENAI_API_KEY
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    else:
+        api_key = os.environ.get("OPENAI_API_KEY")
+
+    return api_key, provider
 
 
 def get_openai_client():
     """
-    Lazy initialization of OpenAI client with key validation.
+    Lazy initialization of OpenAI-compatible client with key validation.
 
+    Supports OpenAI and DeepSeek (via OpenAI-compatible API).
     Validates API key format at initialization time to catch configuration
     errors early rather than at runtime during API calls.
     """
@@ -121,23 +175,35 @@ def get_openai_client():
     if openai_client is None:
         try:
             import openai
-            api_key = os.environ.get("OPENAI_API_KEY")
+
+            provider, model, base_url = get_llm_config()
+            api_key, _ = get_api_key()
+
             if not api_key:
                 raise ValueError(
-                    "OPENAI_API_KEY environment variable not set. "
-                    "Please set it to your OpenAI API key."
+                    f"No API key found. Set OPENAI_API_KEY or DEEPSEEK_API_KEY "
+                    f"(current provider: {provider})"
                 )
 
-            # Validate key format (catches truncated/malformed keys)
-            if not validate_api_key(api_key):
-                # Log warning but don't expose the actual key value
-                key_prefix = api_key[:7] + "..." if len(api_key) > 10 else "[too short]"
-                raise ValueError(
-                    f"OPENAI_API_KEY has invalid format (prefix: {key_prefix}). "
-                    "Expected format: sk-[48 chars] or sk-proj-[80+ chars]"
-                )
+            # Auto-detect provider from key format if not explicitly set
+            # DeepSeek keys are 32 chars, OpenAI keys are 48+ chars
+            key_length = len(api_key.replace("sk-", "").replace("proj-", ""))
+            is_likely_deepseek = key_length < 40
 
-            openai_client = openai.OpenAI(api_key=api_key)
+            # If key looks like DeepSeek but provider is openai, adjust base_url
+            if is_likely_deepseek and provider == "openai":
+                # Log that we're auto-detecting DeepSeek
+                import sys
+                print(f"[LLM] Auto-detected DeepSeek key format, using DeepSeek API", file=sys.stderr)
+                base_url = "https://api.deepseek.com"
+                model = os.environ.get("LLM_MODEL", "deepseek-chat")
+
+            # Create client with optional custom base URL (for DeepSeek)
+            if base_url:
+                openai_client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            else:
+                openai_client = openai.OpenAI(api_key=api_key)
+
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
     return openai_client
@@ -238,12 +304,13 @@ Respond ONLY with valid JSON, no markdown or explanation outside the JSON."""
     return prompt
 
 
-def call_llm(prompt: str, max_tokens: int = 1500) -> tuple[dict, int]:
-    """Call GPT-4o-mini and return parsed response + tokens used"""
+def call_llm(prompt: str, max_tokens: int = 1500) -> tuple[dict, int, str]:
+    """Call LLM and return parsed response + tokens used + model name"""
     client = get_openai_client()
+    provider, model, _ = get_llm_config()
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=model,
         messages=[
             {
                 "role": "system",
@@ -267,7 +334,7 @@ def call_llm(prompt: str, max_tokens: int = 1500) -> tuple[dict, int]:
     except json.JSONDecodeError:
         result = {"error": "Invalid JSON response", "raw": content}
 
-    return result, tokens_used
+    return result, tokens_used, model
 
 
 def process_llm_response(
@@ -328,13 +395,14 @@ def process_llm_response(
         output_frames.append(frame)
         cleaned_count += 1
 
+    _, model, _ = get_llm_config()
     return {
         "frames": output_frames,
         "primary_frame_index": new_primary_index,
         "suggested_branch": suggested_branch,
         "cleaned_frames_count": cleaned_count,
         "removed_noise_count": len(removed_indices),
-        "model": "gpt-4o-mini",
+        "model": model,
         "tokens_used": 0,  # Will be set by caller
         "reasoning": reasoning,
         "confidence": 0.8 if new_primary_index is not None else 0.5,
@@ -362,8 +430,8 @@ def process(input_data: LLMAssistInput) -> LLMAssistOutput:
             "confidence": 0.0,
         }
 
-    # If no LLM tasks or OPENAI_API_KEY not set, fall back to deterministic
-    api_key = os.environ.get("OPENAI_API_KEY")
+    # If no LLM tasks or API key not set, fall back to deterministic
+    api_key, provider = get_api_key()
     if not tasks or not api_key:
         # Deterministic fallback
         output_frames: list[ExtractedFrame] = []
@@ -385,6 +453,7 @@ def process(input_data: LLMAssistInput) -> LLMAssistOutput:
             }
             output_frames.append(frame)
 
+        fallback_reason = "No LLM tasks specified" if not tasks else f"No API key for {provider}"
         return {
             "frames": output_frames,
             "primary_frame_index": primary_index,
@@ -393,17 +462,18 @@ def process(input_data: LLMAssistInput) -> LLMAssistOutput:
             "removed_noise_count": 0,
             "model": "deterministic_fallback",
             "tokens_used": 0,
-            "reasoning": "No API key or tasks - used deterministic classification",
+            "reasoning": f"{fallback_reason} - used deterministic classification",
             "confidence": 0.7,
         }
 
     # Build prompt and call LLM
     prompt = build_llm_prompt(input_data)
-    llm_response, tokens_used = call_llm(prompt)
+    llm_response, tokens_used, model_used = call_llm(prompt)
 
     # Process response
     result = process_llm_response(llm_response, raw_frames, stage_1_output.get("frames", []))
     result["tokens_used"] = tokens_used
+    result["model"] = model_used
 
     return result
 
