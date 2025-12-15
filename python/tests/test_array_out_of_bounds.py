@@ -9,7 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import pytest
 from analyzers.rules.array_out_of_bounds import (
     RULE_ID,
     RULE_SEVERITY,
