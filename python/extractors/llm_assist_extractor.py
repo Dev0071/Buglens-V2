@@ -17,7 +17,7 @@ import json
 import sys
 import os
 import re
-from typing import TypedDict, Optional, Tuple, List, Dict, Any
+from typing import TypedDict, Optional, Tuple
 
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
