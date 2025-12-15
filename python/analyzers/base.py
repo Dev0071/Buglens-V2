@@ -31,6 +31,11 @@ class AnalysisContext:
   def error_line(self) -> int:
     return self.segment.error_line
 
+  @property
+  def error_message(self) -> str:
+    """Get the error message from metadata."""
+    return self.metadata.get("error_message", "")
+
   def iter_nodes(self, types: Sequence[str]) -> Iterator[Node]:
     wanted = set(types)
     stack: List[Node] = [self.tree.root_node]
@@ -56,33 +61,49 @@ class AnalysisContext:
     return "\n".join(self.lines[start - 1 : end])
 
   def has_guard(self, identifier: str, line_number: int) -> bool:
+    """
+    Check if an identifier is guarded by null checks before the given line.
+
+    Looks for common guard patterns in the lines before the access.
+    """
     if not identifier:
       return False
     root_identifier = re.split(r"[.[]", identifier)[0]
     escaped = re.escape(root_identifier)
     guard_patterns = [
+      # if (x) - truthy check
+      re.compile(rf"if\s*\(\s*{escaped}\s*\)"),
       # if (!x)
       re.compile(rf"if\s*\(\s*!\s*{escaped}\s*\)"),
       # if (x == null) or if (x === null)
       re.compile(rf"if\s*\(\s*{escaped}\s*==+\s*null"),
+      # if (x !== null) or if (x != null)
+      re.compile(rf"if\s*\(\s*{escaped}\s*!==?\s*null"),
       # if (x == undefined) or if (x === undefined)
       re.compile(rf"if\s*\(\s*{escaped}\s*==+\s*undefined"),
+      # if (x !== undefined)
+      re.compile(rf"if\s*\(\s*{escaped}\s*!==?\s*undefined"),
       # if (null == x) or if (undefined == x)
       re.compile(rf"if\s*\(\s*(null|undefined)\s*==+\s*{escaped}"),
       # if (!x || !x.property)
       re.compile(rf"if\s*\(\s*!\s*{escaped}\s*\|\|"),
-      # if (x && x.property)
+      # if (x && x.property) - guard in condition
       re.compile(rf"if\s*\(\s*{escaped}\s*&&"),
       # if (x?.property)
       re.compile(rf"if\s*\(\s*{escaped}\s*\?\.\w+"),
-      # x ?? default
+      # x ?? default (nullish coalescing)
       re.compile(rf"{escaped}\s*\?\?"),
       # typeof x !== 'undefined'
       re.compile(rf"typeof\s+{escaped}\s*!==?\s*['\"]undefined['\"]"),
+      # x && x.property - inline AND guard on same line
+      re.compile(rf"{escaped}\s*&&\s*{escaped}\."),
     ]
 
+    # Check lines BEFORE the access (up to 5 lines back)
     start = max(1, line_number - 5)
-    for idx in range(start - 1, max(0, line_number - 2)):
+    for idx in range(start - 1, line_number):  # Include up to (but not past) line_number
+      if idx >= len(self.lines):
+        break
       line = self.lines[idx].strip()
       if not line:
         continue

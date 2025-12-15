@@ -24,18 +24,42 @@ const REDIS_TTL_SECONDS = 3600; // 1 hour
 // ============================================
 
 let s3Client: S3Client | null = null;
+let s3Disabled = false; // Flag to disable S3 if bucket doesn't exist
 
 /**
  * Check if S3 cache should be used.
  * In development mode without S3_ENDPOINT (LocalStack), skip S3 operations.
+ * Also skip if S3 has been disabled due to missing bucket.
  */
 function shouldUseS3(): boolean {
+  // S3 disabled due to previous error (e.g., bucket doesn't exist)
+  if (s3Disabled) {
+    return false;
+  }
   // In dev mode, only use S3 if LocalStack endpoint is configured
   if (config.NODE_ENV === "development" && !config.S3_ENDPOINT) {
     return false;
   }
   // In production/staging, always use S3
   return true;
+}
+
+/**
+ * Disable S3 cache for this session (e.g., bucket doesn't exist)
+ */
+function disableS3Cache(reason: string): void {
+  if (!s3Disabled) {
+    s3Disabled = true;
+    logger.warn({ reason }, "S3 cache disabled for this session");
+  }
+}
+
+/**
+ * Check if an S3 error indicates the bucket doesn't exist
+ */
+function isBucketMissingError(error: unknown): boolean {
+  const e = error as { name?: string; Code?: string };
+  return e.name === "NoSuchBucket" || e.Code === "NoSuchBucket";
 }
 
 function getS3Client(): S3Client | null {
@@ -194,6 +218,11 @@ export async function getFromS3Cache(
     logger.debug({ key }, "S3 cache hit");
     return { ...cached, cache_source: "s3" };
   } catch (error: unknown) {
+    // Check for missing bucket - disable S3 cache for session
+    if (isBucketMissingError(error)) {
+      disableS3Cache(`Bucket '${config.S3_BUCKET_NAME}' does not exist`);
+      return null;
+    }
     const e = error as {
       name?: string;
       $metadata?: { httpStatusCode: number };
@@ -244,6 +273,11 @@ export async function setInS3Cache(
 
     logger.debug({ key }, "Stored in S3 cache");
   } catch (error) {
+    // Check for missing bucket - disable S3 cache for session
+    if (isBucketMissingError(error)) {
+      disableS3Cache(`Bucket '${config.S3_BUCKET_NAME}' does not exist`);
+      return;
+    }
     logger.error({ error, key }, "Failed to store in S3 cache");
     // Don't throw - S3 cache is non-critical
   }
