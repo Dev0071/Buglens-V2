@@ -9,7 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import pytest
 
 from analyzers.rules.memory_leak import (
     RULE_ID,
