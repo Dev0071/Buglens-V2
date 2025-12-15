@@ -9,7 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import pytest
 
 from analyzers.rules.async_race_condition import (
     RULE_ID,
