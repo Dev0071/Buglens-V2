@@ -820,6 +820,280 @@ Solution:
 
 ---
 
+## Competitive Differentiation Architecture
+
+Buglens differentiates from Sentry Seer through **transparency, trust, and actionable intelligence**. These architectural components implement our competitive advantages:
+
+### 1. Evidence Graph System
+
+**Purpose:** Visualize the chain of causation with full transparency (vs Seer's black-box approach)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Evidence Graph Architecture                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐   │
+│  │ Stack   │────▶│  Code   │────▶│  Git    │────▶│   RCA   │   │
+│  │ Frames  │     │ Context │     │ History │     │ Result  │   │
+│  └─────────┘     └─────────┘     └─────────┘     └─────────┘   │
+│       │               │               │               │         │
+│       │               │               │               │         │
+│       ▼               ▼               ▼               ▼         │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │               Evidence Graph (Cytoscape.js)              │   │
+│  │  • Clickable nodes with source evidence                  │   │
+│  │  • Edge weights = confidence contribution                │   │
+│  │  • Color coding by evidence type                         │   │
+│  │  • Drill-down to raw data                                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Database Schema:**
+
+```sql
+CREATE TABLE evidence_nodes (
+    id UUID PRIMARY KEY,
+    rca_result_id UUID REFERENCES rca_results(id),
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    node_type TEXT NOT NULL,  -- 'stack_frame' | 'code_context' | 'commit' | 'breadcrumb' | 'finding'
+    evidence_data JSONB NOT NULL,
+    confidence_contribution FLOAT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE evidence_edges (
+    id UUID PRIMARY KEY,
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    source_node_id UUID REFERENCES evidence_nodes(id),
+    target_node_id UUID REFERENCES evidence_nodes(id),
+    relationship TEXT NOT NULL,  -- 'caused_by' | 'modified_by' | 'led_to' | 'supports'
+    weight FLOAT DEFAULT 1.0
+);
+```
+
+### 2. Confidence Meter with Explainable Scoring
+
+**Purpose:** Show users exactly WHY we're confident (vs Seer's unexplained confidence)
+
+```typescript
+interface ConfidenceBreakdown {
+  overall: number; // 0.0 - 1.0
+  breakdown: {
+    deterministic_match: number; // AST pattern matched
+    code_context_quality: number; // Source map resolved, code fetched
+    commit_correlation: number; // Recent changes correlated
+    historical_accuracy: number; // Similar bugs correctly identified
+    llm_coherence: number; // LLM explanation consistency
+  };
+  evidence_summary: string[]; // Human-readable reasons
+}
+```
+
+**Confidence Formula:**
+
+```
+overall = (
+    deterministic_match * 0.35 +    // Highest weight - evidence-based
+    code_context_quality * 0.25 +
+    commit_correlation * 0.20 +
+    historical_accuracy * 0.15 +
+    llm_coherence * 0.05            // Lowest weight - least reliable
+)
+```
+
+### 3. Bug Signature Database (Pattern Matching Engine)
+
+**Purpose:** Instant deterministic matches for known bugs (no LLM needed)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Bug Signature Database                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────┐     ┌──────────────┐     ┌─────────────────────┐  │
+│  │ Incoming│────▶│  Signature   │────▶│ Instant RCA         │  │
+│  │  Error  │     │   Matcher    │     │ (Skip LLM)          │  │
+│  └─────────┘     └──────────────┘     └─────────────────────┘  │
+│                         │                                       │
+│                         ▼                                       │
+│                  ┌──────────────┐                               │
+│                  │  No Match    │                               │
+│                  │  ──────────  │                               │
+│                  │  Full RCA    │                               │
+│                  │  Pipeline    │                               │
+│                  └──────────────┘                               │
+│                                                                  │
+│  Signature Types:                                               │
+│  • Error pattern (regex on message + stack)                     │
+│  • Code pattern (AST hash of problematic construct)             │
+│  • Library-specific (known NPM package bugs)                    │
+│  • Framework-specific (React, Next.js common issues)            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Database Schema:**
+
+```sql
+CREATE TABLE bug_signatures (
+    id UUID PRIMARY KEY,
+    org_id UUID REFERENCES organizations(id),  -- NULL = global signatures
+    signature_type TEXT NOT NULL,  -- 'error_pattern' | 'ast_pattern' | 'library' | 'framework'
+    pattern JSONB NOT NULL,
+    root_cause TEXT NOT NULL,
+    suggested_fix TEXT NOT NULL,
+    confidence FLOAT DEFAULT 0.9,
+    hit_count INT DEFAULT 0,
+    last_hit_at TIMESTAMPTZ,
+    created_from_rca_id UUID REFERENCES rca_results(id),  -- Learning from feedback
+    verified BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_signatures_pattern ON bug_signatures USING GIN (pattern);
+```
+
+### 4. RCA Feedback Loop (Learning System)
+
+**Purpose:** Get smarter with every correction (continuous improvement)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Feedback Learning Loop                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐   │
+│  │   RCA   │────▶│  User   │────▶│ Analyze │────▶│  Learn  │   │
+│  │ Result  │     │ Feedback│     │ Feedback│     │ Pattern │   │
+│  └─────────┘     └─────────┘     └─────────┘     └─────────┘   │
+│       ▲                                               │         │
+│       │                                               │         │
+│       │         ┌─────────────────────────────┐       │         │
+│       └─────────│  Bug Signature Database     │◀──────┘         │
+│                 └─────────────────────────────┘                 │
+│                                                                  │
+│  Feedback Types:                                                │
+│  • 👍 Correct - Increases confidence, may generate signature    │
+│  • 👎 Wrong - Flags for review, avoids similar conclusions      │
+│  • 🔧 Partial - User provides correction, learns the delta      │
+│  • 📝 Comment - Free-form annotation for context                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Database Schema:**
+
+```sql
+CREATE TABLE rca_feedback (
+    id UUID PRIMARY KEY,
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    rca_result_id UUID NOT NULL REFERENCES rca_results(id),
+    user_id UUID REFERENCES users(id),
+    feedback_type TEXT NOT NULL,  -- 'correct' | 'wrong' | 'partial' | 'comment'
+    user_correction JSONB,  -- For partial: { root_cause, fix }
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### 5. Blast Radius Analysis
+
+**Purpose:** Show business impact, not just technical details
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Blast Radius Architecture                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Input: Error Event                                             │
+│                                                                  │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐        │
+│  │   Route     │     │   User      │     │   Revenue   │        │
+│  │   Impact    │     │   Impact    │     │   Impact    │        │
+│  └─────────────┘     └─────────────┘     └─────────────┘        │
+│        │                   │                   │                 │
+│        ▼                   ▼                   ▼                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Blast Radius Score                    │    │
+│  │  "This bug affects /checkout (critical path),            │    │
+│  │   ~2,340 users in last 24h, estimated $12,400 GMV"      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Data Sources:**
+
+- Route mapping from stack traces
+- User count from Sentry event metadata
+- Revenue estimation from route criticality tags (user-configured)
+
+### 6. Team Knowledge Graph
+
+**Purpose:** Route RCAs to the right expert automatically
+
+```sql
+CREATE TABLE team_expertise (
+    id UUID PRIMARY KEY,
+    org_id UUID NOT NULL REFERENCES organizations(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    path_pattern TEXT NOT NULL,  -- e.g., "src/payments/*"
+    expertise_score FLOAT DEFAULT 0,
+    bugs_resolved INT DEFAULT 0,
+    last_resolution_at TIMESTAMPTZ,
+    UNIQUE(org_id, user_id, path_pattern)
+);
+
+-- Auto-update when user resolves RCA
+CREATE OR REPLACE FUNCTION update_expertise()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'resolved' AND OLD.status != 'resolved' THEN
+        INSERT INTO team_expertise (org_id, user_id, path_pattern, expertise_score, bugs_resolved)
+        SELECT NEW.org_id, NEW.resolved_by,
+               regexp_replace(file_path, '/[^/]+$', '/*'),
+               0.1, 1
+        FROM rca_affected_files WHERE rca_result_id = NEW.id
+        ON CONFLICT (org_id, user_id, path_pattern)
+        DO UPDATE SET
+            expertise_score = team_expertise.expertise_score + 0.1,
+            bugs_resolved = team_expertise.bugs_resolved + 1,
+            last_resolution_at = NOW();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 7. Cost Analytics Dashboard
+
+**Purpose:** Track ROI and cost per analysis (enterprise requirement)
+
+```typescript
+interface CostAnalytics {
+  period: "day" | "week" | "month";
+  metrics: {
+    total_analyses: number;
+    llm_tokens_used: number;
+    llm_cost_usd: number;
+    github_api_calls: number;
+    cache_hit_rate: number;
+    cost_per_rca: number;
+    cost_saved_by_cache: number;
+  };
+  breakdown_by_project: Record<string, CostMetrics>;
+  roi_estimate: {
+    mttr_reduction_hours: number;
+    developer_hours_saved: number;
+    estimated_value_usd: number;
+  };
+}
+```
+
+---
+
 ## Team Requirements
 
 **MVP Team (Weeks 1-12):**
@@ -865,7 +1139,9 @@ Solution:
 4. **Security by Default:** Least privilege, encryption, audit logs
 5. **Simple First:** Monolith before microservices
 6. **Measure Everything:** Synthetic dataset and continuous eval
+7. **Trust Through Transparency:** Every conclusion shows its evidence chain (competitive differentiator)
+8. **Learn From Feedback:** User corrections improve future analyses via signature database
 
 ---
 
-This architecture is **battle-tested, cost-effective, and enterprise-ready** while remaining simple enough to ship in 12 weeks.
+This architecture is **battle-tested, cost-effective, and enterprise-ready** while remaining simple enough to ship in 12 weeks. Our competitive moat is **explainable, evidence-based RCA** that developers can trust.

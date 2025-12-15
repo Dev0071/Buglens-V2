@@ -99,9 +99,10 @@ export async function enqueueEvidenceAssembly(
     jobId: `evidence-${data.jobId}`,
   });
 
-  logger.info(
-    { jobId: data.jobId, orgId: data.orgId },
-    "Evidence assembly job enqueued"
+  // Note: Log is in the caller (deterministic-analyzer.ts) to avoid duplicates
+  logger.debug(
+    { jobId: data.jobId, orgId: data.orgId, queue: "evidence-assembly" },
+    "Evidence job added to queue"
   );
 }
 
@@ -113,6 +114,7 @@ interface JobRowWithDetails {
   id: string;
   event_id: string;
   deterministic_findings: AnalyzerResult | null;
+  code_context: CodeContextData | null;
   sentry_event_id: string;
   message: string;
   environment: string | null;
@@ -125,6 +127,19 @@ interface JobRowWithDetails {
   installation_id: string | null;
 }
 
+interface CodeContextData {
+  fetched_at: string;
+  repo: string;
+  commit_sha: string;
+  files: Array<{
+    path: string;
+    content: string;
+    language: string;
+    line_number: number;
+    column_number: number | null;
+  }>;
+}
+
 async function loadJobWithEventData(
   orgId: string,
   jobId: string
@@ -135,6 +150,7 @@ async function loadJobWithEventData(
          j.id,
          j.event_id,
          j.deterministic_findings,
+         j.code_context,
          e.sentry_event_id,
          e.message,
          e.environment,
@@ -161,6 +177,18 @@ async function loadJobWithEventData(
   });
 }
 
+/**
+ * Process evidence assembly job
+ *
+ * Steps:
+ * 1. Load job and event data from database
+ * 2. Extract code results from deterministic findings
+ * 3. Build event data structure for evidence bundle
+ * 4. Collect evidence (error info, code context, commits, timeline)
+ * 5. Store bundle in S3
+ * 6. Update job with S3 reference
+ * 7. Mark job as evidence complete
+ */
 async function processEvidenceJob(
   job: Job<EvidenceAssemblyJobData>
 ): Promise<void> {
@@ -168,26 +196,46 @@ async function processEvidenceJob(
   const startTime = Date.now();
 
   logger.info(
-    { jobId, eventId, orgId, attempt: job.attemptsMade },
-    "Processing evidence assembly job"
+    {
+      jobId,
+      eventId,
+      orgId,
+      attempt: job.attemptsMade + 1,
+      maxAttempts: job.opts.attempts || 3,
+      worker: "evidence-assembly",
+    },
+    "[JOB:START] Evidence assembly starting"
   );
 
   try {
-    // 1. Load job and event data
+    // Step 1: Load job and event data
+    logger.debug({ jobId, step: 1 }, "[STEP] Loading job and event data");
     const jobRow = await loadJobWithEventData(orgId, jobId);
 
     if (!jobRow.installation_id) {
       throw new Error("Repository missing GitHub installation ID");
     }
 
-    // 2. Extract code results from deterministic analysis
-    // For now, we use simplified code results since the actual code is in the analyzer
-    // In a full implementation, we'd store intermediate results
-    const codeResults: CodeFetchResult[] = extractCodeResultsFromFindings(
+    logger.debug(
+      {
+        jobId,
+        repo: jobRow.repo_full_name,
+        hasDeterministicFindings: !!jobRow.deterministic_findings,
+        findingsCount: jobRow.deterministic_findings?.findings?.length ?? 0,
+        hasCodeContext: !!jobRow.code_context,
+        codeContextFiles: jobRow.code_context?.files?.length ?? 0,
+      },
+      "[STEP] Job data loaded"
+    );
+
+    // Step 2: Get code results - prefer stored code_context over extracting from findings
+    logger.debug({ jobId, step: 2 }, "[STEP] Getting code results");
+    const codeResults: CodeFetchResult[] = extractCodeResults(
+      jobRow.code_context,
       jobRow.deterministic_findings
     );
 
-    // 3. Build event data structure
+    // Step 3: Build event data structure
     const eventData: EventData = {
       sentry_event_id: jobRow.sentry_event_id,
       message: jobRow.message,
@@ -199,7 +247,7 @@ async function processEvidenceJob(
       raw_payload: jobRow.raw_payload,
     };
 
-    // 4. Collect evidence params
+    // Step 4: Collect evidence params
     const collectParams: CollectEvidenceParams = {
       orgId,
       eventId,
@@ -209,7 +257,11 @@ async function processEvidenceJob(
       commitSha: extractCommitSha(jobRow.release),
     };
 
-    // 5. Run evidence collection
+    // Step 5: Run evidence collection
+    logger.debug(
+      { jobId, step: 5, repo: jobRow.repo_full_name },
+      "[STEP] Collecting evidence bundle"
+    );
     const evidenceCollector = new EvidenceCollectorService();
     const bundle = await evidenceCollector.collect(
       collectParams,
@@ -218,57 +270,120 @@ async function processEvidenceJob(
       jobRow.deterministic_findings
     );
 
-    // 6. Store in S3
+    logger.debug(
+      {
+        jobId,
+        bundleId: bundle.bundle_id,
+        hasError: !!bundle.error,
+        hasCode: !!bundle.code,
+        commitCount: bundle.recent_commits?.length ?? 0,
+      },
+      "[STEP] Evidence bundle assembled"
+    );
+
+    // Step 6: Store in S3
+    logger.debug({ jobId, step: 6 }, "[STEP] Storing bundle in S3");
     const storageRef = await evidenceCollector.storeInS3(bundle);
 
-    // 7. Update job with S3 reference
+    // Step 7: Update job with S3 reference
+    logger.debug({ jobId, step: 7 }, "[STEP] Updating job with S3 reference");
     await evidenceCollector.updateJobWithEvidence(orgId, jobId, storageRef);
 
-    // 8. Mark job as evidence complete
+    // Step 8: Mark job as evidence complete
     await markEvidenceComplete(orgId, jobId);
 
-    const duration = Date.now() - startTime;
+    const durationMs = Date.now() - startTime;
     logger.info(
       {
         jobId,
+        eventId,
         orgId,
-        duration,
+        durationMs,
+        durationSec: (durationMs / 1000).toFixed(2),
         bundleId: bundle.bundle_id,
         s3Key: storageRef.key,
+        worker: "evidence-assembly",
+        status: "success",
       },
-      "Evidence assembly complete"
+      "[JOB:SUCCESS] Evidence assembly completed"
     );
   } catch (error) {
+    const durationMs = Date.now() - startTime;
     const err = error instanceof Error ? error : new Error(String(error));
+
     logger.error(
-      { jobId, orgId, error: err.message },
-      "Evidence assembly failed"
+      {
+        jobId,
+        eventId,
+        orgId,
+        durationMs,
+        attempt: job.attemptsMade + 1,
+        error: err.message,
+        errorStack: err.stack,
+        worker: "evidence-assembly",
+        status: "failed",
+      },
+      "[JOB:ERROR] Evidence assembly failed"
     );
+
     await markEvidenceFailed(orgId, jobId, err.message);
     throw error;
   }
 }
 
+/**
+ * Extract code results for evidence bundle
+ *
+ * Prefers stored code_context (full file content from deterministic phase)
+ * over extracting snippets from findings.
+ */
+function extractCodeResults(
+  codeContext: CodeContextData | null,
+  findings: AnalyzerResult | null
+): CodeFetchResult[] {
+  // Prefer code_context if available (full file content)
+  if (codeContext?.files && codeContext.files.length > 0) {
+    logger.info(
+      { filesCount: codeContext.files.length },
+      "Using stored code context (full file content) for LLM reasoning"
+    );
+
+    return codeContext.files.map((file) => ({
+      file: {
+        path: file.path,
+        content: file.content,
+        language: file.language,
+      },
+      context: {
+        line_number: file.line_number,
+        column_number: file.column_number,
+        snippet_start: Math.max(1, file.line_number - 50), // Full context ±50 lines
+        snippet_end: file.line_number + 50,
+        source_map_resolved: false,
+      },
+    }));
+  }
+
+  // Fall back to extracting from findings (legacy path)
+  return extractCodeResultsFromFindings(findings);
+}
+
+/**
+ * @deprecated Use extractCodeResults which prefers stored code_context
+ * Legacy function that extracts snippets from findings
+ */
 function extractCodeResultsFromFindings(
   findings: AnalyzerResult | null
 ): CodeFetchResult[] {
   /**
-   * CRITICAL TECH DEBT - MUST FIX BEFORE BETA LAUNCH
-   * ================================================
+   * LEGACY FALLBACK - Prefer stored code_context
+   * =============================================
    * This extracts snippets from findings, NOT full file content.
+   * Only used when code_context is not available (older jobs).
    *
    * Impact on RCA Quality:
    * - LLM won't have full context around the error location
    * - Missing imports, function definitions, or relevant nearby code
-   * - Makes it harder to suggest accurate fixes
-   * - Directly impacts core value proposition (evidence-backed RCA)
-   *
-   * Fix Required:
-   * Store actual fetched code in intermediate results during the deterministic
-   * analysis phase, then retrieve full file content here.
-   *
-   * Tracking: https://github.com/Dev0071/Buglens-V2/issues/7
-   * Priority: P0 - Blocks accurate RCA generation
    */
   if (!findings || findings.findings.length === 0) {
     return [];
@@ -276,7 +391,7 @@ function extractCodeResultsFromFindings(
 
   logger.warn(
     { findingsCount: findings.findings.length },
-    "CRITICAL: Using simplified code extraction from findings - LLM lacks full context for accurate RCA"
+    "LEGACY: Using snippet extraction from findings - code_context not available"
   );
 
   return findings.findings.map((finding) => ({
@@ -410,22 +525,39 @@ export function startEvidenceWorker(): Worker<EvidenceAssemblyJobData> {
     }
   );
 
-  evidenceWorker.on("completed", (job) => {
-    logger.info({ jobId: job.data.jobId }, "Evidence job completed");
+  // Worker-level event handlers (for retries and final outcomes)
+  evidenceWorker.on("failed", (job, err) => {
+    const isRetryable = job && job.attemptsMade < (job.opts.attempts || 3);
+    logger.warn(
+      {
+        jobId: job?.data.jobId,
+        eventId: job?.data.eventId,
+        attempt: job?.attemptsMade,
+        maxAttempts: job?.opts.attempts || 3,
+        willRetry: isRetryable,
+        error: err?.message,
+        worker: "evidence-assembly",
+      },
+      isRetryable
+        ? "[JOB:RETRY] Evidence job failed, will retry"
+        : "[JOB:EXHAUSTED] Evidence job failed after all retries"
+    );
   });
 
-  evidenceWorker.on("failed", (job, err) => {
-    logger.error(
-      { jobId: job?.data.jobId, error: err.message },
-      "Evidence job failed"
+  evidenceWorker.on("stalled", (jobId) => {
+    logger.warn(
+      { jobId, worker: "evidence-assembly" },
+      "[JOB:STALLED] Evidence job stalled - may have lost worker connection"
     );
   });
 
   evidenceWorker.on("error", (err) => {
-    logger.error({ error: err.message }, "Evidence worker error");
+    logger.error(
+      { error: err.message, stack: err.stack, worker: "evidence-assembly" },
+      "[WORKER:ERROR] Evidence worker error"
+    );
   });
 
-  logger.info("Evidence assembly worker started");
   return evidenceWorker;
 }
 
@@ -433,6 +565,7 @@ export async function stopEvidenceWorker(): Promise<void> {
   if (evidenceWorker) {
     await evidenceWorker.close();
     evidenceWorker = null;
+    logger.info({ worker: "evidence-assembly" }, "Evidence worker stopped");
   }
   if (evidenceQueue) {
     await evidenceQueue.close();

@@ -1,0 +1,9 @@
+# Build output
+dist/
+node_modules/
+
+# Test coverage
+coverage/
+
+# Scripts (utility scripts are allowed console.log)
+# scripts/

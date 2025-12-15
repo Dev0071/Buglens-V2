@@ -86,6 +86,9 @@ export class DeterministicAnalyzerService {
         extractionResult
       );
 
+      // Store full code context for LLM reasoning (fixes tech debt)
+      await this.persistCodeContext(job, requestPayload);
+
       // If no user code to analyze, skip Python analyzer and mark complete
       if (requestPayload.metadata?.no_user_code) {
         const emptyResult: AnalyzerResult = {
@@ -120,15 +123,15 @@ export class DeterministicAnalyzerService {
       await this.markDeterministicComplete(job);
 
       // Enqueue evidence assembly job for LLM reasoning
+      logger.info(
+        { jobId: job.jobId, eventId: jobRow.event_id, orgId: job.orgId },
+        "[PIPELINE:HANDOFF] Enqueueing evidence assembly job"
+      );
       await enqueueEvidenceAssembly({
         jobId: job.jobId,
         eventId: jobRow.event_id,
         orgId: job.orgId,
       });
-      logger.info(
-        { jobId: job.jobId, eventId: jobRow.event_id },
-        "Evidence assembly job enqueued"
-      );
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       logger.error(
@@ -767,6 +770,61 @@ export class DeterministicAnalyzerService {
              updated_at = NOW()
          WHERE id = $2`,
         [JSON.stringify(result), job.jobId]
+      );
+    });
+  }
+
+  /**
+   * Persist full code context for LLM reasoning
+   *
+   * Stores the complete file content fetched during deterministic analysis,
+   * enabling the evidence assembly worker to provide full context to LLM
+   * instead of just code snippets from findings.
+   */
+  private async persistCodeContext(
+    job: DeterministicAnalyzerJobData,
+    requestPayload: AnalyzerRequestPayload
+  ): Promise<void> {
+    if (
+      !requestPayload.code_segments ||
+      requestPayload.code_segments.length === 0
+    ) {
+      logger.debug({ jobId: job.jobId }, "No code segments to persist");
+      return;
+    }
+
+    const codeContext = {
+      fetched_at: new Date().toISOString(),
+      repo: requestPayload.repo,
+      commit_sha: requestPayload.commit_sha,
+      files: requestPayload.code_segments.map((seg) => ({
+        path: seg.file_path,
+        content: seg.content,
+        language: seg.language,
+        line_number: seg.error_line,
+        column_number: seg.error_column ?? null,
+      })),
+    };
+
+    logger.info(
+      {
+        jobId: job.jobId,
+        filesCount: codeContext.files.length,
+        totalContentLength: codeContext.files.reduce(
+          (sum, f) => sum + f.content.length,
+          0
+        ),
+      },
+      "Persisting full code context for LLM reasoning"
+    );
+
+    return transaction(job.orgId, async (client) => {
+      await client.query(
+        `UPDATE rca_jobs
+         SET code_context = $1::jsonb,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [JSON.stringify(codeContext), job.jobId]
       );
     });
   }

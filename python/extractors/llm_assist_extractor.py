@@ -11,12 +11,13 @@ Capabilities:
 - Suggest branch when missing (from frame paths)
 - Interpret custom Sentry contexts
 """
+from __future__ import annotations
 
 import json
 import sys
 import os
 import re
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Tuple, List, Dict, Any
 
 # Only import openai when actually called - allow module to load for testing
 openai_client = None
@@ -121,7 +122,7 @@ def validate_api_key(api_key: str, provider: str = "openai") -> bool:
         return bool(OPENAI_KEY_PATTERN.match(api_key))
 
 
-def get_llm_config() -> tuple[str, str, str | None]:
+def get_llm_config() -> Tuple[str, str, Optional[str]]:
     """
     Get LLM configuration from environment.
 
@@ -142,7 +143,7 @@ def get_llm_config() -> tuple[str, str, str | None]:
     return provider, model, base_url
 
 
-def get_api_key() -> tuple[str | None, str]:
+def get_api_key() -> Tuple[Optional[str], str]:
     """
     Get API key based on provider configuration.
 
@@ -196,7 +197,7 @@ def get_openai_client():
                 import sys
                 print(f"[LLM] Auto-detected DeepSeek key format, using DeepSeek API", file=sys.stderr)
                 base_url = "https://api.deepseek.com"
-                model = os.environ.get("LLM_MODEL", "deepseek-chat")
+
 
             # Create client with optional custom base URL (for DeepSeek)
             if base_url:

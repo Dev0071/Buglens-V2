@@ -288,9 +288,9 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
           return fp
             .map((part) =>
               // Limit each part to 200 chars, remove control chars and HTML-sensitive chars
-              // eslint-disable-next-line no-control-regex
               part
                 .slice(0, 200)
+                // eslint-disable-next-line no-control-regex
                 .replace(/[\x00-\x1f\x7f]/g, "") // Control chars
                 .replace(/[<>&"']/g, "") // HTML entities for XSS prevention
                 .trim()

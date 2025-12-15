@@ -1,16 +1,23 @@
 # Buglens E2E Testing Guide
 
-This guide documents how to test Buglens end-to-end using ngrok to receive real webhooks from Sentry and GitHub.
+This guide documents how to test Buglens end-to-end by receiving real webhooks from Sentry and GitHub.
+
+## Testing Approaches
+
+You can test Buglens webhooks in two ways:
+
+1. **Local Development (ngrok):** Use ngrok to tunnel webhooks to your local machine
+2. **Production/Staging:** Deploy Buglens to a server and point webhooks directly to it
 
 ## Prerequisites
 
-1. **ngrok installed**: `brew install ngrok` or download from [ngrok.com](https://ngrok.com)
-2. **Docker running**: For PostgreSQL and Redis
-3. **Node.js 18+**: For running the application
-4. **Python 3.10+**: For the analysis workers (with virtual environment)
-5. **GitHub App created**: With webhook URL pointing to ngrok
-6. **Sentry project**: With webhook integration configured
-7. **LLM API key**: OpenAI or DeepSeek API key for LLM-assisted extraction
+1. **Docker running**: For PostgreSQL and Redis
+2. **Node.js 18+**: For running the application
+3. **Python 3.10+**: For the analysis workers (with virtual environment)
+4. **GitHub App created**: With webhook URL configured
+5. **Sentry Internal Integration**: With webhook URL configured
+6. **LLM API key**: OpenAI or DeepSeek API key for LLM-assisted extraction
+7. **(Optional) ngrok installed**: Only if testing locally - `brew install ngrok`
 
 ---
 
@@ -343,32 +350,165 @@ psql postgresql://buglens:buglens_dev@localhost:5432/buglens_dev
 
 ## Webhook Configuration
 
-### Sentry Webhook Setup
+### Sentry Webhook Setup (Internal Integration)
 
-1. Go to **Sentry → Settings → Integrations → Webhooks**
-2. Add webhook URL: `https://YOUR-NGROK-URL.ngrok-free.app/api/v1/webhooks/sentry/{org_id}`
-3. Enable events: `issue.created`, `event.alert`
-4. Copy the **Client Secret** to `SENTRY_WEBHOOK_SECRET`
+Buglens uses **Sentry Internal Integrations** to receive webhooks. The webhook is authenticated using the **Client Secret** (NOT the token). Here's how to set it up:
 
-**Important:** Replace `{org_id}` with your test organization UUID. You can create one:
+#### Step 1: Create an Internal Integration in Sentry
+
+1. Go to your Sentry organization: `https://sentry.io/settings/{your-org}/`
+2. Navigate to **Settings → Developer Settings → Custom Integrations**
+3. Click **"Create New Integration"**
+4. Select **"Internal Integration"**
+
+#### Step 2: Configure the Integration
+
+Fill in the following:
+
+| Field           | Value                                                      |
+| --------------- | ---------------------------------------------------------- |
+| **Name**        | `Buglens RCA` (or any name you prefer)                     |
+| **Webhook URL** | `https://YOUR-BUGLENS-URL/api/v1/webhooks/sentry/{org_id}` |
+| **Overview**    | (Optional) "Root cause analysis for errors"                |
+
+**Important:** Replace `{org_id}` with your Buglens organization UUID (e.g., `11111111-1111-1111-1111-111111111111`).
+
+Example webhook URLs:
+
+- **Local (ngrok):** `https://abc123.ngrok-free.app/api/v1/webhooks/sentry/11111111-1111-1111-1111-111111111111`
+- **Production:** `https://api.buglens.com/api/v1/webhooks/sentry/11111111-1111-1111-1111-111111111111`
+
+#### Step 3: Set Permissions
+
+Under **Permissions**, enable:
+
+| Resource          | Permission |
+| ----------------- | ---------- |
+| **Issue & Event** | Read       |
+| **Project**       | Read       |
+| **Organization**  | Read       |
+
+#### Step 4: Subscribe to Webhooks
+
+Under **Webhooks**, check the following events:
+
+- ✅ **issue** (Issue Created, Issue Resolved, etc.)
+- ✅ **error** (Error events)
+- ✅ **event_alert** (Alert rule triggered)
+
+#### Step 5: Get the Client Secret (THIS IS YOUR WEBHOOK SECRET)
+
+After saving the integration:
+
+1. You'll see the integration details page
+2. Look for **"Client Secret"** - this is a 64-character hex string
+3. **Copy this value** - this is your `SENTRY_WEBHOOK_SECRET`
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Credentials                                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Client ID:     buglens-rca-xxxxx                               │
+│  Client Secret: d72da4f3c4f7e569d863183345ccba7ffa79da95aa...   │  ← COPY THIS!
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**⚠️ Important:**
+
+- Use the **Client Secret**, NOT the token
+- The Client Secret is used to verify webhook signatures (HMAC-SHA256)
+- The Token is for making API calls TO Sentry (not needed for receiving webhooks)
+
+#### Step 6: Configure Buglens
+
+Add the Client Secret to your `.env` file:
 
 ```bash
-# In psql
-INSERT INTO organizations (id, slug, name, plan, sentry_webhook_secret)
+# In your .env file
+SENTRY_WEBHOOK_SECRET=d72da4f3c4f7e569d863183345ccba7ffa79da95aac623cf5e252960e4b65174
+```
+
+Or export it:
+
+```bash
+export SENTRY_WEBHOOK_SECRET="your-64-char-client-secret-here"
+```
+
+#### Step 7: Create a Buglens Organization (if not exists)
+
+Make sure you have an organization in Buglens that matches the `{org_id}` in your webhook URL:
+
+```sql
+-- Connect to database
+psql postgresql://buglens:buglens_dev_password@localhost:5432/buglens_dev
+
+-- Check existing organizations
+SELECT id, slug, name FROM organizations;
+
+-- Create one if needed
+INSERT INTO organizations (id, slug, name, plan)
 VALUES (
-  'test-org-uuid-here',
-  'my-test-org',
-  'My Test Organization',
-  'pro',
-  'your-sentry-webhook-secret'
+  '11111111-1111-1111-1111-111111111111',
+  'my-org',
+  'My Organization',
+  'pro'
 );
 ```
+
+#### Step 8: Verify the Setup
+
+1. **Start Buglens API:**
+
+   ```bash
+   npm run dev
+   ```
+
+2. **Check the health endpoint:**
+
+   ```bash
+   curl https://YOUR-BUGLENS-URL/api/v1/health
+   ```
+
+3. **Trigger a test error** in your Sentry-monitored app
+
+4. **Watch the logs** for incoming webhook:
+   ```
+   incoming request POST /api/v1/webhooks/sentry/11111111-...
+   Event received { org_id, event_id, sentry_event_id }
+   request completed { statusCode: 200 }
+   ```
+
+#### Troubleshooting Webhook Signature Errors
+
+If you see `401 Unauthorized` or "Invalid signature":
+
+1. **Verify the secret is correct:**
+
+   ```bash
+   echo $SENTRY_WEBHOOK_SECRET | wc -c
+   # Should be 64 characters (65 with newline)
+   ```
+
+2. **Check you're using Client Secret, not Token:**
+   - Client Secret: 64-character hex string (for webhooks)
+   - Token: Starts with `sntryu_` (for API calls)
+
+3. **Ensure no extra whitespace:**
+
+   ```bash
+   # In .env, no quotes needed for hex strings:
+   SENTRY_WEBHOOK_SECRET=d72da4f3c4f7e569d863183345ccba7ffa79da95aac623cf5e252960e4b65174
+   ```
+
+4. **Restart the server** after changing `.env`
+
+---
 
 ### GitHub App Setup
 
 1. Go to **GitHub → Settings → Developer Settings → GitHub Apps**
 2. Create or edit your app:
-   - **Webhook URL**: `https://YOUR-NGROK-URL.ngrok-free.app/api/v1/webhooks/github`
+   - **Webhook URL**: `https://YOUR-BUGLENS-URL/api/v1/webhooks/github`
    - **Webhook secret**: Your `GITHUB_WEBHOOK_SECRET`
 3. Required permissions:
    - Repository contents: **Read**

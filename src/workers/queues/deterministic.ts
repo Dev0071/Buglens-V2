@@ -58,7 +58,16 @@ export async function enqueueDeterministicJob(
 
   const q = getQueue();
   await q.add("analyze", data, defaultJobOptions);
-  logger.info({ jobId: data.jobId }, "Queued deterministic analyzer job");
+
+  logger.info(
+    {
+      jobId: data.jobId,
+      eventId: data.eventId,
+      orgId: data.orgId,
+      queue: "deterministic-analyzer",
+    },
+    "[QUEUE:ENQUEUE] Deterministic analyzer job queued"
+  );
 }
 
 export function peekDeterministicJobs(): DeterministicAnalyzerJobData[] {

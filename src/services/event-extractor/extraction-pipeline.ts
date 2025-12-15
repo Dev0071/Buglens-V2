@@ -12,6 +12,70 @@ import {
   extractionResultSchema,
 } from "../../types/extraction.js";
 
+// Sentinel keys that indicate a valid Sentry event object
+const EVENT_SENTINEL_KEYS = [
+  "exception",
+  "contexts",
+  "tags",
+  "release",
+  "platform",
+];
+
+/**
+ * Check if a payload looks like a Sentry event (has expected keys)
+ */
+function looksLikeSentryEvent(payload: Record<string, unknown>): boolean {
+  return EVENT_SENTINEL_KEYS.some((key) => key in payload);
+}
+
+/**
+ * Extract the actual Sentry event from a webhook envelope or direct payload
+ *
+ * Sentry webhooks can send:
+ * 1. Direct event payload: { exception: {...}, contexts: {...}, ... }
+ * 2. Envelope format: { data: { error: {...} }, action: "created", ... }
+ *
+ * This function unwraps the envelope if needed.
+ */
+function unwrapSentryPayload(rawPayload: unknown): Record<string, unknown> {
+  if (!rawPayload || typeof rawPayload !== "object") {
+    logger.warn({ payloadType: typeof rawPayload }, "Invalid payload type");
+    return {};
+  }
+
+  const payload = rawPayload as Record<string, unknown>;
+
+  // Check if this is already a Sentry event
+  if (looksLikeSentryEvent(payload)) {
+    logger.debug("Payload is direct Sentry event");
+    return payload;
+  }
+
+  // Check for envelope format: { data: { error: {...} }, action: "..." }
+  if ("data" in payload && typeof payload.data === "object" && payload.data) {
+    const data = payload.data as Record<string, unknown>;
+    if ("error" in data && typeof data.error === "object" && data.error) {
+      const errorPayload = data.error as Record<string, unknown>;
+      if (looksLikeSentryEvent(errorPayload)) {
+        logger.debug("Unwrapped Sentry event from envelope (data.error)");
+        return errorPayload;
+      }
+    }
+  }
+
+  // Log what keys we found for debugging
+  logger.warn(
+    {
+      topLevelKeys: Object.keys(payload).slice(0, 10),
+      hasData: "data" in payload,
+      hasException: "exception" in payload,
+    },
+    "Could not identify Sentry event structure in payload"
+  );
+
+  return payload;
+}
+
 /**
  * Hybrid LLM-Assisted Event Extraction Pipeline
  *
@@ -69,6 +133,11 @@ export class ExtractionPipeline {
 
     try {
       // =================================================================
+      // UNWRAP PAYLOAD (handle envelope vs direct event)
+      // =================================================================
+      const eventPayload = unwrapSentryPayload(rawPayload);
+
+      // =================================================================
       // STAGE 1: Deterministic Extraction
       // =================================================================
       stagesUsed.push("stage_1_deterministic");
@@ -76,7 +145,7 @@ export class ExtractionPipeline {
       const stage1Input: DeterministicExtractorInput = {
         event_id: eventId,
         org_id: orgId,
-        raw_payload: rawPayload,
+        raw_payload: eventPayload,
       };
 
       const stage1Output =
@@ -94,6 +163,7 @@ export class ExtractionPipeline {
           isComplete: stage1Output.is_complete,
           missingFields: stage1Output.missing_fields,
           framesCount: stage1Output.frames.length,
+          // stage1Output: stage1Output,
         },
         "Stage 1 complete"
       );
@@ -117,8 +187,8 @@ export class ExtractionPipeline {
 
         logger.debug({ extractionId }, "Triggering Stage 2 LLM assist");
 
-        // Extract raw frames from payload for LLM
-        const rawFrames = this.extractRawFrames(rawPayload);
+        // Extract raw frames from payload for LLM (use unwrapped payload)
+        const rawFrames = this.extractRawFrames(eventPayload);
 
         const stage2Output = await this.llmAssistExtractor.extract(
           stage1Output,
@@ -139,6 +209,7 @@ export class ExtractionPipeline {
             tokensUsed: llmTokensUsed,
             cleanedFrames: stage2Output.cleaned_frames_count,
             removedNoise: stage2Output.removed_noise_count,
+            // stage2Output: stage2Output,
           },
           "Stage 2 complete"
         );
@@ -169,6 +240,7 @@ export class ExtractionPipeline {
           allPassed: validationResult.all_passed,
           fallbacksUsed: validationResult.fallbacks_used,
           validatedFrames: validationResult.frames.length,
+          // validationResult: validationResult,
         },
         "Stage 3 complete"
       );

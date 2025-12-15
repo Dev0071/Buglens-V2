@@ -4,11 +4,12 @@ Timeline Reconstructor for Sentry Breadcrumbs
 Parses Sentry breadcrumbs and builds a structured timeline with anomaly detection.
 Called from Node.js via stdin/stdout JSON protocol.
 """
+from __future__ import annotations
 
 import json
 import sys
 from datetime import datetime, timezone
-from typing import Any, TypedDict, Optional
+from typing import Any, TypedDict, Optional, List
 
 # ============================================
 # Type Definitions
