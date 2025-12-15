@@ -52,11 +52,13 @@ server.addHook("preHandler", orgContextMiddleware);
 await server.register(cors, {
   // Explicit CORS origins for security - no wildcard in production
   origin:
-    config.NODE_ENV === "production"
-      ? ["https://app.buglens.com", "https://buglens.com"]
-      : config.NODE_ENV === "test"
-        ? true // Allow all origins in test for flexibility
-        : ["http://localhost:3000", "http://localhost:5173"], // Dev origins
+    config.NODE_ENV === "test"
+      ? true // Allow all origins in test for flexibility
+      : config.CORS_ORIGINS && Array.isArray(config.CORS_ORIGINS)
+        ? config.CORS_ORIGINS
+        : config.NODE_ENV === "production"
+          ? ["https://app.buglens.com", "https://buglens.com"]
+          : ["http://localhost:3000", "http://localhost:5173"], // Fallback dev origins
   credentials: true,
 });
 
