@@ -25,7 +25,25 @@ const REDIS_TTL_SECONDS = 3600; // 1 hour
 
 let s3Client: S3Client | null = null;
 
-function getS3Client(): S3Client {
+/**
+ * Check if S3 cache should be used.
+ * In development mode without S3_ENDPOINT (LocalStack), skip S3 operations.
+ */
+function shouldUseS3(): boolean {
+  // In dev mode, only use S3 if LocalStack endpoint is configured
+  if (config.NODE_ENV === "development" && !config.S3_ENDPOINT) {
+    return false;
+  }
+  // In production/staging, always use S3
+  return true;
+}
+
+function getS3Client(): S3Client | null {
+  // Skip S3 in dev mode without LocalStack
+  if (!shouldUseS3()) {
+    return null;
+  }
+
   if (s3Client) {
     return s3Client;
   }
@@ -141,10 +159,16 @@ export async function setInRedisCache(
 export async function getFromS3Cache(
   params: CacheKeyParams
 ): Promise<CachedFileContent | null> {
+  const s3 = getS3Client();
+
+  // Skip S3 in dev mode without LocalStack
+  if (!s3) {
+    return null;
+  }
+
   const key = buildS3CacheKey(params);
 
   try {
-    const s3 = getS3Client();
     const response = await s3.send(
       new GetObjectCommand({
         Bucket: config.S3_BUCKET_NAME,
@@ -189,11 +213,16 @@ export async function setInS3Cache(
   params: CacheKeyParams,
   content: CachedFileContent
 ): Promise<void> {
+  const s3 = getS3Client();
+
+  // Skip S3 in dev mode without LocalStack
+  if (!s3) {
+    return;
+  }
+
   const key = buildS3CacheKey(params);
 
   try {
-    const s3 = getS3Client();
-
     // Compress content
     const compressed = await compressContent(JSON.stringify(content));
 
@@ -226,10 +255,16 @@ export async function setInS3Cache(
 export async function existsInS3Cache(
   params: CacheKeyParams
 ): Promise<boolean> {
+  const s3 = getS3Client();
+
+  // Skip S3 in dev mode without LocalStack
+  if (!s3) {
+    return false;
+  }
+
   const key = buildS3CacheKey(params);
 
   try {
-    const s3 = getS3Client();
     await s3.send(
       new HeadObjectCommand({
         Bucket: config.S3_BUCKET_NAME,

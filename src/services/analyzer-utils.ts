@@ -94,13 +94,21 @@ export function parseReleaseString(
   };
 }
 
+/** Shape of context objects that may contain repo/commit info */
+interface ContextObject {
+  repository?: string;
+  commit?: string;
+}
+
 export function extractRepoFromPayload(payload: unknown): RepoReference | null {
   const eventPayload = extractEventPayload(payload);
   if (!eventPayload) {
     return null;
   }
 
-  const contexts = eventPayload.contexts as Record<string, any> | undefined;
+  const contexts = eventPayload.contexts as
+    | Record<string, ContextObject | undefined>
+    | undefined;
   const tags = normalizeTags(eventPayload.tags);
 
   const repoCandidate =
@@ -114,8 +122,8 @@ export function extractRepoFromPayload(payload: unknown): RepoReference | null {
   }
 
   const commitCandidate =
-    (contexts?.github?.commit as string | undefined) ||
-    (contexts?.app?.commit as string | undefined) ||
+    contexts?.github?.commit ||
+    contexts?.app?.commit ||
     tags?.commit ||
     tags?.git_sha;
 

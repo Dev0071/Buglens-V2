@@ -623,14 +623,150 @@ CREATE TABLE integrations (
 
 ---
 
-### Week 4 — Evidence Assembly + Timeline Reconstruction + Hybrid Event Extraction
+### Week 4 — Evidence Assembly + Timeline Reconstruction + Hybrid Event Extraction + Confidence Meter
 
 **Goals:**
 
 - Collect all evidence (code, logs, breadcrumbs, commits)
 - Build timeline from Sentry breadcrumbs
 - **NEW: Implement 3-stage hybrid event extraction pipeline**
+- **🔥 NEW (P0): Implement Confidence Meter with explainable breakdown**
 - Prepare structured context for LLM
+
+---
+
+#### 🆕 Confidence Meter (Competitive Differentiator - P0)
+
+**Why This Feature:** Sentry Seer's "actionability score" is opaque. Our confidence meter shows exactly WHY we're confident, building trust through transparency.
+
+**Implementation:**
+
+```typescript
+// types/confidence.ts
+interface ConfidenceBreakdown {
+  total: number; // 0.0 - 1.0
+  components: {
+    ast_pattern_match: { value: number; reason: string };
+    stack_trace_clarity: { value: number; reason: string };
+    commit_correlation: { value: number; reason: string };
+    historical_similarity: { value: number; reason: string };
+    code_context_quality: { value: number; reason: string };
+  };
+  uncertainty_factors: Array<{ factor: string; penalty: number }>;
+}
+
+// services/confidence-calculator.ts
+export function calculateConfidence(
+  findings: Finding[],
+  extraction: ExtractionResult,
+  evidence: EvidenceBundle
+): ConfidenceBreakdown {
+  const components = {
+    // +40% max: AST pattern matches
+    ast_pattern_match: {
+      value: Math.min(0.4, findings.length * 0.1),
+      reason:
+        findings.length > 0
+          ? `${findings.length} pattern(s) matched: ${findings.map((f) => f.type).join(", ")}`
+          : "No patterns matched",
+    },
+
+    // +25% max: Stack trace clarity
+    stack_trace_clarity: {
+      value:
+        extraction.userFrames.user.length === 1
+          ? 0.25
+          : extraction.userFrames.user.length <= 3
+            ? 0.15
+            : 0.05,
+      reason: `${extraction.userFrames.user.length} user code frames identified`,
+    },
+
+    // +15% max: Commit correlation
+    commit_correlation: {
+      value:
+        evidence.recent_commits.length > 0
+          ? Math.min(
+              0.15,
+              0.05 *
+                evidence.recent_commits.filter((c) => c.age_days < 7).length
+            )
+          : 0,
+      reason:
+        evidence.recent_commits.length > 0
+          ? `${evidence.recent_commits.filter((c) => c.age_days < 7).length} recent commits found`
+          : "No recent commits",
+    },
+
+    // +10% max: Historical similarity (future: from feedback loop)
+    historical_similarity: {
+      value: 0, // Will be populated when signature database is built
+      reason: "Signature database not yet available",
+    },
+
+    // +10% max: Code context quality
+    code_context_quality: {
+      value: evidence.code.snippet ? 0.1 : 0,
+      reason: evidence.code.snippet
+        ? "Full code context available"
+        : "Code context unavailable",
+    },
+  };
+
+  // Calculate uncertainty penalties
+  const uncertainties: Array<{ factor: string; penalty: number }> = [];
+
+  if (extraction.source === "llm_assisted") {
+    uncertainties.push({ factor: "LLM-assisted extraction", penalty: -0.05 });
+  }
+  if (extraction.warnings.length > 0) {
+    uncertainties.push({
+      factor: `${extraction.warnings.length} extraction warnings`,
+      penalty: -0.03,
+    });
+  }
+  if (!evidence.code.snippet) {
+    uncertainties.push({ factor: "Missing code context", penalty: -0.1 });
+  }
+
+  const componentTotal = Object.values(components).reduce(
+    (sum, c) => sum + c.value,
+    0
+  );
+  const penaltyTotal = uncertainties.reduce((sum, u) => sum + u.penalty, 0);
+
+  return {
+    total: Math.max(0, Math.min(1, componentTotal + penaltyTotal)),
+    components,
+    uncertainty_factors: uncertainties,
+  };
+}
+```
+
+**Database Schema:**
+
+```sql
+-- Add to migrations
+ALTER TABLE rca_results ADD COLUMN confidence_breakdown JSONB;
+```
+
+**UI Display:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Root Cause Confidence: 87%                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░                  │
+│                                                                 │
+│  Breakdown:                                                     │
+│  ├─ AST Pattern Match:     +40% (null access without guard)    │
+│  ├─ Stack Trace Clarity:   +25% (single user_code frame)       │
+│  ├─ Commit Correlation:    +15% (line changed 2 days ago)      │
+│  └─ Code Context:          +10% (full snippet available)       │
+│                                                                 │
+│  ⚠️ Uncertainty: LLM-assisted extraction (-5%)                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -1048,7 +1184,7 @@ extraction_latency_ms: number;
 
 ---
 
-### Week 5 — LLM Orchestration (GPT-4o-mini)
+### Week 5 — LLM Orchestration + Evidence Graph + Feedback Loop (GPT-4o-mini)
 
 **Goals:**
 
@@ -1056,6 +1192,274 @@ extraction_latency_ms: number;
 - Build structured prompts
 - Parse and validate LLM responses
 - Integrate with job pipeline
+- **🔥 NEW (P0): Build Evidence Graph for visual reasoning**
+- **🔥 NEW (P0): Implement RCA Feedback Loop**
+
+---
+
+#### 🆕 Evidence Graph (Competitive Differentiator - P0)
+
+**Why This Feature:** Seer shows "reasoning steps" in text. Our evidence graph is an interactive visualization showing exactly how conclusions were reached - instantly scannable and verifiable.
+
+**Data Model:**
+
+```typescript
+// types/evidence-graph.ts
+interface EvidenceNode {
+  id: string;
+  type:
+    | "error"
+    | "code_location"
+    | "commit"
+    | "developer"
+    | "pattern"
+    | "timeline_event";
+  label: string;
+  data: Record<string, unknown>;
+  confidence: number;
+}
+
+interface EvidenceEdge {
+  id: string;
+  source: string;
+  target: string;
+  type:
+    | "caused_by"
+    | "introduced_in"
+    | "triggered_when"
+    | "similar_to"
+    | "authored_by";
+  label: string;
+  evidence: string; // Reference to actual data
+}
+
+interface EvidenceGraph {
+  nodes: EvidenceNode[];
+  edges: EvidenceEdge[];
+  metadata: {
+    created_at: string;
+    confidence: number;
+    deterministic_score: number;
+  };
+}
+```
+
+**Graph Builder:**
+
+```typescript
+// services/evidence-graph-builder.ts
+export function buildEvidenceGraph(
+  event: Event,
+  extraction: ExtractionResult,
+  findings: Finding[],
+  evidence: EvidenceBundle
+): EvidenceGraph {
+  const nodes: EvidenceNode[] = [];
+  const edges: EvidenceEdge[] = [];
+
+  // 1. Error node (root)
+  const errorNode: EvidenceNode = {
+    id: "error",
+    type: "error",
+    label: event.message.substring(0, 100),
+    data: { type: event.exception?.type, occurrences: event.count },
+    confidence: 1.0,
+  };
+  nodes.push(errorNode);
+
+  // 2. Code location nodes from extraction
+  extraction.userFrames.user.forEach((frame, i) => {
+    const codeNode: EvidenceNode = {
+      id: `code_${i}`,
+      type: "code_location",
+      label: `${frame.file_path}:${frame.line_number}`,
+      data: { function: frame.function_name, context: frame.context_line },
+      confidence: frame.is_entry_point ? 0.95 : 0.7,
+    };
+    nodes.push(codeNode);
+
+    edges.push({
+      id: `error_to_code_${i}`,
+      source: "error",
+      target: `code_${i}`,
+      type: frame.is_entry_point ? "caused_by" : "triggered_when",
+      label: frame.is_entry_point ? "originated at" : "propagated through",
+      evidence: `Stack frame ${i}`,
+    });
+  });
+
+  // 3. Commit nodes from recent commits
+  evidence.recent_commits.forEach((commit, i) => {
+    const commitNode: EvidenceNode = {
+      id: `commit_${i}`,
+      type: "commit",
+      label: commit.sha.substring(0, 7),
+      data: {
+        message: commit.message,
+        author: commit.author,
+        date: commit.date,
+      },
+      confidence: commit.age_days < 7 ? 0.8 : 0.4,
+    };
+    nodes.push(commitNode);
+
+    // Link to code locations that the commit touched
+    const primaryCode = nodes.find(
+      (n) => n.type === "code_location" && n.data.is_entry_point
+    );
+    if (primaryCode) {
+      edges.push({
+        id: `code_to_commit_${i}`,
+        source: primaryCode.id,
+        target: `commit_${i}`,
+        type: "introduced_in",
+        label: `changed ${commit.age_days} days ago`,
+        evidence: `Commit ${commit.sha}`,
+      });
+    }
+  });
+
+  // 4. Pattern nodes from findings
+  findings.forEach((finding, i) => {
+    const patternNode: EvidenceNode = {
+      id: `pattern_${i}`,
+      type: "pattern",
+      label: finding.type,
+      data: { description: finding.message, severity: finding.severity },
+      confidence: finding.confidence,
+    };
+    nodes.push(patternNode);
+
+    edges.push({
+      id: `code_to_pattern_${i}`,
+      source: `code_0`, // Primary code location
+      target: `pattern_${i}`,
+      type: "similar_to",
+      label: "matches pattern",
+      evidence: `AST analysis: ${finding.type}`,
+    });
+  });
+
+  return {
+    nodes,
+    edges,
+    metadata: {
+      created_at: new Date().toISOString(),
+      confidence: calculateOverallConfidence(nodes, edges),
+      deterministic_score: findings.length / Math.max(1, nodes.length),
+    },
+  };
+}
+```
+
+**Database Schema:**
+
+```sql
+ALTER TABLE rca_results ADD COLUMN evidence_graph JSONB;
+```
+
+---
+
+#### 🆕 RCA Feedback Loop (Competitive Differentiator - P0)
+
+**Why This Feature:** Creates a flywheel - better data → better analysis → more trust → more usage. Also feeds the Bug Signature Database (Week 7-8).
+
+**Feedback Form:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Was this RCA helpful?                                          │
+│                                                                 │
+│  [ 👍 Accurate ]  [ 🔧 Partially Helpful ]  [ ❌ Wrong ]        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ What was the actual root cause? (optional)              │   │
+│  │ [________________________________________________]      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  Error type was: [ Select: null_access, async, type, other ]   │
+│                                                                 │
+│  [ Submit Feedback ]                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Database Schema:**
+
+```sql
+-- Update rca_results
+ALTER TABLE rca_results ADD COLUMN actual_root_cause TEXT;
+ALTER TABLE rca_results ADD COLUMN feedback_timestamp TIMESTAMPTZ;
+ALTER TABLE rca_results ADD COLUMN error_category TEXT;
+
+-- Track corrections for signature database
+CREATE TABLE rca_corrections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rca_id UUID REFERENCES rca_results(id),
+  org_id UUID REFERENCES organizations(id),
+  original_root_cause TEXT NOT NULL,
+  corrected_root_cause TEXT NOT NULL,
+  error_signature TEXT,
+  error_category TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_rca_corrections_signature ON rca_corrections(error_signature);
+CREATE INDEX idx_rca_corrections_category ON rca_corrections(error_category);
+```
+
+**API Endpoints:**
+
+```typescript
+// api/routes/feedback.ts
+app.post("/v1/rca/:id/feedback", async (req, res) => {
+  const { id } = req.params;
+  const { feedback, actual_root_cause, error_category } = req.body;
+
+  // Update RCA result
+  await db.query(
+    `
+    UPDATE rca_results
+    SET user_feedback = $1,
+        actual_root_cause = $2,
+        error_category = $3,
+        feedback_timestamp = NOW()
+    WHERE id = $4 AND org_id = $5
+  `,
+    [feedback, actual_root_cause, error_category, id, req.orgId]
+  );
+
+  // If wrong, create correction record for signature learning
+  if (feedback === "wrong" && actual_root_cause) {
+    await db.query(
+      `
+      INSERT INTO rca_corrections (rca_id, org_id, original_root_cause, corrected_root_cause, error_signature, error_category)
+      SELECT $1, $2, root_cause, $3,
+             (SELECT signature FROM events WHERE id = rca_results.event_id), $4
+      FROM rca_results WHERE id = $1
+    `,
+      [id, req.orgId, actual_root_cause, error_category]
+    );
+  }
+
+  res.json({ success: true });
+});
+```
+
+**Feedback Metrics:**
+
+```typescript
+// Track feedback for quality monitoring
+interface FeedbackMetrics {
+  total_rcas: number;
+  feedback_rate: number; // % of RCAs with feedback
+  accuracy_rate: number; // % accurate / (accurate + wrong)
+  partial_rate: number; // % partially helpful
+  correction_count: number; // Total corrections received
+  by_category: Record<string, { total: number; accurate: number }>;
+}
+```
+
+---
 
 **Tasks:**
 
@@ -1249,13 +1653,211 @@ extraction_latency_ms: number;
 
 ---
 
-### Week 6 — Slack Delivery + Basic Web UI
+### Week 6 — Slack Delivery + Basic Web UI + Cost Analytics Dashboard
 
 **Goals:**
 
 - Send RCA summaries to Slack
 - Build minimal web UI to view RCAs
 - Implement feedback mechanism
+- **🔥 NEW (P1): Build Cost Analytics Dashboard**
+
+---
+
+#### 🆕 Cost Analytics Dashboard (Competitive Differentiator - P1)
+
+**Why This Feature:** Engineering leaders love ROI metrics. Sentry's usage is opaque. We show exact costs and value delivered.
+
+**Dashboard Display:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  RCA Cost Summary (December 2025)                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Total RCAs This Month:        347                              │
+│  LLM Tokens Used:              2.1M (~$4.20)                    │
+│  GitHub API Calls:             12,450 (within quota)            │
+│  Avg Cost per RCA:             $0.12                            │
+│                                                                 │
+│  ────────────────────────────────────────────────────────────   │
+│                                                                 │
+│  Quality Metrics:                                               │
+│  ├─ Accurate RCAs:             287 (82.7%)                      │
+│  ├─ Partially Helpful:         42 (12.1%)                       │
+│  └─ Wrong/Not Helpful:         18 (5.2%)                        │
+│                                                                 │
+│  ────────────────────────────────────────────────────────────   │
+│                                                                 │
+│  ROI Estimate:                                                  │
+│  ├─ Avg Resolution Time:       12 min (was ~45 min)             │
+│  ├─ Time Saved per RCA:        33 min                           │
+│  ├─ Engineering Hours Saved:   191 hours                        │
+│  └─ Est. Value Delivered:      $14,325 (at $75/hr)              │
+│                                                                 │
+│  ⚡ ROI This Month:            3,400% ($14,325 / $420 cost)     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**API Endpoints:**
+
+```typescript
+// api/routes/analytics.ts
+app.get("/v1/analytics/costs", async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const orgId = req.orgId;
+
+  const costs = await db.query(
+    `
+    SELECT
+      SUM(llm_tokens_used) as total_tokens,
+      SUM(llm_cost_usd) as total_llm_cost,
+      SUM(github_api_calls) as total_github_calls,
+      COUNT(DISTINCT date) as days_active
+    FROM cost_metrics
+    WHERE org_id = $1
+      AND date BETWEEN $2 AND $3
+  `,
+    [orgId, startDate, endDate]
+  );
+
+  const rcaStats = await db.query(
+    `
+    SELECT
+      COUNT(*) as total_rcas,
+      AVG(processing_time_ms) as avg_processing_time,
+      COUNT(CASE WHEN user_feedback = 'useful' THEN 1 END) as accurate_count,
+      COUNT(CASE WHEN user_feedback = 'partially_useful' THEN 1 END) as partial_count,
+      COUNT(CASE WHEN user_feedback = 'not_useful' THEN 1 END) as wrong_count
+    FROM rca_results
+    WHERE org_id = $1
+      AND created_at BETWEEN $2 AND $3
+  `,
+    [orgId, startDate, endDate]
+  );
+
+  // Calculate ROI estimate
+  const avgTimeWithoutBuglens = 45 * 60 * 1000; // 45 min in ms
+  const timeSavedMs =
+    (avgTimeWithoutBuglens - rcaStats.avg_processing_time) *
+    rcaStats.total_rcas;
+  const hoursSaved = timeSavedMs / (1000 * 60 * 60);
+  const engineeringRate = 75; // $/hr estimate
+  const valueSaved = hoursSaved * engineeringRate;
+
+  res.json({
+    costs: {
+      total_tokens: costs.total_tokens,
+      total_llm_cost: costs.total_llm_cost,
+      total_github_calls: costs.total_github_calls,
+      avg_cost_per_rca: costs.total_llm_cost / rcaStats.total_rcas,
+    },
+    quality: {
+      total_rcas: rcaStats.total_rcas,
+      accurate_rate: rcaStats.accurate_count / rcaStats.total_rcas,
+      partial_rate: rcaStats.partial_count / rcaStats.total_rcas,
+      wrong_rate: rcaStats.wrong_count / rcaStats.total_rcas,
+    },
+    roi: {
+      hours_saved: hoursSaved,
+      value_saved_usd: valueSaved,
+      roi_percentage: (valueSaved / costs.total_llm_cost) * 100,
+    },
+  });
+});
+
+// Get cost trends over time
+app.get("/v1/analytics/costs/trends", async (req, res) => {
+  const orgId = req.orgId;
+
+  const trends = await db.query(
+    `
+    SELECT
+      date,
+      llm_tokens_used,
+      llm_cost_usd,
+      github_api_calls,
+      (SELECT COUNT(*) FROM rca_results WHERE org_id = $1 AND DATE(created_at) = cost_metrics.date) as rca_count
+    FROM cost_metrics
+    WHERE org_id = $1
+    ORDER BY date DESC
+    LIMIT 30
+  `,
+    [orgId]
+  );
+
+  res.json({ trends });
+});
+```
+
+**React Component:**
+
+```tsx
+// web/src/pages/CostAnalytics.tsx
+export function CostAnalytics() {
+  const { data } = useQuery(["analytics", "costs"], () =>
+    api.getCostAnalytics()
+  );
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Cost & ROI Analytics</h1>
+
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <MetricCard
+          title="Total RCAs"
+          value={data.quality.total_rcas}
+          trend={+12}
+        />
+        <MetricCard
+          title="LLM Cost"
+          value={`$${data.costs.total_llm_cost.toFixed(2)}`}
+        />
+        <MetricCard
+          title="Accuracy Rate"
+          value={`${(data.quality.accurate_rate * 100).toFixed(1)}%`}
+          trend={+3.2}
+        />
+        <MetricCard
+          title="ROI"
+          value={`${data.roi.roi_percentage.toFixed(0)}%`}
+          highlight
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-6">
+        <Card title="Cost per RCA Trend">
+          <LineChart data={costTrendData} />
+        </Card>
+        <Card title="Quality Breakdown">
+          <PieChart
+            data={[
+              { label: "Accurate", value: data.quality.accurate_rate },
+              { label: "Partial", value: data.quality.partial_rate },
+              { label: "Wrong", value: data.quality.wrong_rate },
+            ]}
+          />
+        </Card>
+      </div>
+
+      <Card title="Value Delivered" className="mt-6">
+        <div className="text-center py-4">
+          <p className="text-4xl font-bold text-green-600">
+            ${data.roi.value_saved_usd.toLocaleString()}
+          </p>
+          <p className="text-gray-600">
+            Estimated engineering time saved: {data.roi.hours_saved.toFixed(0)}{" "}
+            hours
+          </p>
+        </div>
+      </Card>
+    </div>
+  );
+}
+```
+
+---
 
 **Tasks:**
 

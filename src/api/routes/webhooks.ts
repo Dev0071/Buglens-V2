@@ -1,6 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import crypto from "crypto";
 import { config } from "../../utils/config.js";
+import { logger } from "../../utils/logger.js";
 import { sentryWebhookSchema, SentryEventPayload } from "../../types/sentry.js";
 import { transaction } from "../../db/client.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
@@ -48,6 +49,15 @@ function shouldProcessEnvironment(environment: string | undefined | null): {
   }
 
   const normalizedEnv = environment.toLowerCase().trim();
+
+  // Check if dev errors are allowed (for testing)
+  if (config.ALLOW_DEV_ERRORS && IGNORED_ENVIRONMENTS.has(normalizedEnv)) {
+    logger.info(
+      { environment },
+      "Processing dev/local error (ALLOW_DEV_ERRORS=true)"
+    );
+    return { shouldProcess: true };
+  }
 
   // Explicitly ignored environments
   if (IGNORED_ENVIRONMENTS.has(normalizedEnv)) {
@@ -160,18 +170,15 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
 
         const payloadBuffer = resolvePayloadBuffer(requestWithRawBody);
 
-        // DEBUG: Log what we're working with
-        request.log.info(
+        // Debug context (no secrets logged)
+        request.log.debug(
           {
-            secretLength: config.SENTRY_WEBHOOK_SECRET.length,
-            secretPrefix: config.SENTRY_WEBHOOK_SECRET.substring(0, 8) + "...",
             payloadLength: payloadBuffer.length,
-            payloadPreview: payloadBuffer.toString("utf8").substring(0, 200),
             rawBodyExists: !!requestWithRawBody.rawBody,
             rawBodyIsBuffer: Buffer.isBuffer(requestWithRawBody.rawBody),
             contentType: request.headers["content-type"],
           },
-          "DEBUG: HMAC inputs"
+          "HMAC verification context"
         );
 
         const hmac = crypto.createHmac("sha256", config.SENTRY_WEBHOOK_SECRET);
@@ -280,9 +287,13 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
         const sanitizeFingerprint = (fp: string[]): string => {
           return fp
             .map((part) =>
-              // Limit each part to 200 chars, replace control chars (ASCII 0-31 and 127)
-              // eslint-disable-next-line no-control-regex
-              part.slice(0, 200).replace(/[\x00-\x1f\x7f]/g, "")
+              // Limit each part to 200 chars, remove control chars and HTML-sensitive chars
+              part
+                .slice(0, 200)
+                // eslint-disable-next-line no-control-regex
+                .replace(/[\x00-\x1f\x7f]/g, "") // Control chars
+                .replace(/[<>&"']/g, "") // HTML entities for XSS prevention
+                .trim()
             )
             .join(":")
             .slice(0, 1000); // Limit total signature length

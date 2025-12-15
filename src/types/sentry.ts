@@ -79,7 +79,14 @@ export const sentryEventSchema = z
         headers: z
           .union([z.record(z.string()), z.array(z.array(z.string()))])
           .optional(),
-        query_string: z.string().optional(),
+        // query_string can be string, array of tuples, or array of strings
+        query_string: z
+          .union([
+            z.string(),
+            z.array(z.array(z.string())), // Array of [key, value] tuples
+            z.array(z.string()), // Array of "key=value" strings
+          ])
+          .optional(),
       })
       .passthrough()
       .optional(),

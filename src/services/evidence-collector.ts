@@ -260,13 +260,35 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * Store evidence bundle in S3
+   * Store evidence bundle in S3 (production/staging) or database (development)
+   *
+   * In development mode, S3 storage is skipped and evidence is stored in the database.
+   * This allows local development without requiring AWS infrastructure.
    */
   async storeInS3(bundle: EvidenceBundle): Promise<EvidenceStorageRef> {
     // Add date-based prefix for better S3 performance and organization
     const date = new Date(bundle.created_at);
     const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
     const key = `evidence/${datePrefix}/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
+
+    // In development, skip S3 and store in database instead
+    if (config.NODE_ENV === "development") {
+      logger.info(
+        { bundleId: bundle.bundle_id, key },
+        "Development mode: Skipping S3, storing evidence bundle in database"
+      );
+
+      // Store the bundle JSON in the database as a fallback
+      await this.storeInDatabase(bundle, key);
+
+      return {
+        bucket: "local-dev",
+        key,
+        size_bytes: JSON.stringify(bundle).length,
+        compressed: false,
+        created_at: new Date(),
+      };
+    }
 
     const jsonContent = JSON.stringify(bundle);
     const compressed = await compressContent(jsonContent);
@@ -439,6 +461,31 @@ export class EvidenceCollectorService {
       // Fallback: use pure function for basic timeline
       return buildFallbackTimeline(breadcrumbs, this.config.maxTimelineSteps);
     }
+  }
+
+  /**
+   * Store evidence bundle in database (development fallback)
+   * Uses the rca_jobs table's evidence_bundle column
+   */
+  private async storeInDatabase(
+    bundle: EvidenceBundle,
+    key: string
+  ): Promise<void> {
+    await transaction(bundle.org_id, async (client) => {
+      await client.query(
+        `UPDATE rca_jobs
+         SET evidence_bundle = $1::jsonb,
+             code_context_s3_url = $2,
+             updated_at = NOW()
+         WHERE id = $3 AND org_id = $4`,
+        [JSON.stringify(bundle), `local://${key}`, bundle.job_id, bundle.org_id]
+      );
+    });
+
+    logger.debug(
+      { bundleId: bundle.bundle_id, jobId: bundle.job_id },
+      "Evidence bundle stored in database"
+    );
   }
 }
 

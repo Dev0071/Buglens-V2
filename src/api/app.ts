@@ -50,7 +50,15 @@ server.addHook("preHandler", orgContextMiddleware);
 
 // Register plugins
 await server.register(cors, {
-  origin: config.NODE_ENV === "development" ? "*" : false,
+  // Explicit CORS origins for security - no wildcard in production
+  origin:
+    config.NODE_ENV === "test"
+      ? true // Allow all origins in test for flexibility
+      : config.CORS_ORIGINS && Array.isArray(config.CORS_ORIGINS)
+        ? config.CORS_ORIGINS
+        : config.NODE_ENV === "production"
+          ? ["https://app.buglens.com", "https://buglens.com"]
+          : ["http://localhost:3000", "http://localhost:5173"], // Fallback dev origins
   credentials: true,
 });
 

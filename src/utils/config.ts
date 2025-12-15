@@ -32,8 +32,14 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default("7d"),
 
-  // OpenAI
+  // LLM Configuration
   OPENAI_API_KEY: z.string().optional(),
+  LLM_PROVIDER: z.enum(["openai", "deepseek"]).default("openai"),
+  LLM_MODEL: z.string().optional(), // Override default model (e.g., "deepseek-chat")
+  LLM_BASE_URL: z.string().url().optional(), // Custom API base URL for DeepSeek etc.
+
+  // Development Testing
+  ALLOW_DEV_ERRORS: z.coerce.boolean().default(true), // Allow processing local/dev errors
 
   // Sentry
   SENTRY_DSN: z.string().optional(),
@@ -66,7 +72,9 @@ try {
   config = envSchema.parse(process.env);
 } catch (error) {
   if (error instanceof z.ZodError) {
+    // eslint-disable-next-line no-console -- Critical startup error before logger is available
     console.error("❌ Invalid environment variables:");
+    // eslint-disable-next-line no-console -- Critical startup error before logger is available
     console.error(JSON.stringify(error.format(), null, 2));
     process.exit(1);
   }

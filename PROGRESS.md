@@ -1,6 +1,6 @@
 # Buglens Development Progress
 
-## Current Status: Week 4 - Evidence Assembly & Timeline Reconstruction ✅
+## Current Status: Week 4 - Evidence Assembly & Three-Stage Extraction ✅
 
 Last Updated: Session Date
 
@@ -89,7 +89,7 @@ Last Updated: Session Date
 
 ---
 
-## Week 4: Evidence Assembly & Timeline Reconstruction ✅ COMPLETE
+## Week 4: Evidence Assembly & Three-Stage Extraction ✅ COMPLETE
 
 ### Deliverables Completed:
 
@@ -97,7 +97,14 @@ Last Updated: Session Date
 - [x] Evidence collector service with full bundle assembly
 - [x] Python timeline reconstructor with anomaly detection
 - [x] BullMQ evidence queue with test mode
-- [x] Integration with deterministic analyzer (auto-enqueue)
+- [x] **Three-Stage Extraction Pipeline** (Major Enhancement)
+  - Stage 1: Deterministic extraction (regex, patterns, AST)
+  - Stage 2: LLM-assisted extraction (GPT-4o-mini with API key validation)
+  - Stage 3: Validation (GitHub ref verification, schema validation)
+- [x] Extraction result storage with btree indexes
+- [x] Configurable LLM cost tracking with actual token support
+- [x] OpenAI API key format validation and error sanitization
+- [x] GitHub ref validation via API
 - [x] Recent commits fetching for error context
 - [x] S3 storage for evidence bundles (gzip compressed)
 - [x] Environment context extraction (browser, OS, runtime, tags)
@@ -108,30 +115,63 @@ Last Updated: Session Date
 
 - `src/types/evidence.ts` - Evidence bundle schemas
 - `src/services/evidence-collector.ts` - Evidence assembly service
+- `src/services/evidence-transforms.ts` - Pure transformation functions
+- `src/services/cost-tracker.ts` - Configurable LLM cost tracking
+- `src/services/event-extractor/` - Three-stage extraction pipeline:
+  - `extraction-pipeline.ts` - Pipeline orchestrator
+  - `deterministic-extractor.ts` - Stage 1 (patterns, AST)
+  - `llm-assist-extractor.ts` - Stage 2 (GPT-4o-mini integration)
+  - `extraction-validator.ts` - Stage 3 (GitHub API validation)
+  - `index.ts` - Module exports
+- `python/extractors/llm_assist_extractor.py` - Python LLM extraction with security
 - `python/timeline/reconstructor.py` - Timeline parser with anomaly detection
 - `python/timeline/__init__.py` - Module exports
 - `src/workers/queues/evidence.ts` - BullMQ evidence queue
+- `migrations/010_add_extraction_result.cjs` - Extraction results table
 
-### Tests:
+### Tests (221 total):
 
 - `tests/unit/evidence-collector.test.ts` (9 tests)
 - `tests/unit/evidence-queue.test.ts` (6 tests)
+- `tests/unit/extraction-pipeline.test.ts` (comprehensive pipeline tests)
+- `tests/unit/extraction-validator.test.ts` (validation tests)
+- `tests/unit/llm-assist-extractor.test.ts` (LLM extraction tests)
+- `tests/unit/deterministic-extractor.test.ts` (pattern matching tests)
+- `tests/unit/cost-tracker.test.ts` (cost tracking tests)
 
-### Data Flow:
+### Three-Stage Extraction Architecture:
 
 ```
-Deterministic Analysis Complete
+Event Payload
     ↓
-enqueueEvidenceAssembly()
-    ↓
-Evidence Worker processes job
-    ↓
-├── Load event data from DB
-├── Build code context from analyzer results
-├── Reconstruct timeline from breadcrumbs (Python)
-├── Fetch recent commits for error file
-├── Extract environment context
-└── Store compressed bundle in S3
+┌─────────────────────────────────────────┐
+│ Stage 1: Deterministic Extraction       │
+│ ├─ Regex patterns for repo/commit       │
+│ ├─ Sentry contexts/tags extraction      │
+│ ├─ Stack frame path analysis            │
+│ └─ Error message parsing                │
+└─────────────────┬───────────────────────┘
+                  ↓
+         ┌───────────────┐
+         │ Complete?     │──Yes──► Use deterministic result
+         └───────┬───────┘
+                 │ No
+                 ↓
+┌─────────────────────────────────────────┐
+│ Stage 2: LLM-Assisted Extraction        │
+│ ├─ API key validation (format check)    │
+│ ├─ GPT-4o-mini with structured output   │
+│ ├─ Error sanitization (no key leaks)    │
+│ └─ Token tracking for costs             │
+└─────────────────┬───────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│ Stage 3: Validation                     │
+│ ├─ GitHub API ref verification          │
+│ ├─ Schema validation (Zod)              │
+│ ├─ Confidence scoring                   │
+│ └─ Repo full name format check          │
+└─────────────────────────────────────────┘
 ```
 
 ### Evidence Bundle Structure:
@@ -153,15 +193,36 @@ Evidence Worker processes job
 
 ---
 
+## Security Review ✅ COMPLETE
+
+### Issues Fixed:
+
+- [x] Removed secret prefix from HMAC debug logs
+- [x] Enhanced fingerprint sanitization (HTML entities)
+- [x] Configured explicit CORS origins (no wildcard in production)
+- [x] OpenAI API key format validation
+- [x] Error message sanitization in Python
+
+### Compliant Areas:
+
+- ✅ SQL injection prevention (parameterized queries)
+- ✅ Multi-tenancy with RLS
+- ✅ HMAC webhook verification (timing-safe)
+- ✅ Path traversal protection
+- ✅ Rate limiting (multi-tier with Redis)
+- ✅ No secrets in logs
+
+---
+
 ## Test Results Summary
 
-| Week      | Tests  | Status         |
-| --------- | ------ | -------------- |
-| 1         | 2      | ✅ Pass        |
-| 2         | 42     | ✅ Pass        |
-| 3         | 13     | ✅ Pass        |
-| 4         | 15     | ✅ Pass        |
-| **Total** | **72** | ✅ All Passing |
+| Week      | Tests   | Status         |
+| --------- | ------- | -------------- |
+| 1         | 2       | ✅ Pass        |
+| 2         | 42      | ✅ Pass        |
+| 3         | 13      | ✅ Pass        |
+| 4         | 164     | ✅ Pass        |
+| **Total** | **221** | ✅ All Passing |
 
 ---
 
@@ -169,29 +230,38 @@ Evidence Worker processes job
 
 ### Planned Deliverables:
 
-- [ ] GPT-4o-mini integration with OpenAI SDK
-- [ ] Prompt engineering for RCA generation
-- [ ] Structured output with JSON schema validation
-- [ ] LLM token tracking per organization
-- [ ] Confidence thresholds and deterministic fallback
-- [ ] Cost tracking in real-time
-- [ ] Evidence → Prompt transformation
-- [ ] Response validation and storage
+Most LLM integration is already done in the Three-Stage Extraction Pipeline! What remains:
 
-### Architecture:
+- [ ] Full RCA generation (root cause + suggested fix narrative)
+- [ ] RCA prompt builder (evidence bundle → structured prompt)
+- [ ] RCA response schema and validation
+- [ ] RCA result storage in `rca_results` table
+- [ ] Slack notification on RCA completion
+- [ ] Human review queue for low-confidence RCAs
+
+### Already Completed (in Week 4):
+
+- ✅ GPT-4o-mini integration (`python/extractors/llm_assist_extractor.py`)
+- ✅ OpenAI API key validation with format checking
+- ✅ Error sanitization (no API key leaks)
+- ✅ Token tracking in cost tracker
+- ✅ Configurable LLM pricing via environment variables
+- ✅ Structured JSON output with schema validation
+
+### Remaining Architecture:
 
 ```
-Evidence Bundle
+Evidence Bundle (from Week 4)
     ↓
-Prompt Builder (evidence → structured prompt)
+RCA Prompt Builder (evidence → structured RCA prompt)
     ↓
-LLM Service (GPT-4o-mini, temp=0.1)
+LLM Service (reuse llm_assist_extractor.py pattern)
     ↓
-Response Validator (schema + evidence verification)
+RCA Response Validator (root cause + fix validation)
     ↓
-Store RCA Result
+Store in rca_results table
     ↓
-Update cost_metrics table
+Slack notification (if configured)
 ```
 
 ---
@@ -257,6 +327,54 @@ Update cost_metrics table
 | Cost per RCA       | <$0.15   | TBD     |
 | RCA accuracy       | >70%     | TBD     |
 | Test coverage      | >80%     | ~85%    |
+
+---
+
+## Documentation Updates (Competitive Strategy)
+
+### Date: Current Session
+
+Updated all architecture and roadmap documentation to incorporate competitive differentiation features vs Sentry Seer:
+
+**New Document Created:**
+
+- `docs/COMPETITIVE_STRATEGY.md` - Comprehensive competitive analysis and feature roadmap
+
+**Updated Documents:**
+
+1. **Buglens Architecture UPDATED.md**
+   - Added "Competitive Differentiation Architecture" section
+   - Evidence Graph system design
+   - Confidence Meter with explainable scoring
+   - Bug Signature Database architecture
+   - RCA Feedback Loop design
+   - Blast Radius Analysis architecture
+   - Team Knowledge Graph design
+   - Cost Analytics Dashboard interface
+   - Updated Key Design Principles (added trust/transparency)
+
+2. **Buglens Roadmap Phase 1 (Week 1-6).md**
+   - Week 4: Added Confidence Meter UI component
+   - Week 5: Added Evidence Graph visualization, RCA Feedback Loop API
+   - Week 6: Added Cost Analytics Dashboard
+
+3. **Buglens Roadmap Phase 2 (Week 7-12).md**
+   - Week 7-8: Added Bug Signature Database with pattern matching
+   - Week 9: Added Blast Radius Analysis
+   - Week 11: Added Team Knowledge Graph with expertise tracking
+
+**Competitive Features Implementation Schedule:**
+
+| Feature              | Priority | Week     | Status          |
+| -------------------- | -------- | -------- | --------------- |
+| Confidence Meter     | P0       | 4        | Roadmap Updated |
+| Evidence Graph       | P0       | 5-6      | Roadmap Updated |
+| RCA Feedback Loop    | P1       | 5        | Roadmap Updated |
+| Cost Analytics       | P2       | 6        | Roadmap Updated |
+| Bug Signature DB     | P1       | 7-8      | Roadmap Updated |
+| Blast Radius         | P2       | 9        | Roadmap Updated |
+| Team Knowledge Graph | P3       | 11       | Roadmap Updated |
+| Prevention Mode      | P3       | Post-MVP | Future          |
 
 ---
 

@@ -332,9 +332,13 @@ export function extractEnvironmentContext(
   const contexts = (context?.contexts ?? rawPayload?.contexts) as
     | Record<string, unknown>
     | undefined;
-  const tags = (context?.tags ?? rawPayload?.tags) as
-    | Record<string, string>
-    | undefined;
+  const rawTags = context?.tags ?? rawPayload?.tags;
+
+  // Sentry can send tags as either:
+  // 1. Object: { "key": "value" }
+  // 2. Array: [["key", "value"], ["key2", "value2"]]
+  // Normalize to object format
+  const tags = normalizeTagsToObject(rawTags);
 
   const browser = contexts?.browser as
     | { name?: string; version?: string }
@@ -372,8 +376,70 @@ export function extractEnvironmentContext(
       ? { name: runtime.name ?? null, version: runtime.version ?? null }
       : null,
     sdk: sdk ? { name: sdk.name ?? null, version: sdk.version ?? null } : null,
-    tags: tags ?? {},
+    tags,
   };
+}
+
+/**
+ * Normalize tags from Sentry's various formats to Record<string, string>
+ *
+ * Sentry can send tags as:
+ * - Object: { "environment": "production", "release": "1.0.0" }
+ * - Array of tuples: [["environment", "production"], ["release", "1.0.0"]]
+ * - Array of objects: [{ "key": "environment", "value": "production" }]
+ *
+ * @pure
+ */
+export function normalizeTagsToObject(
+  rawTags: unknown
+): Record<string, string> {
+  if (!rawTags) {
+    return {};
+  }
+
+  // Already an object (most common case)
+  if (typeof rawTags === "object" && !Array.isArray(rawTags)) {
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(
+      rawTags as Record<string, unknown>
+    )) {
+      if (typeof value === "string") {
+        result[key] = value;
+      } else if (value !== null && value !== undefined) {
+        result[key] = String(value);
+      }
+    }
+    return result;
+  }
+
+  // Array format
+  if (Array.isArray(rawTags)) {
+    const result: Record<string, string> = {};
+    for (const item of rawTags) {
+      // Tuple format: ["key", "value"]
+      if (Array.isArray(item) && item.length >= 2) {
+        const [key, value] = item;
+        if (typeof key === "string") {
+          result[key] = typeof value === "string" ? value : String(value ?? "");
+        }
+      }
+      // Object format: { key: "environment", value: "production" }
+      else if (
+        item &&
+        typeof item === "object" &&
+        "key" in item &&
+        "value" in item
+      ) {
+        const { key, value } = item as { key: unknown; value: unknown };
+        if (typeof key === "string") {
+          result[key] = typeof value === "string" ? value : String(value ?? "");
+        }
+      }
+    }
+    return result;
+  }
+
+  return {};
 }
 
 // ============================================================================

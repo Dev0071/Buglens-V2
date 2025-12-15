@@ -225,12 +225,54 @@ export function extractRawFrames(payload: SentryEventPayload): RawFrame[] {
   const frames: RawFrame[] = [];
 
   const values = payload.exception?.values;
-  if (!values) return frames;
+  if (!values) {
+    logger.debug(
+      {
+        hasException: !!payload.exception,
+        payloadKeys: Object.keys(payload),
+      },
+      "No exception.values found in payload"
+    );
+    return frames;
+  }
+
+  logger.debug(
+    {
+      exceptionCount: values.length,
+      exceptionTypes: values.map((v) => v.type),
+    },
+    "Processing exception values"
+  );
 
   // Process all exceptions (could be chained)
   for (const exception of values) {
     const stackFrames = exception.stacktrace?.frames;
-    if (!stackFrames) continue;
+    if (!stackFrames) {
+      logger.debug(
+        {
+          exceptionType: exception.type,
+          hasStacktrace: !!exception.stacktrace,
+        },
+        "Exception has no stacktrace frames"
+      );
+      continue;
+    }
+
+    logger.debug(
+      {
+        exceptionType: exception.type,
+        rawFrameCount: stackFrames.length,
+        sampleFrame: stackFrames[0]
+          ? {
+              filename: stackFrames[0].filename,
+              abs_path: stackFrames[0].abs_path,
+              lineno: stackFrames[0].lineno,
+              in_app: stackFrames[0].in_app,
+            }
+          : null,
+      },
+      "Processing stacktrace frames"
+    );
 
     // Sentry frames are in reverse order (most recent first)
     // We want root cause order (deepest frame first)
@@ -341,15 +383,23 @@ export function classifyFrame(
 export function classifyFrames(rawFrames: RawFrame[]): ExtractedFrame[] {
   const frames: ExtractedFrame[] = [];
   let foundEntryPoint = false;
+  let skippedNoLocation = 0;
+  let skippedCleanedPath = 0;
 
   for (const raw of rawFrames) {
     // Skip frames without usable location
     const filePath = raw.filename ?? raw.abs_path;
-    if (!filePath || !raw.lineno) continue;
+    if (!filePath || !raw.lineno) {
+      skippedNoLocation++;
+      continue;
+    }
 
     // Clean file path
     const cleanedPath = cleanFilePath(filePath);
-    if (!cleanedPath) continue;
+    if (!cleanedPath) {
+      skippedCleanedPath++;
+      continue;
+    }
 
     // Classify the frame
     const classification = classifyFrame(raw, cleanedPath);
@@ -374,6 +424,24 @@ export function classifyFrames(rawFrames: RawFrame[]): ExtractedFrame[] {
       context_line: raw.context_line ?? undefined,
       in_app: raw.in_app ?? true,
     });
+  }
+
+  if (rawFrames.length > 0 && frames.length === 0) {
+    logger.warn(
+      {
+        rawFrameCount: rawFrames.length,
+        skippedNoLocation,
+        skippedCleanedPath,
+        sampleRawFrame: rawFrames[0]
+          ? {
+              filename: rawFrames[0].filename,
+              abs_path: rawFrames[0].abs_path,
+              lineno: rawFrames[0].lineno,
+            }
+          : null,
+      },
+      "All frames filtered out during classification"
+    );
   }
 
   return frames;
