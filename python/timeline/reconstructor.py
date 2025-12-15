@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sys
 from datetime import datetime, timezone
-from typing import Any, TypedDict, Optional, List
+from typing import Any, TypedDict, Optional
 
 # ============================================
 # Type Definitions
