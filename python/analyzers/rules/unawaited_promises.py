@@ -24,24 +24,45 @@ def _looks_async(callee_text: str) -> bool:
     return any(hint in lowered for hint in ASYNC_HINTS)
 
 
-def _is_awaited(node) -> bool:
-    """Pure helper: Check if the call expression is properly awaited."""
+def _is_promise_handled(node, context) -> bool:
+    """
+    Pure helper: Check if the call expression is properly handled.
+
+    A promise is considered "handled" if:
+    1. It's awaited
+    2. It has .then(), .catch(), or .finally() chained
+    3. Its parent is a member expression leading to .then/.catch/.finally
+    4. It's a child of an await_expression or yield_expression
+    """
+    # Check if this call is the object of a member expression that chains to .then/.catch/.finally
+    # This handles: fetch('/api').then(...) where fetch('/api') is the object
     parent = node.parent
-    while parent and parent.type in {"expression_statement", "parenthesized_expression"}:
-        parent = parent.parent
+    if parent and parent.type == "member_expression":
+        property_node = parent.child_by_field_name("property")
+        if property_node:
+            prop_text = property_node.text
+            if prop_text in {b"then", b"catch", b"finally"}:
+                return True
 
-    if parent and parent.type in {"await_expression", "yield_expression"}:
-        return True
+    # Check if this node is inside an await expression
+    ancestor = node.parent
+    while ancestor:
+        if ancestor.type in {"await_expression", "yield_expression"}:
+            return True
+        if ancestor.type == "expression_statement":
+            # If we've hit the statement level without finding await, stop
+            break
+        ancestor = ancestor.parent
 
-    call_parent = parent
-    if call_parent and call_parent.type == "call_expression":
-        callee = call_parent.child_by_field_name("function")
-        if callee and callee.type == "member_expression":
-            property_node = callee.child_by_field_name("property")
-            if property_node:
-                prop_name = property_node.text
-                if prop_name in {b"then", b"catch", b"finally"}:
-                    return True
+    # Check if the callee itself is a method like .then/.catch/.finally
+    # This handles the outer call in: fetch('/api').then(...)
+    callee = node.child_by_field_name("function")
+    if callee and callee.type == "member_expression":
+        property_node = callee.child_by_field_name("property")
+        if property_node:
+            prop_text = property_node.text
+            if prop_text in {b"then", b"catch", b"finally"}:
+                return True
 
     return False
 
@@ -71,7 +92,7 @@ def evaluate_unawaited_promise(context: AnalysisContext) -> List[Dict[str, Any]]
         if not _looks_async(callee_text):
             continue
 
-        if _is_awaited(node):
+        if _is_promise_handled(node, context):
             continue
 
         metadata = {"call": callee_text}
@@ -92,6 +113,7 @@ def evaluate_unawaited_promise(context: AnalysisContext) -> List[Dict[str, Any]]
         if len(findings) >= 2:
             break
 
+
     return findings
 
 
@@ -109,22 +131,5 @@ class UnawaitedPromiseRule:
     def _looks_async(self, callee_text: str) -> bool:
         return _looks_async(callee_text)
 
-    def _is_awaited(self, node) -> bool:
-        parent = node.parent
-        while parent and parent.type in {"expression_statement", "parenthesized_expression"}:
-            parent = parent.parent
-
-        if parent and parent.type in {"await_expression", "yield_expression"}:
-            return True
-
-        call_parent = parent
-        if call_parent and call_parent.type == "call_expression":
-            callee = call_parent.child_by_field_name("function")
-            if callee and callee.type == "member_expression":
-                property_node = callee.child_by_field_name("property")
-                if property_node:
-                    prop_name = property_node.text.decode('utf-8')
-                    if prop_name in {"then", "catch", "finally"}:
-                        return True
-
-        return False
+    def _is_promise_handled(self, node, context) -> bool:
+        return _is_promise_handled(node, context)

@@ -23,7 +23,11 @@ import {
  */
 export class LLMAssistExtractor {
   private createPythonBridge(): PythonBridge {
-    return new PythonBridge({ module: "extractors.llm_assist_extractor" });
+    // Use longer timeout for LLM operations (30s default)
+    return new PythonBridge({
+      module: "extractors.llm_assist_extractor",
+      timeoutMs: 30000, // LLM API calls can take 10-30 seconds
+    });
   }
 
   /**

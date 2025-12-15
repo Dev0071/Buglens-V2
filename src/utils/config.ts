@@ -11,6 +11,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 
+  // CORS (comma-separated origins, e.g., "https://app.buglens.com,https://buglens.com")
+  CORS_ORIGINS: z
+    .string()
+    .optional()
+    .transform((val) =>
+      val ? val.split(",").map((s) => s.trim()) : undefined
+    ),
+
   // Database
   DATABASE_URL: z.string().url(),
   DATABASE_POOL_MIN: z.coerce.number().default(2),
@@ -57,6 +65,7 @@ const envSchema = z.object({
   // Python integration
   PYTHON_BIN: z.string().default("python3"),
   PYTHON_ANALYZER_TIMEOUT_MS: z.coerce.number().default(10000),
+  PYTHON_LLM_TIMEOUT_MS: z.coerce.number().default(30000), // LLM calls need more time
 
   // Rate Limits
   RATE_LIMIT_FREE_EVENTS_PER_HOUR: z.coerce.number().default(100),

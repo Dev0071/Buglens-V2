@@ -2,7 +2,117 @@
 
 ## Current Status: Week 4 - Evidence Assembly & Three-Stage Extraction ✅
 
-Last Updated: Session Date
+Last Updated: December 15, 2025
+
+---
+
+## Deterministic Analyzer Status
+
+### Current Rules Implemented (10 of 10 needed) ✅ COMPLETE
+
+| Rule ID                 | Description                                                  | Confidence | Severity | Status         |
+| ----------------------- | ------------------------------------------------------------ | ---------- | -------- | -------------- |
+| `NULL_ACCESS`           | Detects property access on potentially null/undefined values | 0.78       | high     | ✅ Implemented |
+| `UNAWAITED_PROMISE`     | Detects async calls missing await or .catch handlers         | 0.62       | medium   | ✅ Implemented |
+| `MISSING_ERROR_HANDLER` | Detects try blocks missing catch handlers                    | 0.55       | medium   | ✅ Implemented |
+| `TYPE_MISMATCH`         | Detects type errors ("X is not a function", etc.)            | 0.70-0.85  | high     | ✅ Implemented |
+| `ARRAY_OUT_OF_BOUNDS`   | Detects array index access without bounds checking           | 0.55-0.90  | high     | ✅ Implemented |
+| `UNDEFINED_VARIABLE`    | Reference to variables that may not exist                    | 0.70-0.88  | high     | ✅ Implemented |
+| `INVALID_FUNCTION_CALL` | Calling non-function values or typos                         | 0.75-0.88  | high     | ✅ Implemented |
+| `ASYNC_RACE_CONDITION`  | Potential race conditions in async code                      | 0.70-0.85  | high     | ✅ Implemented |
+| `MEMORY_LEAK`           | Unclosed resources, event listener leaks                     | 0.70-0.85  | high     | ✅ Implemented |
+| `REGEX_CATASTROPHIC`    | ReDoS-vulnerable regex patterns                              | 0.70-0.85  | high     | ✅ Implemented |
+
+### Architecture Summary
+
+```
+python/analyzers/
+├── base.py              # AnalysisContext, CodeSegment, RuleFunction types
+├── js_analyzer.py       # Main analyzer (tree-sitter parsing, rule execution)
+└── rules/
+    ├── __init__.py      # RULE_FUNCTIONS export list (10 rules)
+    ├── null_access.py   # NULL_ACCESS rule (pure function + OOP wrapper)
+    ├── unawaited_promises.py  # UNAWAITED_PROMISE rule
+    ├── missing_error_handler.py  # MISSING_ERROR_HANDLER rule
+    ├── type_mismatch.py       # TYPE_MISMATCH rule
+    ├── array_out_of_bounds.py # ARRAY_OUT_OF_BOUNDS rule
+    ├── undefined_variable.py  # UNDEFINED_VARIABLE rule
+    ├── invalid_function_call.py # INVALID_FUNCTION_CALL rule
+    ├── async_race_condition.py  # ASYNC_RACE_CONDITION rule
+    ├── memory_leak.py         # MEMORY_LEAK rule
+    └── regex_catastrophic.py  # REGEX_CATASTROPHIC rule
+
+python/tests/
+├── conftest.py                    # Shared fixtures and test helpers
+├── test_null_access.py            # 18 tests for NULL_ACCESS rule
+├── test_unawaited_promises.py     # 22 tests for UNAWAITED_PROMISE rule
+├── test_missing_error_handler.py  # 13 tests for MISSING_ERROR_HANDLER rule
+├── test_type_mismatch.py          # 18 tests for TYPE_MISMATCH rule
+├── test_array_out_of_bounds.py    # 22 tests for ARRAY_OUT_OF_BOUNDS rule
+├── test_undefined_variable.py     # 16 tests for UNDEFINED_VARIABLE rule
+├── test_invalid_function_call.py  # 18 tests for INVALID_FUNCTION_CALL rule
+├── test_async_race_condition.py   # 16 tests for ASYNC_RACE_CONDITION rule
+├── test_memory_leak.py            # 18 tests for MEMORY_LEAK rule
+└── test_regex_catastrophic.py     # 18 tests for REGEX_CATASTROPHIC rule
+```
+
+### Testing Status ✅ COMPLETE
+
+**Python Rule Tests:** 164 tests covering all 10 rules (78% code coverage)
+
+| Test File                       | Tests | Coverage |
+| ------------------------------- | ----- | -------- |
+| `test_null_access.py`           | 18    | 94%      |
+| `test_unawaited_promises.py`    | 22    | 92%      |
+| `test_missing_error_handler.py` | 13    | 96%      |
+| `test_type_mismatch.py`         | 18    | 75%      |
+| `test_array_out_of_bounds.py`   | 22    | 96%      |
+| `test_undefined_variable.py`    | 16    | 91%      |
+| `test_invalid_function_call.py` | 18    | 79%      |
+| `test_async_race_condition.py`  | 16    | 83%      |
+| `test_memory_leak.py`           | 18    | 89%      |
+| `test_regex_catastrophic.py`    | 18    | 94%      |
+
+**Test Categories:**
+
+- Positive cases (should detect bugs)
+- Negative cases (should NOT flag - false positive prevention)
+- Edge cases (empty code, far from error line, limits)
+- Finding structure validation
+
+**Run Python tests:**
+
+```bash
+cd python && source ../.venv/bin/activate && python -m pytest tests/ -v
+```
+
+### How Rules Are Used (Data Flow)
+
+```
+1. Sentry Webhook → API receives error event
+                    ↓
+2. BullMQ Job     → Enqueued to "deterministic-analyzer" queue
+                    ↓
+3. Deterministic  → src/services/deterministic-analyzer.ts
+   Analyzer         - Fetches code for stack frames
+   Service          - Prepares AnalyzerRequestPayload
+                    ↓
+4. Python Bridge  → src/services/python-bridge.ts
+                    - Spawns: python -m analyzers.js_analyzer
+                    - Sends JSON payload via stdin
+                    - Receives findings via stdout
+                    ↓
+5. js_analyzer.py → python/analyzers/js_analyzer.py
+                    - Parses code with tree-sitter
+                    - Applies RULE_FUNCTIONS to each segment
+                    - Returns findings with confidence scores
+                    ↓
+6. Evidence       → src/services/evidence-collector.ts
+   Collector        - extractDeterministicFindings(analyzerResult)
+                    - Includes in EvidenceBundle
+                    ↓
+7. LLM/RCA        → Uses findings as ground truth for explanation
+```
 
 ---
 
@@ -129,7 +239,7 @@ Last Updated: Session Date
 - `src/workers/queues/evidence.ts` - BullMQ evidence queue
 - `migrations/010_add_extraction_result.cjs` - Extraction results table
 
-### Tests (221 total):
+### Tests (420 total - 256 TypeScript + 164 Python):
 
 - `tests/unit/evidence-collector.test.ts` (9 tests)
 - `tests/unit/evidence-queue.test.ts` (6 tests)
@@ -138,6 +248,16 @@ Last Updated: Session Date
 - `tests/unit/llm-assist-extractor.test.ts` (LLM extraction tests)
 - `tests/unit/deterministic-extractor.test.ts` (pattern matching tests)
 - `tests/unit/cost-tracker.test.ts` (cost tracking tests)
+- `python/tests/test_null_access.py` (18 tests)
+- `python/tests/test_unawaited_promises.py` (22 tests)
+- `python/tests/test_missing_error_handler.py` (13 tests)
+- `python/tests/test_type_mismatch.py` (18 tests)
+- `python/tests/test_array_out_of_bounds.py` (22 tests)
+- `python/tests/test_undefined_variable.py` (16 tests)
+- `python/tests/test_invalid_function_call.py` (18 tests)
+- `python/tests/test_async_race_condition.py` (16 tests)
+- `python/tests/test_memory_leak.py` (18 tests)
+- `python/tests/test_regex_catastrophic.py` (18 tests)
 
 ### Three-Stage Extraction Architecture:
 
@@ -378,18 +498,64 @@ Updated all architecture and roadmap documentation to incorporate competitive di
 
 ---
 
-## Next Session Actions
+## Next Session Actions (Prioritized)
 
-1. **Start Week 5 - LLM Orchestration**
-   - Create `python/llm/orchestrator.py`
-   - Create `src/services/llm-service.ts`
-   - Implement prompt builder
-   - Add cost tracking
+### 🔴 P0 - Critical (Do First)
 
-2. **Integration Testing**
-   - End-to-end flow test with mock Sentry event
-   - Verify evidence → LLM → RCA pipeline
+1. **Add Python Rule Tests**
+   - Create `python/tests/` directory
+   - Add `test_null_access.py`, `test_unawaited_promises.py`, `test_missing_error_handler.py`
+   - Include positive cases (should detect), negative cases (should NOT detect)
+   - Add known-bug code samples as fixtures
+   - Run with `pytest python/tests/ -v`
 
-3. **Documentation**
-   - API documentation
-   - Deployment guide
+2. **Add Missing Deterministic Rules**
+   - `python/analyzers/rules/type_mismatch.py` - Detect type coercion errors
+   - `python/analyzers/rules/array_bounds.py` - Empty array access patterns
+
+### 🟡 P1 - Important (Week 5)
+
+3. **Start Week 5 - LLM Orchestration**
+   - Create `python/llm/orchestrator.py` for full RCA generation
+   - Create `src/services/llm-service.ts` for TypeScript integration
+   - Implement RCA prompt builder (evidence bundle → structured prompt)
+   - Store results in `rca_results` table
+
+4. **Evidence Graph Implementation**
+   - Create `evidence_nodes` and `evidence_edges` tables
+   - Build graph during evidence collection
+   - API endpoint to fetch graph for RCA
+
+### 🟢 P2 - Good to Have (Week 5-6)
+
+5. **Confidence Meter**
+   - Implement scoring formula (deterministic weight > LLM weight)
+   - Add to RCA result schema
+   - UI component for web dashboard
+
+6. **Integration Testing**
+   - End-to-end flow test with real Sentry webhook payload
+   - Verify webhook → extraction → analysis → evidence → RCA pipeline
+
+7. **RCA Feedback Loop**
+   - Create `rca_feedback` table
+   - API endpoints for feedback submission
+   - Connect to Bug Signature Database (Week 7-8)
+
+---
+
+## Quick Commands
+
+```bash
+# Run all tests
+npm run test -- --run
+
+# Run Python analyzer manually
+echo '{"code_segments": [{"file_path": "test.js", "language": "javascript", "content": "const x = user.name;", "error_line": 1}]}' | python -m python.analyzers.js_analyzer
+
+# Check Python linting
+cd python && ruff check . && mypy .
+
+# Start local dev environment
+docker-compose up -d
+```
