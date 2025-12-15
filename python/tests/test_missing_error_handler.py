@@ -5,7 +5,6 @@ This rule detects try blocks that are missing catch handlers.
 """
 from __future__ import annotations
 
-import pytest
 from tree_sitter import Language, Parser
 from tree_sitter_javascript import language as javascript_language
 
