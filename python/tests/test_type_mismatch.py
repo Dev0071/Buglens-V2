@@ -9,7 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import pytest
 from analyzers.rules.type_mismatch import (
     RULE_ID,
     RULE_SEVERITY,
