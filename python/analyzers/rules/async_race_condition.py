@@ -139,7 +139,6 @@ def evaluate_async_race_condition(context: AnalysisContext) -> List[Dict[str, An
         # Get the arguments (the array of promises)
         args_node = call_node.child_by_field_name("arguments")
         if args_node:
-            args_text = context.text_for_node(args_node)
 
             # Check if any of the parallel operations modify shared state
             modifications = _find_shared_state_modifications(context, args_node)
