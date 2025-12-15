@@ -11,7 +11,7 @@ Common patterns:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 from ..base import AnalysisContext
 
