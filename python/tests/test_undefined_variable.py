@@ -9,8 +9,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import pytest
-
 from analyzers.rules.undefined_variable import (
     RULE_ID,
     RULE_SEVERITY,
