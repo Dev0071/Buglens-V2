@@ -34,12 +34,24 @@ from .prompts import (
 
 @dataclass
 class OrchestratorConfig:
-    """Configuration for LLM orchestrator."""
+    """
+    Configuration for LLM orchestrator.
+
+    Timeout Rationale:
+    - timeout_seconds: 30s for full RCA generation
+      This is longer than llm_assist_extractor's 20s because:
+      1. RCA generation requires more complex reasoning
+      2. Larger input prompts (evidence bundles) = longer processing
+      3. More output tokens (full RCA vs simple extraction)
+
+    - llm_assist_extractor uses 20s with 10s buffer
+      Designed for quick extraction tasks with smaller payloads
+    """
     model: str = "gpt-4o-mini"
     temperature: float = 0.1  # Low for consistency
     max_tokens: int = 2000  # Output token limit
     max_input_tokens: int = 4000  # Input token budget
-    timeout_seconds: int = 30
+    timeout_seconds: int = 30  # Full RCA requires more time than extraction (20s)
     max_retries: int = 2
     retry_delay_seconds: float = 1.0
 
@@ -146,7 +158,10 @@ class RCAOrchestrator:
 
         # Build prompts
         user_prompt = build_user_prompt(truncated)
-        estimated_input = estimate_prompt_tokens(SYSTEM_PROMPT + user_prompt)
+        estimated_input_tokens = estimate_prompt_tokens(SYSTEM_PROMPT + user_prompt)
+
+        # Log estimated token usage for debugging/monitoring
+        print(f"[DEBUG] Estimated input tokens: {estimated_input_tokens}", file=sys.stderr)
 
         # Try LLM generation with retries
         last_error: Optional[str] = None
