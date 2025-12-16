@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger.js";
+import { config } from "../../utils/config.js";
 import { PythonBridge } from "../python-bridge.js";
 import {
   type LLMAssistInput,
@@ -23,10 +24,11 @@ import {
  */
 export class LLMAssistExtractor {
   private createPythonBridge(): PythonBridge {
-    // Use longer timeout for LLM operations (30s default)
+    // Use config timeout for LLM operations (default 30s)
+    // Python side uses 20s timeout to leave 10s buffer for process overhead
     return new PythonBridge({
       module: "extractors.llm_assist_extractor",
-      timeoutMs: 30000, // LLM API calls can take 10-30 seconds
+      timeoutMs: config.PYTHON_LLM_TIMEOUT_MS,
     });
   }
 

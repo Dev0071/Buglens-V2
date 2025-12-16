@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from "fastify";
 import { pool } from "../../db/client.js";
 import { getRedisClient } from "../../db/redis.js";
 import { config } from "../../utils/config.js";
+import { checkS3Health, getS3CacheStatus } from "../../services/cache.js";
 
 interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "degraded";
@@ -11,6 +12,7 @@ interface HealthCheckResult {
   checks: {
     database: "connected" | "disconnected";
     redis: "connected" | "disconnected";
+    s3: "connected" | "disconnected" | "disabled";
   };
 }
 
@@ -21,6 +23,12 @@ interface ReadinessCheckResult {
     database: { status: "ok" | "error"; latencyMs?: number; error?: string };
     redis: { status: "ok" | "error"; latencyMs?: number; error?: string };
     queues: { status: "ok" | "error"; accessible?: boolean; error?: string };
+    s3: {
+      status: "ok" | "error" | "disabled";
+      latencyMs?: number;
+      error?: string;
+      bucket?: string;
+    };
   };
 }
 
@@ -38,6 +46,7 @@ export const healthRoutes: FastifyPluginAsync = async (server) => {
       checks: {
         database: "disconnected",
         redis: "disconnected",
+        s3: "disconnected",
       },
     };
 
@@ -58,16 +67,31 @@ export const healthRoutes: FastifyPluginAsync = async (server) => {
       result.checks.redis = "disconnected";
     }
 
+    // Check S3 status (non-blocking for liveness)
+    const s3Status = getS3CacheStatus();
+    if (!s3Status.enabled) {
+      result.checks.s3 = "disabled";
+    } else if (s3Status.healthChecked) {
+      result.checks.s3 = "connected";
+    } else {
+      // Not yet health checked - try now
+      const s3Health = await checkS3Health();
+      result.checks.s3 = s3Health.healthy ? "connected" : "disconnected";
+    }
+
     // Determine overall status
-    const allConnected =
+    // S3 is optional - degraded if unavailable but not unhealthy
+    const coreConnected =
       result.checks.database === "connected" &&
       result.checks.redis === "connected";
     const noneConnected =
       result.checks.database === "disconnected" &&
       result.checks.redis === "disconnected";
 
-    if (allConnected) {
+    if (coreConnected && result.checks.s3 === "connected") {
       result.status = "healthy";
+    } else if (coreConnected) {
+      result.status = "degraded"; // S3 issues but core services OK
     } else if (noneConnected) {
       result.status = "unhealthy";
     } else {
@@ -90,6 +114,7 @@ export const healthRoutes: FastifyPluginAsync = async (server) => {
         database: { status: "error" },
         redis: { status: "error" },
         queues: { status: "error" },
+        s3: { status: "disabled" },
       },
     };
 
@@ -140,13 +165,51 @@ export const healthRoutes: FastifyPluginAsync = async (server) => {
       };
     }
 
+    // Check S3 cache (optional but included in readiness)
+    const s3Status = getS3CacheStatus();
+    if (!s3Status.enabled) {
+      result.checks.s3 = {
+        status: "disabled",
+      };
+    } else {
+      try {
+        const s3Start = Date.now();
+        const s3Health = await checkS3Health();
+        if (s3Health.healthy) {
+          result.checks.s3 = {
+            status: "ok",
+            latencyMs: Date.now() - s3Start,
+            bucket: s3Health.bucket,
+          };
+        } else {
+          result.checks.s3 = {
+            status: "error",
+            latencyMs: Date.now() - s3Start,
+            error: s3Health.error,
+            bucket: s3Health.bucket,
+          };
+        }
+      } catch (error) {
+        result.checks.s3 = {
+          status: "error",
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }
+
     // Determine overall readiness
-    const allChecksPass =
+    // Core services must be OK; S3 is optional (can be disabled or degraded)
+    const coreChecksPass =
       result.checks.database.status === "ok" &&
       result.checks.redis.status === "ok" &&
       result.checks.queues.status === "ok";
 
-    if (allChecksPass) {
+    // S3 is considered OK if disabled or actually working
+    const s3CheckPass =
+      result.checks.s3.status === "disabled" ||
+      result.checks.s3.status === "ok";
+
+    if (coreChecksPass && s3CheckPass) {
       result.status = "ready";
       return reply.send(result);
     }

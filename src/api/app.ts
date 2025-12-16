@@ -8,6 +8,7 @@ import { logger } from "../utils/logger.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
+import { rcaRoutes } from "./routes/rca.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -79,6 +80,7 @@ await server.register(rateLimit, {
 await server.register(healthRoutes, { prefix: "/api/v1" });
 await server.register(webhooksRoutes, { prefix: "/api/v1" });
 await server.register(githubWebhooksRoutes, { prefix: "/api/v1" });
+await server.register(rcaRoutes, { prefix: "/api" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

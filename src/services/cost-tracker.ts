@@ -228,6 +228,26 @@ export class CostTracker {
   }
 
   /**
+   * Record LLM usage (alias for recordLLMTokens for LLM service)
+   */
+  async recordLLMUsage(
+    org_id: string,
+    tokens: number,
+    inputTokens?: number,
+    outputTokens?: number
+  ): Promise<void> {
+    return this.recordLLMTokens(org_id, tokens, inputTokens, outputTokens);
+  }
+
+  /**
+   * Get today's LLM token usage for an organization
+   */
+  async getDailyLLMTokens(org_id: string): Promise<number> {
+    const metrics = await this.getDailyMetrics(org_id);
+    return metrics?.llm_tokens_used ?? 0;
+  }
+
+  /**
    * Get current daily metrics for an organization
    */
   async getDailyMetrics(

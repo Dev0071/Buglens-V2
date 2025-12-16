@@ -260,10 +260,10 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * Store evidence bundle in S3 (production/staging) or database (development)
+   * Store evidence bundle in S3 (production/staging) or LocalStack (development with S3_ENDPOINT)
    *
-   * In development mode, S3 storage is skipped and evidence is stored in the database.
-   * This allows local development without requiring AWS infrastructure.
+   * In development mode without S3_ENDPOINT, storage falls back to database.
+   * When S3_ENDPOINT is configured (LocalStack), S3 storage is used even in development.
    */
   async storeInS3(bundle: EvidenceBundle): Promise<EvidenceStorageRef> {
     // Add date-based prefix for better S3 performance and organization
@@ -271,11 +271,11 @@ export class EvidenceCollectorService {
     const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
     const key = `evidence/${datePrefix}/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
 
-    // In development, skip S3 and store in database instead
-    if (config.NODE_ENV === "development") {
+    // In development without LocalStack endpoint, skip S3 and store in database instead
+    if (config.NODE_ENV === "development" && !config.S3_ENDPOINT) {
       logger.info(
         { bundleId: bundle.bundle_id, key },
-        "Development mode: Skipping S3, storing evidence bundle in database"
+        "Development mode without LocalStack: Storing evidence bundle in database"
       );
 
       // Store the bundle JSON in the database as a fallback

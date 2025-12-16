@@ -1,5 +1,6 @@
 import { startDeterministicAnalyzerWorker } from "./deterministic-analyzer.worker.js";
 import { startEvidenceWorker } from "./queues/evidence.js";
+import { startLLMWorker } from "./queues/llm-reasoning.js";
 import { logger } from "../utils/logger.js";
 
 const WORKER_STARTUP_BANNER = `
@@ -28,15 +29,26 @@ async function bootstrap() {
     "Worker online: evidence-assembly"
   );
 
+  // Start LLM reasoning worker
+  const llmWorker = startLLMWorker();
   logger.info(
-    { workersStarted: 2 },
+    { worker: "llm-reasoning", concurrency: 3 },
+    "Worker online: llm-reasoning"
+  );
+
+  logger.info(
+    { workersStarted: 3 },
     "All workers online and ready to process jobs"
   );
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received, closing workers...");
-    await Promise.all([deterministicWorker.close(), evidenceWorker.close()]);
+    await Promise.all([
+      deterministicWorker.close(),
+      evidenceWorker.close(),
+      llmWorker.close(),
+    ]);
     logger.info("All workers stopped gracefully");
     process.exit(0);
   };
