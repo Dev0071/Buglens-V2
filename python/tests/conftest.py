@@ -89,30 +89,3 @@ def create_context() -> Callable[..., AnalysisContext]:
         return AnalysisContext(segment, tree, {"error_message": error_message})
 
     return _create_context
-
-
-# Sample buggy code snippets for testing
-SAMPLE_NULL_ACCESS_BUGS = [
-    # Simple null access
-    ("const name = user.name;", 1, True, "simple property access"),
-    # With null check (should not flag)
-    ("if (user) { const name = user.name; }", 1, False, "guarded access"),
-    # Optional chaining (should not flag)
-    ("const name = user?.name;", 1, False, "optional chaining"),
-]
-
-SAMPLE_UNAWAITED_PROMISE_BUGS = [
-    # Unawaited fetch
-    ("fetch('/api');", 1, True, "fetch without await"),
-    # Awaited fetch (should not flag)
-    ("await fetch('/api');", 1, False, "fetch with await"),
-    # With .then() (should not flag)
-    ("fetch('/api').then(r => r.json());", 1, False, "fetch with then"),
-]
-
-SAMPLE_MISSING_CATCH_BUGS = [
-    # Try without catch
-    ("try { risky(); } finally { cleanup(); }", 1, True, "try without catch"),
-    # Try with catch (should not flag)
-    ("try { risky(); } catch (e) { handle(e); }", 1, False, "try with catch"),
-]

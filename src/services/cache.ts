@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import { createGzip, createGunzip } from "zlib";
 import { config } from "../utils/config.js";
@@ -17,6 +18,8 @@ import { sanitizePathForCacheKey } from "../types/github.js";
 // ============================================
 
 const REDIS_TTL_SECONDS = 3600; // 1 hour
+const S3_RETRY_MAX_ATTEMPTS = 3;
+const S3_RETRY_BASE_DELAY_MS = 100;
 // S3 lifecycle policy configured via Terraform for 7-day retention
 
 // ============================================
@@ -25,6 +28,8 @@ const REDIS_TTL_SECONDS = 3600; // 1 hour
 
 let s3Client: S3Client | null = null;
 let s3Disabled = false; // Flag to disable S3 if bucket doesn't exist
+let s3DisabledReason: string | null = null;
+let s3HealthChecked = false; // Track if health check has been performed
 
 /**
  * Check if S3 cache should be used.
@@ -50,16 +55,201 @@ function shouldUseS3(): boolean {
 function disableS3Cache(reason: string): void {
   if (!s3Disabled) {
     s3Disabled = true;
+    s3DisabledReason = reason;
     logger.warn({ reason }, "S3 cache disabled for this session");
   }
 }
 
 /**
- * Check if an S3 error indicates the bucket doesn't exist
+ * Re-enable S3 cache (for testing or after transient issues resolved)
  */
-function isBucketMissingError(error: unknown): boolean {
-  const e = error as { name?: string; Code?: string };
-  return e.name === "NoSuchBucket" || e.Code === "NoSuchBucket";
+export function resetS3Cache(): void {
+  s3Disabled = false;
+  s3DisabledReason = null;
+  s3HealthChecked = false;
+  logger.info("S3 cache reset - will be re-enabled on next use");
+}
+
+/**
+ * Get S3 cache status for health checks
+ */
+export function getS3CacheStatus(): {
+  enabled: boolean;
+  disabledReason: string | null;
+  healthChecked: boolean;
+} {
+  return {
+    enabled: shouldUseS3(),
+    disabledReason: s3DisabledReason,
+    healthChecked: s3HealthChecked,
+  };
+}
+
+/**
+ * Classify S3 errors into permanent (disable cache) vs transient (retry)
+ */
+interface S3ErrorClassification {
+  isPermanent: boolean;
+  isTransient: boolean;
+  shouldDisable: boolean;
+  errorType: string;
+}
+
+function classifyS3Error(error: unknown): S3ErrorClassification {
+  const e = error as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const errorName = e.name || e.Code || "Unknown";
+  const statusCode = e.$metadata?.httpStatusCode;
+
+  // Permanent errors - disable S3 cache
+  const permanentErrors = [
+    "NoSuchBucket", // Bucket doesn't exist
+    "InvalidBucketName", // Invalid bucket configuration
+    "AccessDenied", // Permission error - likely misconfiguration
+    "InvalidAccessKeyId", // Wrong credentials
+    "SignatureDoesNotMatch", // Wrong secret key
+    "AccountProblem", // Account-level issue
+    "InvalidSecurity", // Security configuration issue
+  ];
+
+  // Transient errors - retry with backoff
+  const transientErrors = [
+    "RequestTimeout",
+    "ServiceUnavailable",
+    "SlowDown", // S3 rate limiting
+    "InternalError",
+    "OperationAborted",
+  ];
+
+  const isPermanent = permanentErrors.includes(errorName) || statusCode === 403;
+  const isTransient =
+    transientErrors.includes(errorName) ||
+    statusCode === 500 ||
+    statusCode === 503 ||
+    statusCode === 429;
+
+  return {
+    isPermanent,
+    isTransient,
+    shouldDisable: isPermanent,
+    errorType: errorName,
+  };
+}
+
+// NOTE: isBucketMissingError was replaced by classifyS3Error for comprehensive error handling
+
+/**
+ * Retry an S3 operation with exponential backoff for transient errors
+ */
+async function withS3Retry<T>(
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= S3_RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const classification = classifyS3Error(error);
+
+      // Permanent errors - don't retry, optionally disable
+      if (classification.isPermanent) {
+        if (classification.shouldDisable) {
+          disableS3Cache(
+            `Permanent S3 error: ${classification.errorType} - ${String(error)}`
+          );
+        }
+        throw error;
+      }
+
+      // Transient errors - retry with backoff
+      if (classification.isTransient && attempt < S3_RETRY_MAX_ATTEMPTS) {
+        const delay = S3_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(
+          {
+            operation: operationName,
+            attempt,
+            maxAttempts: S3_RETRY_MAX_ATTEMPTS,
+            delayMs: delay,
+            errorType: classification.errorType,
+          },
+          "S3 transient error, retrying"
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Non-classified errors or max retries reached
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Perform S3 health check on startup
+ * Verifies bucket exists and is accessible
+ */
+export async function checkS3Health(): Promise<{
+  healthy: boolean;
+  error?: string;
+  bucket?: string;
+}> {
+  if (!shouldUseS3()) {
+    return {
+      healthy: true,
+      bucket: config.S3_BUCKET_NAME,
+      error: config.S3_ENDPOINT
+        ? undefined
+        : "S3 disabled (no LocalStack endpoint in development)",
+    };
+  }
+
+  const s3 = getS3Client();
+  if (!s3) {
+    return {
+      healthy: true,
+      bucket: config.S3_BUCKET_NAME,
+      error: "S3 client not initialized (expected)",
+    };
+  }
+
+  try {
+    await s3.send(new HeadBucketCommand({ Bucket: config.S3_BUCKET_NAME }));
+    s3HealthChecked = true;
+    logger.info(
+      { bucket: config.S3_BUCKET_NAME, endpoint: config.S3_ENDPOINT || "AWS" },
+      "S3 health check passed"
+    );
+    return { healthy: true, bucket: config.S3_BUCKET_NAME };
+  } catch (error) {
+    const classification = classifyS3Error(error);
+
+    if (classification.shouldDisable) {
+      disableS3Cache(
+        `S3 health check failed: ${classification.errorType} for bucket '${config.S3_BUCKET_NAME}'`
+      );
+    }
+
+    const errorMsg = `S3 health check failed: ${classification.errorType}`;
+    logger.error(
+      {
+        bucket: config.S3_BUCKET_NAME,
+        endpoint: config.S3_ENDPOINT || "AWS",
+        errorType: classification.errorType,
+        isPermanent: classification.isPermanent,
+      },
+      errorMsg
+    );
+
+    return { healthy: false, error: errorMsg, bucket: config.S3_BUCKET_NAME };
+  }
 }
 
 function getS3Client(): S3Client | null {
@@ -179,6 +369,7 @@ export async function setInRedisCache(
 
 /**
  * Get file content from S3 cache
+ * Uses retry logic for transient errors
  */
 export async function getFromS3Cache(
   params: CacheKeyParams
@@ -193,11 +384,15 @@ export async function getFromS3Cache(
   const key = buildS3CacheKey(params);
 
   try {
-    const response = await s3.send(
-      new GetObjectCommand({
-        Bucket: config.S3_BUCKET_NAME,
-        Key: key,
-      })
+    const response = await withS3Retry(
+      () =>
+        s3.send(
+          new GetObjectCommand({
+            Bucket: config.S3_BUCKET_NAME,
+            Key: key,
+          })
+        ),
+      `getFromS3Cache:${key}`
     );
 
     if (!response.Body) {
@@ -218,11 +413,17 @@ export async function getFromS3Cache(
     logger.debug({ key }, "S3 cache hit");
     return { ...cached, cache_source: "s3" };
   } catch (error: unknown) {
-    // Check for missing bucket - disable S3 cache for session
-    if (isBucketMissingError(error)) {
-      disableS3Cache(`Bucket '${config.S3_BUCKET_NAME}' does not exist`);
+    const classification = classifyS3Error(error);
+
+    // Handle permanent errors
+    if (classification.shouldDisable) {
+      disableS3Cache(
+        `${classification.errorType} for bucket '${config.S3_BUCKET_NAME}'`
+      );
       return null;
     }
+
+    // Handle "not found" (expected for cache miss)
     const e = error as {
       name?: string;
       $metadata?: { httpStatusCode: number };
@@ -230,13 +431,18 @@ export async function getFromS3Cache(
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       return null;
     }
-    logger.error({ error, key }, "Failed to get from S3 cache");
+
+    logger.error(
+      { error, key, errorType: classification.errorType },
+      "Failed to get from S3 cache"
+    );
     return null;
   }
 }
 
 /**
  * Store file content in S3 cache
+ * Uses retry logic for transient errors
  */
 export async function setInS3Cache(
   params: CacheKeyParams,
@@ -255,30 +461,42 @@ export async function setInS3Cache(
     // Compress content
     const compressed = await compressContent(JSON.stringify(content));
 
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: config.S3_BUCKET_NAME,
-        Key: key,
-        Body: compressed,
-        ContentType: "application/json",
-        ContentEncoding: "gzip",
-        Metadata: {
-          org_id: params.orgId,
-          repo: params.repo,
-          sha: params.sha,
-          cached_at: new Date().toISOString(),
-        },
-      })
+    await withS3Retry(
+      () =>
+        s3.send(
+          new PutObjectCommand({
+            Bucket: config.S3_BUCKET_NAME,
+            Key: key,
+            Body: compressed,
+            ContentType: "application/json",
+            ContentEncoding: "gzip",
+            Metadata: {
+              org_id: params.orgId,
+              repo: params.repo,
+              sha: params.sha,
+              cached_at: new Date().toISOString(),
+            },
+          })
+        ),
+      `setInS3Cache:${key}`
     );
 
     logger.debug({ key }, "Stored in S3 cache");
   } catch (error) {
-    // Check for missing bucket - disable S3 cache for session
-    if (isBucketMissingError(error)) {
-      disableS3Cache(`Bucket '${config.S3_BUCKET_NAME}' does not exist`);
+    const classification = classifyS3Error(error);
+
+    // Handle permanent errors
+    if (classification.shouldDisable) {
+      disableS3Cache(
+        `${classification.errorType} for bucket '${config.S3_BUCKET_NAME}'`
+      );
       return;
     }
-    logger.error({ error, key }, "Failed to store in S3 cache");
+
+    logger.error(
+      { error, key, errorType: classification.errorType },
+      "Failed to store in S3 cache"
+    );
     // Don't throw - S3 cache is non-critical
   }
 }

@@ -305,14 +305,14 @@ Respond ONLY with valid JSON, no markdown or explanation outside the JSON."""
     return prompt
 
 
-def call_llm(prompt: str, max_tokens: int = 1500, timeout_seconds: int = 25) -> tuple[dict, int, str]:
+def call_llm(prompt: str, max_tokens: int = 1500, timeout_seconds: int = 20) -> tuple[dict, int, str]:
     """
     Call LLM and return parsed response + tokens used + model name.
 
     Args:
         prompt: The prompt to send to the LLM
         max_tokens: Maximum tokens in response
-        timeout_seconds: Timeout for the API call (default 25s to leave buffer for Python bridge's 30s timeout)
+        timeout_seconds: Timeout for the API call (default 20s to leave 10s buffer for Python bridge's 30s timeout)
     """
     client = get_openai_client()
     provider, model, _ = get_llm_config()
@@ -336,9 +336,13 @@ def call_llm(prompt: str, max_tokens: int = 1500, timeout_seconds: int = 25) -> 
             timeout=timeout_seconds,  # Add explicit timeout
         )
     except Exception as e:
-        # Return empty result on timeout or API error
+        # Log full error to stderr for debugging, return sanitized error
         error_type = type(e).__name__
-        return {"error": f"LLM API error: {error_type}"}, 0, model
+        error_msg = str(e)
+        # Log to stderr (captured by Node.js for debugging but not exposed to users)
+        print(f"LLM API Error [{error_type}]: {error_msg}", file=sys.stderr)
+        # Return sanitized error (no sensitive details like API keys)
+        return {"error": f"LLM API error: {error_type}", "error_detail": sanitize_error_message(e)}, 0, model
 
     content = response.choices[0].message.content or "{}"
     tokens_used = response.usage.total_tokens if response.usage else 0

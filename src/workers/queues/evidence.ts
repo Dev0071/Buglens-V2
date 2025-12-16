@@ -10,6 +10,7 @@ import {
   type CodeFetchResult,
 } from "../../services/evidence-collector.js";
 import type { AnalyzerResult } from "../../types/analyzer.js";
+import { enqueueLLMReasoning } from "./llm-reasoning.js";
 
 // ============================================
 // Queue Configuration
@@ -292,6 +293,13 @@ async function processEvidenceJob(
     // Step 8: Mark job as evidence complete
     await markEvidenceComplete(orgId, jobId);
 
+    // Step 9: Enqueue LLM reasoning job
+    logger.info(
+      { jobId, eventId, orgId },
+      "[PIPELINE:HANDOFF] Enqueueing LLM reasoning job"
+    );
+    await enqueueLLMReasoning({ jobId, eventId, orgId });
+
     const durationMs = Date.now() - startTime;
     logger.info(
       {
@@ -310,6 +318,7 @@ async function processEvidenceJob(
   } catch (error) {
     const durationMs = Date.now() - startTime;
     const err = error instanceof Error ? error : new Error(String(error));
+    const isLastAttempt = job.attemptsMade + 1 >= (job.opts.attempts || 3);
 
     logger.error(
       {
@@ -320,13 +329,18 @@ async function processEvidenceJob(
         attempt: job.attemptsMade + 1,
         error: err.message,
         errorStack: err.stack,
+        isLastAttempt,
         worker: "evidence-assembly",
         status: "failed",
       },
       "[JOB:ERROR] Evidence assembly failed"
     );
 
-    await markEvidenceFailed(orgId, jobId, err.message);
+    // Only mark job as permanently failed if this is the last attempt
+    // For retryable failures, keep status so retry can pick it up
+    if (isLastAttempt) {
+      await markEvidenceFailed(orgId, jobId, err.message);
+    }
     throw error;
   }
 }

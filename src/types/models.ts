@@ -79,14 +79,57 @@ export interface RCAResult {
     commits?: unknown;
     deterministic_findings?: AnalyzerResult | null;
   };
+  /** Visual evidence graph showing RCA reasoning chain */
+  evidence_graph?: {
+    nodes: Array<{
+      id: string;
+      type: string;
+      label: string;
+      data: Record<string, unknown>;
+      confidence: number;
+    }>;
+    edges: Array<{
+      id: string;
+      source: string;
+      target: string;
+      type: string;
+      label: string;
+      evidence: string;
+    }>;
+    metadata: {
+      created_at: string;
+      confidence: number;
+      deterministic_score: number;
+      high_confidence_edges: number;
+      is_valid: boolean;
+    };
+  };
   confidence: number;
   llm_model: string;
   llm_tokens_used?: number;
   processing_time_ms?: number;
   user_feedback?: "useful" | "not_useful" | "partially_useful";
   user_notes?: string;
+  /** User-provided actual root cause when RCA was wrong */
+  actual_root_cause?: string;
+  /** When feedback was submitted */
+  feedback_timestamp?: Date;
+  /** User-categorized error type */
+  error_category?: string;
   created_at: Date;
   updated_at: Date;
+}
+
+/** Correction record when RCA was wrong */
+export interface RCACorrection {
+  id: string;
+  rca_id: string;
+  org_id: string;
+  original_root_cause: string;
+  corrected_root_cause: string;
+  error_signature?: string;
+  error_category?: string;
+  created_at: Date;
 }
 
 export interface User {
