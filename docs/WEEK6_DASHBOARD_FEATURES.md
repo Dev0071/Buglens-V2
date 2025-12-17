@@ -6,6 +6,175 @@ Week 6 focuses on **Slack Integration** and **Web Dashboard MVP** to deliver RCA
 
 ---
 
+## 📋 Implementation Status & Testing Guide
+
+### Phase 1: Foundation ✅ COMPLETE
+
+**Status:** Implemented and tested
+
+**What's Working:**
+
+- ✅ Project setup (Vite + Tailwind + React Query)
+- ✅ Layout components (Sidebar, Header) with collapsible navigation
+- ✅ Dark/Light mode theme toggle with system preference support
+- ✅ API client setup with typed query keys
+- ✅ Auth store with Zustand persistence
+- ✅ Login page UI (GitHub/Google OAuth buttons)
+- ✅ Protected route wrappers
+- ✅ 69 unit tests passing
+
+**What's NOT Working (Expected):**
+
+- ❌ OAuth login flow (requires backend auth endpoints)
+- ❌ API data fetching (backend endpoints not yet implemented)
+
+**How to Test Phase 1:**
+
+```bash
+# 1. Start the frontend dev server
+cd web && npm run dev
+
+# 2. Open browser to http://localhost:5173
+# You should see the login page with:
+# - Buglens branding
+# - "Continue with GitHub" button
+# - "Continue with Google" button
+# - Email/password form
+# - Theme toggle in header (click to test dark/light mode)
+
+# 3. Run unit tests
+cd web && npm run test
+
+# Expected: 69 tests pass
+```
+
+**Dev Mode Bypass (for testing protected pages):**
+To test the dashboard without OAuth, you can manually set auth state:
+
+```javascript
+// In browser console at http://localhost:5173
+localStorage.setItem(
+  "buglens-auth",
+  JSON.stringify({
+    state: {
+      accessToken: "dev-token",
+      user: {
+        id: "dev-1",
+        email: "dev@test.com",
+        name: "Dev User",
+        orgId: "org-1",
+        orgName: "Test Org",
+        role: "admin",
+      },
+      organization: {
+        id: "org-1",
+        name: "Test Org",
+        plan: "pro",
+        createdAt: new Date().toISOString(),
+      },
+    },
+  })
+);
+location.reload();
+```
+
+---
+
+### Phase 2: Core Pages ✅ COMPLETE
+
+**Status:** Implemented and tested (85 tests passing)
+
+**What's Working:**
+
+- ✅ Dashboard home with metric cards and recent events (mock data)
+- ✅ Events list with filters and pagination (mock data)
+- ✅ RCA detail view with Summary, Root Cause, Fix Suggestion
+- ✅ Mock data mode for development testing (auto-enabled in dev)
+- ✅ React Query hooks: `useDashboardStats`, `useRecentEvents`, `useEventsList`, `useRCAResult`, etc.
+- ✅ Integrations page with connection status
+- ✅ Cost summary hooks for analytics
+- ✅ 14 new hooks tests (85 total tests)
+- ✅ API types (`web/src/types/api.ts`)
+
+**Files Created/Modified:**
+
+- `web/src/lib/mock-data.ts` - Mock data for development
+- `web/src/lib/hooks.ts` - React Query hooks (16 hooks)
+- `web/src/types/api.ts` - TypeScript types for API responses
+- `web/src/lib/__tests__/hooks.test.tsx` - Hook tests
+- Updated pages to use new hooks
+
+**How to Test Phase 2:**
+
+```bash
+# 1. Set up dev auth (see Phase 1 bypass above)
+
+# 2. Navigate to dashboard
+# URL: http://localhost:3000/
+# Expected:
+#   - 4 stat cards (Total Events, Resolved RCAs, Avg Resolution Time, Pending)
+#   - Recent Events table with 5 mock events
+#   - Quick Actions panel
+
+# 3. Navigate to events list
+# URL: http://localhost:3000/events
+# Expected:
+#   - Filterable table with 8 mock events
+#   - Severity filter (critical, high, medium, low)
+#   - Status filter (pending, processing, completed, failed)
+#   - Search functionality
+
+# 4. Navigate to RCA detail
+# URL: http://localhost:3000/rca/rca-001
+# Expected:
+#   - Title: "Null reference in user profile handler"
+#   - Summary section
+#   - Root Cause analysis
+#   - Suggested Fix with code diff
+#   - Analysis Findings (deterministic rules)
+#   - Stack trace table
+#   - Related code section
+#   - Metadata (tokens used, mode)
+
+# 5. Run unit tests
+cd web && npm test
+# Expected: 85 tests pass
+```
+
+---
+
+### Phase 3: Advanced Features 📋 TODO
+
+**What Should Work:**
+
+- [ ] Evidence Graph visualization (React Flow)
+- [ ] Code context viewer with syntax highlighting
+- [ ] Feedback system (thumbs up/down + comment)
+- [ ] Timeline tab with breadcrumbs
+
+---
+
+### Phase 4: Analytics & Settings 📋 TODO
+
+**What Should Work:**
+
+- [ ] Cost analytics dashboard
+- [ ] Settings pages (org, user, notifications)
+- [ ] Slack integration configuration
+
+---
+
+### Phase 5: Polish 📋 TODO
+
+**What Should Work:**
+
+- [ ] Loading skeletons
+- [ ] Error boundaries
+- [ ] Mobile responsive layouts
+- [ ] E2E tests with Playwright
+
+---
+
 ## 🎯 Core Deliverables
 
 ### 1. Authentication & Authorization
@@ -622,6 +791,229 @@ POST /api/v1/slack/actions
 | Forms             | React Hook Form + Zod          |
 | HTTP Client       | Axios or fetch                 |
 | Testing           | Vitest + React Testing Library |
+
+---
+
+## 🌗 Theme System: Dark/Light Mode
+
+### Overview
+
+Buglens supports both dark and light themes with:
+
+- System preference detection (prefers-color-scheme)
+- Manual toggle with persistence (localStorage)
+- Smooth transitions between themes
+- Accessible color contrast in both modes
+
+### Implementation
+
+#### Theme Store (Zustand)
+
+```typescript
+// stores/theme.ts
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+type Theme = "light" | "dark" | "system";
+
+interface ThemeStore {
+  theme: Theme;
+  resolvedTheme: "light" | "dark";
+  setTheme: (theme: Theme) => void;
+}
+
+export const useThemeStore = create<ThemeStore>()(
+  persist(
+    (set, get) => ({
+      theme: "system",
+      resolvedTheme: "light",
+      setTheme: (theme) => {
+        const resolved =
+          theme === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : theme;
+
+        document.documentElement.classList.toggle("dark", resolved === "dark");
+        set({ theme, resolvedTheme: resolved });
+      },
+    }),
+    { name: "buglens-theme" }
+  )
+);
+```
+
+#### Tailwind Configuration
+
+```javascript
+// tailwind.config.js
+module.exports = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        // Light mode
+        background: {
+          DEFAULT: "#ffffff",
+          secondary: "#f9fafb",
+          tertiary: "#f3f4f6",
+        },
+        foreground: {
+          DEFAULT: "#111827",
+          secondary: "#4b5563",
+          muted: "#9ca3af",
+        },
+        // Dark mode overrides via dark: prefix
+        // dark:bg-gray-900, dark:text-gray-100, etc.
+      },
+    },
+  },
+};
+```
+
+#### Theme Toggle Component
+
+```tsx
+// components/ThemeToggle.tsx
+import { Moon, Sun, Monitor } from "lucide-react";
+import { useThemeStore } from "@/stores/theme";
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useThemeStore();
+
+  return (
+    <div className="flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+      <button
+        onClick={() => setTheme("light")}
+        className={cn(
+          "p-2 rounded-md transition-colors",
+          theme === "light"
+            ? "bg-white dark:bg-gray-700 shadow"
+            : "hover:bg-gray-200 dark:hover:bg-gray-700"
+        )}
+        aria-label="Light mode"
+      >
+        <Sun className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => setTheme("dark")}
+        className={cn(
+          "p-2 rounded-md transition-colors",
+          theme === "dark"
+            ? "bg-white dark:bg-gray-700 shadow"
+            : "hover:bg-gray-200 dark:hover:bg-gray-700"
+        )}
+        aria-label="Dark mode"
+      >
+        <Moon className="w-4 h-4" />
+      </button>
+      <button
+        onClick={() => setTheme("system")}
+        className={cn(
+          "p-2 rounded-md transition-colors",
+          theme === "system"
+            ? "bg-white dark:bg-gray-700 shadow"
+            : "hover:bg-gray-200 dark:hover:bg-gray-700"
+        )}
+        aria-label="System preference"
+      >
+        <Monitor className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+```
+
+### Color Palette
+
+#### Light Mode
+
+| Element        | Color     | Hex       |
+| -------------- | --------- | --------- |
+| Background     | White     | `#ffffff` |
+| Surface        | Gray 50   | `#f9fafb` |
+| Border         | Gray 200  | `#e5e7eb` |
+| Text Primary   | Gray 900  | `#111827` |
+| Text Secondary | Gray 600  | `#4b5563` |
+| Primary        | Blue 600  | `#2563eb` |
+| Success        | Green 600 | `#16a34a` |
+| Warning        | Amber 500 | `#f59e0b` |
+| Error          | Red 600   | `#dc2626` |
+
+#### Dark Mode
+
+| Element        | Color     | Hex       |
+| -------------- | --------- | --------- |
+| Background     | Gray 950  | `#030712` |
+| Surface        | Gray 900  | `#111827` |
+| Border         | Gray 700  | `#374151` |
+| Text Primary   | Gray 100  | `#f3f4f6` |
+| Text Secondary | Gray 400  | `#9ca3af` |
+| Primary        | Blue 500  | `#3b82f6` |
+| Success        | Green 500 | `#22c55e` |
+| Warning        | Amber 400 | `#fbbf24` |
+| Error          | Red 500   | `#ef4444` |
+
+### Component Examples
+
+```tsx
+// Example: Card component with dark mode
+function Card({ children, title }: CardProps) {
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+      {title && (
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            {title}
+          </h3>
+        </div>
+      )}
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+// Example: Code viewer with dark mode
+function CodeViewer({ code, language }: CodeViewerProps) {
+  return (
+    <pre className="bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg p-4 overflow-x-auto">
+      <code className="text-sm text-gray-800 dark:text-gray-200 font-mono">
+        {code}
+      </code>
+    </pre>
+  );
+}
+```
+
+### Initialization
+
+```tsx
+// App.tsx or main.tsx
+import { useEffect } from "react";
+import { useThemeStore } from "@/stores/theme";
+
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const { theme, setTheme } = useThemeStore();
+
+  useEffect(() => {
+    // Initialize theme on mount
+    setTheme(theme);
+
+    // Listen for system preference changes
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => {
+      if (theme === "system") {
+        setTheme("system");
+      }
+    };
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  return <>{children}</>;
+}
+```
 
 ---
 
