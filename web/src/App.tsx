@@ -9,6 +9,7 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 // Lazy load pages for better performance
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
+const SignupPage = lazy(() => import("@/pages/auth/SignupPage"));
 const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage"));
 const EventsPage = lazy(() => import("@/pages/events/EventsPage"));
 const EventDetailPage = lazy(() => import("@/pages/events/EventDetailPage"));
@@ -68,6 +69,14 @@ function App() {
                 element={
                   <PublicRoute>
                     <LoginPage />
+                  </PublicRoute>
+                }
+              />
+              <Route
+                path="/signup"
+                element={
+                  <PublicRoute>
+                    <SignupPage />
                   </PublicRoute>
                 }
               />

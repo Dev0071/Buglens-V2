@@ -34,11 +34,12 @@ function generateSignature(payload: object): string {
 describe("Sentry Webhook", () => {
   beforeAll(async () => {
     await server.ready();
-    // Ensure test org exists
+    // Ensure test org exists with 'free' plan for rate limit tests
+    // Use DO UPDATE to ensure plan is set correctly even if org already exists
     await pool.query(
       `INSERT INTO organizations (id, name, slug, plan)
        VALUES ($1, 'Test Organization', $2, 'free')
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (id) DO UPDATE SET plan = 'free'`,
       [TEST_ORG_ID, TEST_ORG_SLUG]
     );
   });

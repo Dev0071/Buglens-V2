@@ -36,6 +36,12 @@ interface AuthState {
 
 interface AuthActions {
   login: (email: string, password: string) => Promise<void>;
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+    orgName: string
+  ) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginWithGitHub: () => Promise<void>;
   logout: () => void;
@@ -75,7 +81,7 @@ export const useAuthStore = create<AuthStore>()(
             user: User;
             organization: Organization;
             accessToken: string;
-          }>("/api/auth/login", { email, password });
+          }>("/auth/login", { email, password });
 
           set({
             user: response.user,
@@ -87,6 +93,39 @@ export const useAuthStore = create<AuthStore>()(
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Login failed";
+          set({ error: message, isLoading: false });
+          throw error;
+        }
+      },
+
+      /**
+       * Signup with email, password, and organization
+       */
+      signup: async (
+        name: string,
+        email: string,
+        password: string,
+        orgName: string
+      ) => {
+        set({ isLoading: true, error: null });
+
+        try {
+          const response = await apiClient.post<{
+            user: User;
+            organization: Organization;
+            accessToken: string;
+          }>("/auth/signup", { name, email, password, organizationName: orgName });
+
+          set({
+            user: response.user,
+            organization: response.organization,
+            accessToken: response.accessToken,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Signup failed";
           set({ error: message, isLoading: false });
           throw error;
         }
@@ -135,7 +174,7 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: false }); // Override isLoading after reset
 
         // Call logout endpoint to invalidate server session
-        apiClient.post("/api/auth/logout").catch(() => {
+        apiClient.post("/auth/logout").catch(() => {
           // Ignore logout errors - user is already logged out locally
         });
       },
@@ -156,7 +195,7 @@ export const useAuthStore = create<AuthStore>()(
           const response = await apiClient.get<{
             user: User;
             organization: Organization;
-          }>("/api/auth/me");
+          }>("/auth/me");
 
           set({
             user: response.user,

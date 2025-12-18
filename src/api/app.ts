@@ -3,12 +3,19 @@ import type { FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
+import cookie from "@fastify/cookie";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
 import { rcaRoutes } from "./routes/rca.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
+import { eventsRoutes } from "./routes/events.js";
+import { integrationsRoutes } from "./routes/integrations.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { costsRoutes } from "./routes/costs.js";
+import { authRoutes } from "./routes/auth.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -67,6 +74,11 @@ await server.register(jwt, {
   secret: config.JWT_SECRET,
 });
 
+await server.register(cookie, {
+  secret: config.JWT_SECRET, // Used for signing cookies
+  parseOptions: {},
+});
+
 await server.register(rateLimit, {
   max: 100,
   timeWindow: "1 minute",
@@ -80,7 +92,13 @@ await server.register(rateLimit, {
 await server.register(healthRoutes, { prefix: "/api/v1" });
 await server.register(webhooksRoutes, { prefix: "/api/v1" });
 await server.register(githubWebhooksRoutes, { prefix: "/api/v1" });
+await server.register(authRoutes, { prefix: "/api" });
 await server.register(rcaRoutes, { prefix: "/api" });
+await server.register(dashboardRoutes, { prefix: "/api" });
+await server.register(eventsRoutes, { prefix: "/api" });
+await server.register(integrationsRoutes, { prefix: "/api" });
+await server.register(settingsRoutes, { prefix: "/api" });
+await server.register(costsRoutes, { prefix: "/api" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {
