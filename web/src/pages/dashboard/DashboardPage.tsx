@@ -157,7 +157,8 @@ function SystemHealthBanner() {
                 {criticalCount > 1 ? "s" : ""} requires immediate attention
               </p>
               <p className="text-sm text-red-600 dark:text-red-400">
-                {hasSpike && `Error rate up ${stats?.eventsChange}% in last hour • `}
+                {hasSpike &&
+                  `Error rate up ${stats?.eventsChange}% in last hour • `}
                 Click to investigate
               </p>
             </div>
