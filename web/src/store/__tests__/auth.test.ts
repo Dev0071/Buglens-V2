@@ -200,7 +200,80 @@ describe("useAuthStore", () => {
         result.current.logout();
       });
 
-      expect(apiClient.post).toHaveBeenCalledWith("/api/auth/logout");
+      expect(apiClient.post).toHaveBeenCalledWith("/auth/logout");
+    });
+  });
+
+  describe("signup", () => {
+    it("successfully signs up user", async () => {
+      const mockResponse = {
+        user: {
+          id: "user-1",
+          email: "newuser@example.com",
+          name: "New User",
+          orgId: "org-1",
+          orgName: "New Org",
+          role: "owner" as const,
+        },
+        organization: {
+          id: "org-1",
+          name: "New Org",
+          plan: "free" as const,
+          createdAt: new Date().toISOString(),
+        },
+        accessToken: "new-token",
+      };
+
+      vi.mocked(apiClient.post).mockResolvedValue(mockResponse);
+
+      const { result } = renderHook(() => useAuthStore());
+
+      await act(async () => {
+        await result.current.signup(
+          "New User",
+          "newuser@example.com",
+          "password123",
+          "New Org"
+        );
+      });
+
+      expect(result.current.user).toEqual(mockResponse.user);
+      expect(result.current.organization).toEqual(mockResponse.organization);
+      expect(result.current.accessToken).toBe("new-token");
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.isLoading).toBe(false);
+      expect(apiClient.post).toHaveBeenCalledWith("/auth/signup", {
+        name: "New User",
+        email: "newuser@example.com",
+        password: "password123",
+        orgName: "New Org",
+      });
+    });
+
+    it("handles signup failure", async () => {
+      const error = new Error("Email already exists");
+      vi.mocked(apiClient.post).mockRejectedValue(error);
+
+      const { result } = renderHook(() => useAuthStore());
+
+      let signupError: Error | null = null;
+      await act(async () => {
+        try {
+          await result.current.signup(
+            "Test User",
+            "existing@example.com",
+            "password123",
+            "Test Org"
+          );
+        } catch (e) {
+          signupError = e as Error;
+        }
+      });
+
+      expect(signupError).toBeTruthy();
+      expect(result.current.user).toBeNull();
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.error).toBe("Email already exists");
     });
   });
 
