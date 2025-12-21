@@ -18,6 +18,7 @@ const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
 const IntegrationsPage = lazy(
   () => import("@/pages/integrations/IntegrationsPage")
 );
+const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
 
 /**
  * Protected route wrapper - redirects to login if not authenticated
@@ -95,7 +96,16 @@ function App() {
               <Route path="/events/:eventId" element={<EventDetailPage />} />
               <Route path="/rca/:rcaId" element={<RCADetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/team" element={<SettingsPage />} />
+              <Route path="/settings/integrations" element={<SettingsPage />} />
+              <Route path="/settings/api-keys" element={<SettingsPage />} />
+              <Route
+                path="/settings/notifications"
+                element={<SettingsPage />}
+              />
+              <Route path="/settings/billing" element={<SettingsPage />} />
               <Route path="/integrations" element={<IntegrationsPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
             </Route>
 
             {/* Catch all - redirect to dashboard */}

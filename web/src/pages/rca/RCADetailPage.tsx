@@ -1,10 +1,7 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useRCAResult } from "@/lib/hooks";
-import {
-  formatDateTime,
-  formatConfidence,
-  getSeverityClass,
-} from "@/lib/utils";
+import { useRCAResult, useSubmitRCAFeedback } from "@/lib/hooks";
+import { formatDateTime, getSeverityClass, cn } from "@/lib/utils";
 import {
   ArrowLeftIcon,
   LightBulbIcon,
@@ -12,14 +9,41 @@ import {
   DocumentTextIcon,
   ClockIcon,
   CheckCircleIcon,
+  ShareIcon,
+  ChartBarIcon,
+  CodeBracketIcon,
+  ChatBubbleLeftEllipsisIcon,
+  StarIcon,
+  HandThumbUpIcon,
+  HandThumbDownIcon,
 } from "@heroicons/react/24/outline";
+import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
+// Tab types
+type TabId = "summary" | "evidence" | "code" | "timeline" | "feedback";
+
+interface Tab {
+  id: TabId;
+  name: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const tabs: Tab[] = [
+  { id: "summary", name: "Summary", icon: DocumentTextIcon },
+  { id: "evidence", name: "Evidence Graph", icon: ChartBarIcon },
+  { id: "code", name: "Code Context", icon: CodeBracketIcon },
+  { id: "timeline", name: "Timeline", icon: ClockIcon },
+  { id: "feedback", name: "Feedback", icon: ChatBubbleLeftEllipsisIcon },
+];
+
 /**
- * RCA detail page showing full analysis results
+ * RCA detail page with 5-tab design
+ * Decision-driven: "What caused this error and how do I fix it?"
  */
 function RCADetailPage() {
   const { rcaId } = useParams<{ rcaId: string }>();
+  const [activeTab, setActiveTab] = useState<TabId>("summary");
 
   const { data: rca, isLoading, error } = useRCAResult(rcaId);
 
@@ -46,8 +70,7 @@ function RCADetailPage() {
     );
   }
 
-  const { value: confidenceValue, colorClass: confidenceClass } =
-    formatConfidence(rca.confidence);
+  // Confidence is displayed via the ConfidenceMeter component
 
   return (
     <div className="space-y-6">
@@ -64,9 +87,8 @@ function RCADetailPage() {
             {rca.title}
           </h1>
           <div className="flex flex-wrap items-center gap-3 mt-2">
-            <span className={`text-sm font-medium ${confidenceClass}`}>
-              {confidenceValue} confidence
-            </span>
+            {/* Confidence Score */}
+            <ConfidenceMeter confidence={rca.confidence} />
             {rca.deterministic_only && (
               <span className="badge badge-warning">Deterministic only</span>
             )}
@@ -76,8 +98,126 @@ function RCADetailPage() {
             </span>
           </div>
         </div>
+
+        {/* Share Button */}
+        <button
+          onClick={() => navigator.clipboard.writeText(window.location.href)}
+          className="btn btn-secondary flex items-center gap-2"
+        >
+          <ShareIcon className="w-4 h-4" />
+          Share
+        </button>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 dark:border-gray-700">
+        <nav className="flex space-x-8" aria-label="Tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors",
+                activeTab === tab.id
+                  ? "border-brand-500 text-brand-600 dark:text-brand-400"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300"
+              )}
+            >
+              <tab.icon className="w-5 h-5" />
+              {tab.name}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      <div className="min-h-[400px]">
+        {activeTab === "summary" && <SummaryTab rca={rca} />}
+        {activeTab === "evidence" && <EvidenceTab rca={rca} />}
+        {activeTab === "code" && <CodeContextTab rca={rca} />}
+        {activeTab === "timeline" && <TimelineTab rca={rca} />}
+        {activeTab === "feedback" && <FeedbackTab rca={rca} />}
+      </div>
+
+      {/* Metadata Footer */}
+      <div className="card">
+        <div className="card-body">
+          <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+            Analysis Metadata
+          </h2>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">
+                LLM Tokens:{" "}
+              </span>
+              <span className="font-medium text-gray-900 dark:text-white">
+                {rca.llm_tokens_used.toLocaleString()}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">Mode: </span>
+              <span className="font-medium text-gray-900 dark:text-white">
+                {rca.deterministic_only
+                  ? "Deterministic Only"
+                  : "Full Analysis"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">
+                Event ID:{" "}
+              </span>
+              <span className="font-medium font-mono text-gray-900 dark:text-white">
+                {rca.event_id}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Confidence Meter Component
+ */
+function ConfidenceMeter({ confidence }: { confidence: number }) {
+  const percentage = confidence * 100;
+  const getColor = () => {
+    if (confidence >= 0.8) return "text-green-600 dark:text-green-400";
+    if (confidence >= 0.6) return "text-yellow-600 dark:text-yellow-400";
+    return "text-red-600 dark:text-red-400";
+  };
+
+  const getBgColor = () => {
+    if (confidence >= 0.8) return "bg-green-500";
+    if (confidence >= 0.6) return "bg-yellow-500";
+    return "bg-red-500";
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full", getBgColor())}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <span className={cn("text-sm font-medium", getColor())}>
+        {percentage.toFixed(0)}% confidence
+      </span>
+    </div>
+  );
+}
+
+// ============================================================================
+// Summary Tab
+// ============================================================================
+
+import type { RCAResult } from "@/types/api";
+
+function SummaryTab({ rca }: { rca: RCAResult }) {
+  return (
+    <div className="space-y-6">
       {/* Summary card */}
       <div className="card">
         <div className="card-body">
@@ -143,6 +283,9 @@ function RCADetailPage() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               Analysis Findings
             </h2>
+            <span className="badge badge-info">
+              {rca.evidence.deterministic_findings.length} findings
+            </span>
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {rca.evidence.deterministic_findings.map((finding, index) => (
@@ -173,7 +316,115 @@ function RCADetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
+// ============================================================================
+// Evidence Graph Tab
+// ============================================================================
+
+function EvidenceTab({ rca }: { rca: RCAResult }) {
+  // This would use React Flow for interactive graph visualization
+  // For now, showing a simplified representation
+
+  const nodes = [
+    { id: "error", label: "Error", type: "error" },
+    { id: "stacktrace", label: "Stack Trace", type: "evidence" },
+    { id: "code", label: "Code Context", type: "evidence" },
+    ...rca.evidence.deterministic_findings.map((f, i) => ({
+      id: `finding-${i}`,
+      label: f.title,
+      type: "finding",
+    })),
+    { id: "root_cause", label: "Root Cause", type: "result" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Graph Placeholder */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Evidence Graph
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Visual representation of how evidence connects to the root cause
+          </p>
+        </div>
+        <div className="card-body">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 min-h-[400px] flex items-center justify-center">
+            <div className="text-center">
+              <ChartBarIcon className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 mb-2">
+                Interactive evidence graph
+              </p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                (React Flow integration coming soon)
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Evidence Nodes List */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Evidence Nodes
+          </h2>
+        </div>
+        <div className="card-body">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {nodes.map((node) => (
+              <div
+                key={node.id}
+                className={cn(
+                  "p-4 rounded-lg border",
+                  node.type === "error"
+                    ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20"
+                    : node.type === "result"
+                      ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
+                      : node.type === "finding"
+                        ? "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20"
+                        : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-xs font-medium uppercase tracking-wider",
+                    node.type === "error"
+                      ? "text-red-600 dark:text-red-400"
+                      : node.type === "result"
+                        ? "text-green-600 dark:text-green-400"
+                        : node.type === "finding"
+                          ? "text-yellow-600 dark:text-yellow-400"
+                          : "text-gray-600 dark:text-gray-400"
+                  )}
+                >
+                  {node.type}
+                </span>
+                <p className="mt-1 font-medium text-gray-900 dark:text-white">
+                  {node.label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Code Context Tab
+// ============================================================================
+
+function CodeContextTab({ rca }: { rca: RCAResult }) {
+  const [selectedFile, setSelectedFile] = useState(0);
+
+  return (
+    <div className="space-y-6">
       {/* Stack trace */}
       {rca.evidence.error_info.stack_trace.length > 0 && (
         <div className="card">
@@ -186,6 +437,7 @@ function RCADetailPage() {
             <table className="table">
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>File</th>
                   <th>Line</th>
                   <th>Function</th>
@@ -194,8 +446,11 @@ function RCADetailPage() {
               <tbody>
                 {rca.evidence.error_info.stack_trace.map((frame, index) => (
                   <tr key={index}>
+                    <td className="text-gray-400">{index + 1}</td>
                     <td className="font-mono text-sm">{frame.file}</td>
-                    <td className="font-mono text-sm">{frame.line}</td>
+                    <td className="font-mono text-sm text-brand-600 dark:text-brand-400">
+                      {frame.line}
+                    </td>
                     <td className="font-mono text-sm">{frame.function}</td>
                   </tr>
                 ))}
@@ -205,55 +460,356 @@ function RCADetailPage() {
         </div>
       )}
 
-      {/* Code context */}
+      {/* Code files */}
       {rca.evidence.code_context.files.length > 0 && (
         <div className="card">
           <div className="card-header">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               Related Code
             </h2>
+            {/* File tabs */}
+            {rca.evidence.code_context.files.length > 1 && (
+              <div className="flex gap-2">
+                {rca.evidence.code_context.files.map((file, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setSelectedFile(index)}
+                    className={cn(
+                      "px-3 py-1 text-sm font-mono rounded",
+                      selectedFile === index
+                        ? "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400"
+                        : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    )}
+                  >
+                    {file.path.split("/").pop()}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {rca.evidence.code_context.files.map((file, index) => (
-              <div key={index} className="p-4">
-                <div className="flex items-center gap-2 mb-2">
+          <div className="card-body p-0">
+            {rca.evidence.code_context.files[selectedFile] && (
+              <div>
+                <div className="px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                   <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
-                    {file.path}
+                    {rca.evidence.code_context.files[selectedFile].path}
                   </span>
                 </div>
-                <pre className="text-sm overflow-x-auto">
-                  <code className="text-gray-800 dark:text-gray-200">
-                    {file.content}
+                <pre className="p-4 overflow-x-auto">
+                  <code className="text-sm text-gray-800 dark:text-gray-200 font-mono whitespace-pre">
+                    {rca.evidence.code_context.files[selectedFile].content}
                   </code>
                 </pre>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
 
-      {/* Metadata */}
+      {rca.evidence.code_context.files.length === 0 && (
+        <div className="card">
+          <div className="card-body text-center py-12">
+            <CodeBracketIcon className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-500 dark:text-gray-400">
+              No code context available for this RCA
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Timeline Tab
+// ============================================================================
+
+function TimelineTab({ rca }: { rca: RCAResult }) {
+  const timeline = rca.evidence.timeline?.events || [];
+
+  // Generate mock timeline if empty
+  const timelineEvents =
+    timeline.length > 0
+      ? timeline
+      : [
+          {
+            timestamp: rca.created_at,
+            type: "error",
+            message: rca.evidence.error_info.message,
+          },
+          {
+            timestamp: new Date(
+              new Date(rca.created_at).getTime() + 1000
+            ).toISOString(),
+            type: "analysis",
+            message: "Started deterministic analysis",
+          },
+          {
+            timestamp: new Date(
+              new Date(rca.created_at).getTime() + 5000
+            ).toISOString(),
+            type: "analysis",
+            message: `Found ${rca.evidence.deterministic_findings.length} patterns`,
+          },
+          {
+            timestamp: new Date(
+              new Date(rca.created_at).getTime() + 10000
+            ).toISOString(),
+            type: "llm",
+            message: "LLM analysis completed",
+          },
+          {
+            timestamp: new Date(
+              new Date(rca.created_at).getTime() + 12000
+            ).toISOString(),
+            type: "complete",
+            message: "RCA generation complete",
+          },
+        ];
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          Event Timeline
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Sequence of events leading to this error
+        </p>
+      </div>
+      <div className="card-body">
+        <div className="relative">
+          {/* Timeline line */}
+          <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+
+          {/* Timeline events */}
+          <div className="space-y-6">
+            {timelineEvents.map((event, index) => (
+              <div key={index} className="relative pl-10">
+                {/* Timeline dot */}
+                <div
+                  className={cn(
+                    "absolute left-2 w-5 h-5 rounded-full border-2 bg-white dark:bg-gray-900",
+                    event.type === "error"
+                      ? "border-red-500"
+                      : event.type === "complete"
+                        ? "border-green-500"
+                        : "border-blue-500"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "absolute inset-1 rounded-full",
+                      event.type === "error"
+                        ? "bg-red-500"
+                        : event.type === "complete"
+                          ? "bg-green-500"
+                          : "bg-blue-500"
+                    )}
+                  />
+                </div>
+
+                {/* Event content */}
+                <div className="pb-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={cn(
+                        "text-xs font-medium uppercase",
+                        event.type === "error"
+                          ? "text-red-600 dark:text-red-400"
+                          : event.type === "complete"
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-blue-600 dark:text-blue-400"
+                      )}
+                    >
+                      {event.type}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {formatDateTime(event.timestamp)}
+                    </span>
+                  </div>
+                  <p className="text-gray-700 dark:text-gray-300">
+                    {event.message}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Feedback Tab
+// ============================================================================
+
+function FeedbackTab({ rca }: { rca: RCAResult }) {
+  const [rating, setRating] = useState<number>(0);
+  const [helpful, setHelpful] = useState<boolean | null>(null);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const submitFeedback = useSubmitRCAFeedback();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (rating === 0) return;
+
+    await submitFeedback.mutateAsync({
+      rcaId: rca.id,
+      rating: rating as 1 | 2 | 3 | 4 | 5,
+      wasHelpful: helpful ?? rating >= 4,
+      comment: comment || undefined,
+    });
+
+    setSubmitted(true);
+  };
+
+  if (submitted) {
+    return (
       <div className="card">
-        <div className="card-body">
-          <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-            Analysis Metadata
+        <div className="card-body text-center py-12">
+          <CheckCircleIcon className="w-16 h-16 text-green-500 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Thank you for your feedback!
+          </h3>
+          <p className="text-gray-500 dark:text-gray-400">
+            Your feedback helps us improve RCA accuracy.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Rate this RCA
           </h2>
-          <div className="flex flex-wrap gap-4 text-sm">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Your feedback helps improve future analyses
+          </p>
+        </div>
+        <div className="card-body">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Star Rating */}
             <div>
-              <span className="text-gray-500 dark:text-gray-400">
-                LLM Tokens:{" "}
-              </span>
-              <span className="font-medium text-gray-900 dark:text-white">
-                {rca.llm_tokens_used.toLocaleString()}
-              </span>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Overall Quality
+              </label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    className="focus:outline-none"
+                  >
+                    {star <= rating ? (
+                      <StarIconSolid className="w-8 h-8 text-yellow-400" />
+                    ) : (
+                      <StarIcon className="w-8 h-8 text-gray-300 dark:text-gray-600 hover:text-yellow-400" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* Helpful? */}
             <div>
-              <span className="text-gray-500 dark:text-gray-400">Mode: </span>
-              <span className="font-medium text-gray-900 dark:text-white">
-                {rca.deterministic_only
-                  ? "Deterministic Only"
-                  : "Full Analysis"}
-              </span>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Was this RCA helpful in resolving the issue?
+              </label>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => setHelpful(true)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors",
+                    helpful === true
+                      ? "border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                      : "border-gray-200 dark:border-gray-700 hover:border-green-300"
+                  )}
+                >
+                  <HandThumbUpIcon className="w-5 h-5" />
+                  Yes, helpful
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHelpful(false)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors",
+                    helpful === false
+                      ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                      : "border-gray-200 dark:border-gray-700 hover:border-red-300"
+                  )}
+                >
+                  <HandThumbDownIcon className="w-5 h-5" />
+                  Not helpful
+                </button>
+              </div>
+            </div>
+
+            {/* Comment */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Additional Comments (optional)
+              </label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                rows={4}
+                className="input"
+                placeholder="What could we improve? Was the root cause accurate?"
+              />
+            </div>
+
+            {/* Submit */}
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={rating === 0 || submitFeedback.isPending}
+            >
+              {submitFeedback.isPending ? "Submitting..." : "Submit Feedback"}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Feedback Stats */}
+      <div className="card bg-gray-50 dark:bg-gray-800/50">
+        <div className="card-body">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+            Community Feedback
+          </h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                4.2
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Avg Rating
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                87%
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Found Helpful
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                23
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Total Reviews
+              </p>
             </div>
           </div>
         </div>

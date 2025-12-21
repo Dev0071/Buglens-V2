@@ -7,6 +7,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   XMarkIcon,
+  ChartBarIcon,
 } from "@heroicons/react/24/outline";
 import { useAuthStore } from "@/store/auth";
 
@@ -20,6 +21,7 @@ interface SidebarProps {
 const navigation = [
   { name: "Dashboard", href: "/", icon: HomeIcon },
   { name: "Events", href: "/events", icon: ExclamationCircleIcon },
+  { name: "Analytics", href: "/analytics", icon: ChartBarIcon },
   { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
 ];

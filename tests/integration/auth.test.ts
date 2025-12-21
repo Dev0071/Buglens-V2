@@ -18,14 +18,12 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { server } from "../../src/api/app.js";
-import { query, pool } from "../../src/db/client.js";
-import { randomUUID } from "crypto";
+import { query } from "../../src/db/client.js";
 
 // Test data
 const TEST_EMAIL = "test-auth@buglens.com";
 const TEST_PASSWORD = "SecurePass123!";
 const TEST_NAME = "Test User";
-const WEAK_PASSWORD = "weak";
 
 describe("Auth API", () => {
   beforeAll(async () => {
@@ -93,7 +91,7 @@ describe("Auth API", () => {
       });
 
       it("should create organization with custom name", async () => {
-        const orgName = "My Test Company";
+        const organizationName = "My Test Company";
         const response = await server.inject({
           method: "POST",
           url: "/api/auth/signup",
@@ -101,13 +99,13 @@ describe("Auth API", () => {
             email: `test-custom-org-${Date.now()}@buglens.com`,
             password: TEST_PASSWORD,
             name: TEST_NAME,
-            organizationName: orgName,
+            organizationName: organizationName,
           },
         });
 
         expect(response.statusCode).toBe(201);
         const body = response.json();
-        expect(body.organization.name).toBe(orgName);
+        expect(body.organization.name).toBe(organizationName);
       });
 
       it("should normalize email to lowercase", async () => {
@@ -504,7 +502,7 @@ describe("Auth API", () => {
   // POST /api/auth/logout
   // ==========================================
   describe("POST /api/auth/logout", () => {
-    let refreshToken: string;
+    let refreshToken: string = "";
 
     beforeEach(async () => {
       const signupResponse = await server.inject({
@@ -521,7 +519,7 @@ describe("Auth API", () => {
       const refreshCookie = cookies.find(
         (c: { name: string }) => c.name === "refreshToken"
       );
-      refreshToken = refreshCookie?.value;
+      refreshToken = refreshCookie?.value || "";
     });
 
     describe("Positive Cases", () => {
@@ -579,7 +577,7 @@ describe("Auth API", () => {
   // POST /api/auth/refresh
   // ==========================================
   describe("POST /api/auth/refresh", () => {
-    let refreshToken: string;
+    let refreshToken: string = "";
 
     beforeEach(async () => {
       const signupResponse = await server.inject({
@@ -596,7 +594,7 @@ describe("Auth API", () => {
       const refreshCookie = cookies.find(
         (c: { name: string }) => c.name === "refreshToken"
       );
-      refreshToken = refreshCookie?.value;
+      refreshToken = refreshCookie?.value || "";
     });
 
     describe("Positive Cases", () => {
@@ -677,9 +675,9 @@ describe("Auth API", () => {
   // POST /api/auth/logout-all
   // ==========================================
   describe("POST /api/auth/logout-all", () => {
-    let accessToken: string;
-    let refreshToken1: string;
-    let refreshToken2: string;
+    let accessToken: string = "";
+    let refreshToken1: string = "";
+    let refreshToken2: string = "";
 
     beforeEach(async () => {
       // Create user
@@ -696,9 +694,9 @@ describe("Auth API", () => {
       const body = signupResponse.json();
       accessToken = body.accessToken;
       const cookies1 = signupResponse.cookies;
-      refreshToken1 = cookies1.find(
-        (c: { name: string }) => c.name === "refreshToken"
-      )?.value;
+      refreshToken1 =
+        cookies1.find((c: { name: string }) => c.name === "refreshToken")
+          ?.value || "";
 
       // Create second session (login again)
       const loginResponse = await server.inject({
@@ -711,9 +709,9 @@ describe("Auth API", () => {
       });
 
       const cookies2 = loginResponse.cookies;
-      refreshToken2 = cookies2.find(
-        (c: { name: string }) => c.name === "refreshToken"
-      )?.value;
+      refreshToken2 =
+        cookies2.find((c: { name: string }) => c.name === "refreshToken")
+          ?.value || "";
     });
 
     describe("Positive Cases", () => {
@@ -807,7 +805,8 @@ describe("Auth API", () => {
 
       const start = Date.now();
 
-      const response = await server.inject({
+      // Measure login response time
+      await server.inject({
         method: "POST",
         url: "/api/auth/login",
         payload: {

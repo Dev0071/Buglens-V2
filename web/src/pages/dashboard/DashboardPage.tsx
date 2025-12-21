@@ -9,7 +9,6 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   ExclamationTriangleIcon,
-  ExclamationCircleIcon,
   CheckCircleIcon,
   ClockIcon,
   FireIcon,

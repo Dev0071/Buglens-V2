@@ -138,12 +138,12 @@ export interface RCAResult {
 }
 
 // Integration types
-export type IntegrationType = "sentry" | "github" | "slack";
+export type IntegrationType = "sentry" | "github" | "slack" | "jira" | "teams";
 export type IntegrationStatus = "connected" | "disconnected" | "error";
 
 export interface Integration {
   id: string;
-  type: IntegrationType;
+  type: IntegrationType | string; // Allow string for flexibility
   name: string;
   status: IntegrationStatus;
   configuredAt?: string;

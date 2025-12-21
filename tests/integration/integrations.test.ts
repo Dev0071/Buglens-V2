@@ -25,7 +25,8 @@ import {
   cleanupTestData,
   insertIntegration,
   createIntegrationData,
-  type SeedIntegration,
+  // Reserved for future test utilities
+  type SeedIntegration as _SeedIntegration,
   ensureSecondTestOrg,
   cleanupSecondTestOrg,
 } from "../helpers/test-utils.js";
@@ -62,13 +63,15 @@ describe("Integrations API", () => {
         expect(response.statusCode).toBe(200);
         const body = response.json();
 
-        // API returns all 3 supported types (configured or not)
+        // API returns all 5 supported types (configured or not)
         expect(Array.isArray(body)).toBe(true);
-        expect(body.length).toBe(3);
+        expect(body.length).toBe(5);
         const types = body.map((i: { type: string }) => i.type);
         expect(types).toContain("sentry");
         expect(types).toContain("github");
         expect(types).toContain("slack");
+        expect(types).toContain("jira");
+        expect(types).toContain("teams");
       });
 
       it("should show configured integrations as connected", async () => {

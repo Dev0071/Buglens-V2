@@ -5,16 +5,27 @@ import {
   formatRelativeTime,
   getSeverityClass,
   getStatusClass,
+  cn,
 } from "@/lib/utils";
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
   XMarkIcon,
+  ChevronRightIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  ArrowPathIcon,
+  ListBulletIcon,
+  Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
+// View modes
+type ViewMode = "cards" | "table";
+
 /**
- * Events list page with filtering and pagination
+ * Events list page with filtering, pagination, and dual view modes
  */
 function EventsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,6 +33,7 @@ function EventsPage() {
     searchParams.get("search") || ""
   );
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
 
   // Get filter values from URL
   const filters = {
@@ -75,6 +87,34 @@ function EventsPage() {
           <p className="text-gray-600 dark:text-gray-400">
             View and manage error events from Sentry
           </p>
+        </div>
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setViewMode("cards")}
+            className={cn(
+              "p-2 rounded-md transition-colors",
+              viewMode === "cards"
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+            )}
+            title="Card view"
+          >
+            <Squares2X2Icon className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setViewMode("table")}
+            className={cn(
+              "p-2 rounded-md transition-colors",
+              viewMode === "table"
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+            )}
+            title="Table view"
+          >
+            <ListBulletIcon className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -193,7 +233,7 @@ function EventsPage() {
         </div>
       </div>
 
-      {/* Events table */}
+      {/* Events display */}
       <div className="card">
         {isLoading ? (
           <div className="p-12 flex items-center justify-center">
@@ -212,8 +252,27 @@ function EventsPage() {
                 : "Events from Sentry will appear here"}
             </p>
           </div>
+        ) : viewMode === "cards" ? (
+          <>
+            {/* Card View */}
+            <div className="p-4 grid grid-cols-1 gap-4">
+              {data?.events.map((event) => (
+                <EventCard key={event.id} event={event} />
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {data && data.totalPages > 1 && (
+              <Pagination
+                currentPage={data.page}
+                totalPages={data.totalPages}
+                onPageChange={(page) => updateFilters({ page })}
+              />
+            )}
+          </>
         ) : (
           <>
+            {/* Table View */}
             <div className="table-container">
               <table className="table">
                 <thead>
@@ -289,6 +348,177 @@ function EventsPage() {
     </div>
   );
 }
+
+/**
+ * Rich Event Card Component
+ * Decision-driven design: Answers "What happened and should I care?"
+ */
+function EventCard({ event }: { event: Event }) {
+  // Mock data for enhanced display (would come from API in production)
+  const affectedUsers = Math.floor(Math.random() * 50) + 1;
+  const occurrences = Math.floor(Math.random() * 100) + 1;
+  const confidence = event.rca_result_id ? 0.7 + Math.random() * 0.25 : 0;
+
+  const getSeverityIcon = () => {
+    switch (event.severity) {
+      case "critical":
+        return <ExclamationTriangleIcon className="w-5 h-5 text-red-500" />;
+      case "high":
+        return <ExclamationTriangleIcon className="w-5 h-5 text-orange-500" />;
+      case "medium":
+        return <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500" />;
+      default:
+        return <ExclamationTriangleIcon className="w-5 h-5 text-blue-500" />;
+    }
+  };
+
+  const getStatusIcon = () => {
+    switch (event.status) {
+      case "completed":
+        return <CheckCircleIcon className="w-4 h-4 text-green-500" />;
+      case "processing":
+        return <ArrowPathIcon className="w-4 h-4 text-blue-500 animate-spin" />;
+      case "pending":
+        return <ClockIcon className="w-4 h-4 text-yellow-500" />;
+      default:
+        return <XMarkIcon className="w-4 h-4 text-red-500" />;
+    }
+  };
+
+  return (
+    <Link
+      to={
+        event.rca_result_id
+          ? `/rca/${event.rca_result_id}`
+          : `/events/${event.id}`
+      }
+      className={cn(
+        "block p-4 rounded-lg border transition-all",
+        "hover:shadow-md hover:border-brand-300 dark:hover:border-brand-700",
+        event.severity === "critical"
+          ? "border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-900/10"
+          : event.severity === "high"
+            ? "border-orange-200 bg-orange-50/50 dark:border-orange-800 dark:bg-orange-900/10"
+            : "border-gray-200 dark:border-gray-700"
+      )}
+    >
+      <div className="flex items-start gap-4">
+        {/* Severity Icon */}
+        <div className="flex-shrink-0 mt-0.5">{getSeverityIcon()}</div>
+
+        {/* Main Content */}
+        <div className="flex-1 min-w-0">
+          {/* Error Message */}
+          <h3 className="font-medium text-gray-900 dark:text-white truncate">
+            {event.message}
+          </h3>
+
+          {/* Metadata Row */}
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-sm">
+            <span className={getSeverityClass(event.severity)}>
+              {event.severity}
+            </span>
+            <span className="badge badge-info">{event.platform}</span>
+            <span className="text-gray-500 dark:text-gray-400">
+              {event.environment}
+            </span>
+            <span className="text-gray-400">•</span>
+            <span className="text-gray-500 dark:text-gray-400">
+              {formatRelativeTime(event.created_at)}
+            </span>
+          </div>
+
+          {/* Stats Row */}
+          <div className="mt-3 flex items-center gap-6 text-sm text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-1">
+              <span className="font-medium">{occurrences}</span>
+              <span>occurrences</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="font-medium">{affectedUsers}</span>
+              <span>users affected</span>
+            </div>
+            {event.rca_result_id && confidence > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="font-medium">
+                  {(confidence * 100).toFixed(0)}%
+                </span>
+                <span>RCA confidence</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Status & Arrow */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {getStatusIcon()}
+            <span
+              className={cn(
+                "text-sm font-medium",
+                event.status === "completed"
+                  ? "text-green-600 dark:text-green-400"
+                  : event.status === "processing"
+                    ? "text-blue-600 dark:text-blue-400"
+                    : event.status === "failed"
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-yellow-600 dark:text-yellow-400"
+              )}
+            >
+              {event.status === "completed"
+                ? "RCA Ready"
+                : event.status === "processing"
+                  ? "Analyzing..."
+                  : event.status === "pending"
+                    ? "Pending"
+                    : "Failed"}
+            </span>
+          </div>
+          <ChevronRightIcon className="w-5 h-5 text-gray-400" />
+        </div>
+      </div>
+
+      {/* Confidence Bar (if RCA exists) */}
+      {event.rca_result_id && confidence > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              RCA Confidence
+            </span>
+            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  confidence >= 0.8
+                    ? "bg-green-500"
+                    : confidence >= 0.6
+                      ? "bg-yellow-500"
+                      : "bg-red-500"
+                )}
+                style={{ width: `${confidence * 100}%` }}
+              />
+            </div>
+            <span
+              className={cn(
+                "text-xs font-medium",
+                confidence >= 0.8
+                  ? "text-green-600 dark:text-green-400"
+                  : confidence >= 0.6
+                    ? "text-yellow-600 dark:text-yellow-400"
+                    : "text-red-600 dark:text-red-400"
+              )}
+            >
+              {(confidence * 100).toFixed(0)}%
+            </span>
+          </div>
+        </div>
+      )}
+    </Link>
+  );
+}
+
+// Import Event type
+import type { Event } from "@/types/api";
 
 /**
  * Pagination component

@@ -49,15 +49,18 @@ export async function setOrgContext(client: pg.PoolClient, orgId: string) {
 
 /**
  * Execute a transaction with automatic org context
+ * @param orgId - Optional organization ID. If null/undefined, no org context is set (useful for signup)
  */
 export async function transaction<T>(
-  orgId: string,
+  orgId: string | null | undefined,
   callback: (client: pg.PoolClient) => Promise<T>
 ): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await setOrgContext(client, orgId);
+    if (orgId) {
+      await setOrgContext(client, orgId);
+    }
     const result = await callback(client);
     await client.query("COMMIT");
     return result;

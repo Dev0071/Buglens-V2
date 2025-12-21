@@ -19,7 +19,7 @@ type ConnectIntegrationBody = z.infer<typeof connectIntegrationBodySchema>;
 
 interface Integration {
   id: string;
-  type: "sentry" | "github" | "slack";
+  type: "sentry" | "github" | "slack" | "jira" | "teams";
   name: string;
   status: "connected" | "disconnected" | "error";
   configuredAt?: string;
@@ -39,6 +39,8 @@ function getIntegrationName(type: string): string {
     sentry: "Sentry",
     github: "GitHub",
     slack: "Slack",
+    jira: "Jira",
+    teams: "Microsoft Teams",
   };
   return names[type] || type;
 }
@@ -79,6 +81,8 @@ function extractSafeMetadata(
       return {
         project_id: config.project_id,
         organization: config.organization,
+        project_slug: config.project_slug,
+        organization_slug: config.organization_slug,
       };
     case "github":
       return {
@@ -90,6 +94,19 @@ function extractSafeMetadata(
       return {
         team_name: config.team_name,
         channel: config.channel,
+        webhook: config.webhook
+          ? { channel: (config.webhook as { channel?: string }).channel }
+          : null,
+      };
+    case "jira":
+      return {
+        resources: Array.isArray(config.resources)
+          ? config.resources.length
+          : 0,
+      };
+    case "teams":
+      return {
+        configured: true,
       };
     default:
       return {};
@@ -158,7 +175,13 @@ async function listIntegrationsHandler(
     }
 
     // Return all supported integration types (configured + available)
-    const supportedTypes = ["sentry", "github", "slack"] as const;
+    const supportedTypes = [
+      "sentry",
+      "github",
+      "slack",
+      "jira",
+      "teams",
+    ] as const;
     const integrations: Integration[] = supportedTypes.map((type) => {
       if (configuredIntegrations.has(type)) {
         return configuredIntegrations.get(type)!;
@@ -285,7 +308,7 @@ async function connectIntegrationHandler(
   }
 
   // Validate integration type
-  const validTypes = ["sentry", "github", "slack"];
+  const validTypes = ["sentry", "github", "slack", "jira", "teams"];
   if (!validTypes.includes(type)) {
     reply.status(400).send({
       error: "Bad Request",

@@ -1,6 +1,13 @@
 /**
  * Mock data for development mode
- * When VITE_USE_MOCK_DATA=true, API calls return this mock data instead of hitting backend
+ *
+ * By default, the frontend uses REAL API data from the backend.
+ * To use mock data instead, set VITE_USE_MOCK_DATA=true in your .env file.
+ *
+ * This is useful when:
+ * - Backend is not running
+ * - Developing UI without database
+ * - Testing specific edge cases
  */
 
 import type {
@@ -13,9 +20,13 @@ import type {
 
 /**
  * Check if mock data mode is enabled
+ *
+ * IMPORTANT: Default is FALSE - we use real API data by default
+ * Set VITE_USE_MOCK_DATA=true to enable mock data
  */
 export const isMockMode = (): boolean => {
-  return import.meta.env.VITE_USE_MOCK_DATA === "true" || import.meta.env.DEV;
+  // Only use mock data if explicitly enabled via environment variable
+  return import.meta.env.VITE_USE_MOCK_DATA === "true";
 };
 
 /**

@@ -252,6 +252,8 @@ ALTER TABLE cost_metrics ADD COLUMN extraction_llm_tokens INT DEFAULT 0;
 
 ## AI Architecture Table (Enterprise-Safe, Deterministic Core)
 
+> **📚 For detailed design philosophy and principles, see [PHILOSOPHY.md](./PHILOSOPHY.md)**
+
 **Updated for MVP Scope: JS/TS + Python only, GPT-4o-mini only**
 
 | **Component**                | **Use AI?**            | **Recommended Model (MVP)**        | **Why This Choice**                                                    |
