@@ -1,46 +1,132 @@
+import { useState, useEffect } from "react";
 import {
   CheckCircleIcon,
   XCircleIcon,
   ArrowPathIcon,
+  ExclamationTriangleIcon,
+  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import { useIntegrations, useDisconnectIntegration } from "@/lib/hooks";
+import {
+  useIntegrations,
+  useDisconnectIntegration,
+  useConnectIntegration,
+} from "@/lib/hooks";
 
 import type { Integration } from "@/types/api";
 
 /**
- * Integrations page for managing Sentry, GitHub, and Slack connections
+ * Integrations page for managing all external service connections
  */
 function IntegrationsPage() {
   const { data: integrations, isLoading, refetch } = useIntegrations();
-
   const disconnectMutation = useDisconnectIntegration();
+  const connectMutation = useConnectIntegration();
 
-  // Default integrations if none exist
+  const [showSentryModal, setShowSentryModal] = useState(false);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  // Handle URL params for OAuth callbacks
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success");
+    const error = params.get("error");
+
+    if (success) {
+      const integrationName = success.replace("_connected", "").toUpperCase();
+      setNotification({
+        type: "success",
+        message: `${integrationName} integration connected successfully!`,
+      });
+      // Clean up URL
+      window.history.replaceState({}, "", "/integrations");
+      refetch();
+    } else if (error) {
+      setNotification({
+        type: "error",
+        message: `Integration failed: ${error.replace(/_/g, " ")}`,
+      });
+      window.history.replaceState({}, "", "/integrations");
+    }
+  }, [refetch]);
+
+  // Auto-dismiss notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  // Default integrations if none exist - now includes all 5
   const defaultIntegrations: Integration[] = [
     { id: "sentry", type: "sentry", name: "Sentry", status: "disconnected" },
     { id: "github", type: "github", name: "GitHub", status: "disconnected" },
     { id: "slack", type: "slack", name: "Slack", status: "disconnected" },
+    { id: "jira", type: "jira", name: "Jira", status: "disconnected" },
+    {
+      id: "teams",
+      type: "teams",
+      name: "Microsoft Teams",
+      status: "disconnected",
+    },
   ];
 
   const displayIntegrations = integrations ?? defaultIntegrations;
 
   const handleConnect = (type: string) => {
-    // Redirect to OAuth flow based on integration type
-    window.location.href = `/api/integrations/${type}/connect`;
+    if (type === "sentry") {
+      // Sentry uses API key configuration, not OAuth
+      setShowSentryModal(true);
+    } else {
+      // OAuth-based integrations redirect to the OAuth flow
+      window.location.href = `/api/integrations/${type}/connect`;
+    }
   };
 
   const handleDisconnect = async (id: string) => {
     try {
       await disconnectMutation.mutateAsync(id);
+      setNotification({ type: "success", message: "Integration disconnected" });
       refetch();
-    } catch (error) {
-      console.error("Failed to disconnect integration:", error);
+    } catch {
+      setNotification({
+        type: "error",
+        message: "Failed to disconnect integration",
+      });
+    }
+  };
+
+  const handleSentryConnect = async (config: {
+    projectSlug: string;
+    organizationSlug: string;
+    dsn?: string;
+  }) => {
+    try {
+      await connectMutation.mutateAsync({
+        type: "sentry",
+        config,
+      });
+      setShowSentryModal(false);
+      setNotification({
+        type: "success",
+        message: "Sentry integration configured!",
+      });
+      refetch();
+    } catch {
+      setNotification({
+        type: "error",
+        message: "Failed to configure Sentry integration",
+      });
     }
   };
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
           Integrations
@@ -50,22 +136,265 @@ function IntegrationsPage() {
         </p>
       </div>
 
+      {/* Notification Banner */}
+      {notification && (
+        <div
+          className={`p-4 rounded-lg flex items-center gap-3 ${
+            notification.type === "success"
+              ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+              : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+          }`}
+        >
+          {notification.type === "success" ? (
+            <CheckCircleIcon className="w-5 h-5 text-green-600 dark:text-green-400" />
+          ) : (
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
+          )}
+          <p
+            className={
+              notification.type === "success"
+                ? "text-green-800 dark:text-green-200"
+                : "text-red-800 dark:text-red-200"
+            }
+          >
+            {notification.message}
+          </p>
+        </div>
+      )}
+
+      {/* Integration Cards */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner size="lg" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {displayIntegrations.map((integration) => (
-            <IntegrationCard
-              key={integration.id}
-              integration={integration}
-              onConnect={() => handleConnect(integration.type)}
-              onDisconnect={() => handleDisconnect(integration.id)}
-            />
-          ))}
-        </div>
+        <>
+          {/* Error Tracking Section */}
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Error Tracking
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {displayIntegrations
+                .filter((i) => i.type === "sentry")
+                .map((integration) => (
+                  <IntegrationCard
+                    key={integration.id}
+                    integration={integration}
+                    onConnect={() => handleConnect(integration.type)}
+                    onDisconnect={() => handleDisconnect(integration.id)}
+                  />
+                ))}
+            </div>
+          </section>
+
+          {/* Source Control Section */}
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Source Control
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {displayIntegrations
+                .filter((i) => i.type === "github")
+                .map((integration) => (
+                  <IntegrationCard
+                    key={integration.id}
+                    integration={integration}
+                    onConnect={() => handleConnect(integration.type)}
+                    onDisconnect={() => handleDisconnect(integration.id)}
+                  />
+                ))}
+            </div>
+          </section>
+
+          {/* Notifications Section */}
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Notifications
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {displayIntegrations
+                .filter((i) => i.type === "slack" || i.type === "teams")
+                .map((integration) => (
+                  <IntegrationCard
+                    key={integration.id}
+                    integration={integration}
+                    onConnect={() => handleConnect(integration.type)}
+                    onDisconnect={() => handleDisconnect(integration.id)}
+                  />
+                ))}
+            </div>
+          </section>
+
+          {/* Issue Tracking Section */}
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Issue Tracking
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {displayIntegrations
+                .filter((i) => i.type === "jira")
+                .map((integration) => (
+                  <IntegrationCard
+                    key={integration.id}
+                    integration={integration}
+                    onConnect={() => handleConnect(integration.type)}
+                    onDisconnect={() => handleDisconnect(integration.id)}
+                  />
+                ))}
+            </div>
+          </section>
+        </>
       )}
+
+      {/* Sentry Configuration Modal */}
+      {showSentryModal && (
+        <SentryConfigModal
+          onClose={() => setShowSentryModal(false)}
+          onConnect={handleSentryConnect}
+          isLoading={connectMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Sentry configuration modal component
+ */
+function SentryConfigModal({
+  onClose,
+  onConnect,
+  isLoading,
+}: {
+  onClose: () => void;
+  onConnect: (config: {
+    projectSlug: string;
+    organizationSlug: string;
+    dsn?: string;
+  }) => void;
+  isLoading: boolean;
+}) {
+  const [projectSlug, setProjectSlug] = useState("");
+  const [organizationSlug, setOrganizationSlug] = useState("");
+  const [dsn, setDsn] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const webhookUrl = `${window.location.origin}/api/v1/webhooks/sentry`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onConnect({ projectSlug, organizationSlug, dsn: dsn || undefined });
+  };
+
+  const copyToClipboard = async () => {
+    await navigator.clipboard.writeText(webhookUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full mx-4">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            Configure Sentry Integration
+          </h2>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Organization Slug
+              </label>
+              <input
+                type="text"
+                value={organizationSlug}
+                onChange={(e) => setOrganizationSlug(e.target.value)}
+                placeholder="my-organization"
+                className="input w-full"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Found in your Sentry URL: sentry.io/organizations/
+                <strong>my-organization</strong>
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Project Slug
+              </label>
+              <input
+                type="text"
+                value={projectSlug}
+                onChange={(e) => setProjectSlug(e.target.value)}
+                placeholder="my-project"
+                className="input w-full"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Found in your project settings
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                DSN (Optional)
+              </label>
+              <input
+                type="text"
+                value={dsn}
+                onChange={(e) => setDsn(e.target.value)}
+                placeholder="https://xxx@sentry.io/xxx"
+                className="input w-full"
+              />
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Webhook URL (Add this to Sentry)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={webhookUrl}
+                  readOnly
+                  className="input w-full text-sm bg-white dark:bg-gray-800"
+                />
+                <button
+                  type="button"
+                  onClick={copyToClipboard}
+                  className="btn btn-secondary flex items-center gap-1"
+                >
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Go to Sentry → Settings → Integrations → Webhooks and add this
+                URL
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || !projectSlug || !organizationSlug}
+                className="btn btn-primary flex-1"
+              >
+                {isLoading ? "Connecting..." : "Connect Sentry"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
@@ -153,7 +482,7 @@ function IntegrationCard({
 function IntegrationIcon({ type }: { type: string }) {
   const icons: Record<string, React.ReactNode> = {
     sentry: (
-      <div className="w-12 h-12 bg-gray-900 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+      <div className="w-12 h-12 bg-[#362D59] rounded-lg flex items-center justify-center">
         <svg
           className="w-8 h-8 text-white"
           viewBox="0 0 72 66"
@@ -193,6 +522,20 @@ function IntegrationIcon({ type }: { type: string }) {
             fill="#ECB22E"
             d="M15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
           />
+        </svg>
+      </div>
+    ),
+    jira: (
+      <div className="w-12 h-12 bg-[#0052CC] rounded-lg flex items-center justify-center">
+        <svg className="w-8 h-8" viewBox="0 0 24 24" fill="white">
+          <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.005 1.005 0 0 0 23.013 0z" />
+        </svg>
+      </div>
+    ),
+    teams: (
+      <div className="w-12 h-12 bg-[#5059C9] rounded-lg flex items-center justify-center">
+        <svg className="w-8 h-8" viewBox="0 0 24 24" fill="white">
+          <path d="M20.625 8.5h-6.25a.625.625 0 0 0-.625.625v6.25c0 .345.28.625.625.625h6.25c.345 0 .625-.28.625-.625v-6.25a.625.625 0 0 0-.625-.625zM17.5 4.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5zM10 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 7.5c-2.67 0-8 1.34-8 4v2.5h16v-2.5c0-2.66-5.33-4-8-4z" />
         </svg>
       </div>
     ),
@@ -242,6 +585,8 @@ function getIntegrationDescription(type: string): string {
     sentry: "Receive error events and stack traces",
     github: "Fetch source code for analysis",
     slack: "Get RCA notifications in your channels",
+    jira: "Create and link issues automatically",
+    teams: "Get notifications in Microsoft Teams",
   };
   return descriptions[type] || "";
 }
@@ -258,13 +603,17 @@ function getIntegrationMetadataDisplay(
 
   switch (type) {
     case "sentry":
-      return metadata.organization
-        ? `Organization: ${metadata.organization}`
+      return metadata.organization_slug
+        ? `Organization: ${metadata.organization_slug}`
         : null;
     case "github":
       return metadata.login ? `Account: ${metadata.login}` : null;
     case "slack":
-      return metadata.team ? `Workspace: ${metadata.team}` : null;
+      return metadata.team_name ? `Workspace: ${metadata.team_name}` : null;
+    case "jira":
+      return metadata.cloud_id ? `Site connected` : null;
+    case "teams":
+      return metadata.tenant_id ? `Tenant connected` : null;
     default:
       return null;
   }

@@ -1,58 +1,77 @@
-# Buglens Week 6 — Dashboard Features Specification
+# Buglens Week 6 — Dashboard Features Specification (Part 1)
 
-## Overview
+## 🎯 Design Philosophy: Decision-Driven Dashboards
 
-Week 6 focuses on **Slack Integration** and **Web Dashboard MVP** to deliver RCA insights to users. This document defines the comprehensive feature set needed for the frontend dashboard.
+**CRITICAL PRINCIPLE:** Every screen exists to help a specific person make a specific decision at a specific moment.
+
+### The 8-Point Design Framework
+
+Before designing ANY page, we answered these questions:
+
+| #   | Question                                          | Why It Matters                                                    |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------- |
+| 1   | **Who exactly uses this?**                        | Job title, not "user". Different roles need different views.      |
+| 2   | **What decision does this page exist to change?** | Without a clear decision, the page is just data decoration.       |
+| 3   | **What metrics directly enable that decision?**   | Max 5. More = noise. Each needs owner + thresholds.               |
+| 4   | **What time context matters?**                    | Real-time? 7-day trend? Comparison to baseline?                   |
+| 5   | **How do we build trust?**                        | Data freshness indicators, source attribution, confidence scores. |
+| 6   | **What's the cognitive load budget?**             | 10-second comprehension rule. Answer the question FAST.           |
+| 7   | **What's the drill-down model?**                  | Summary → Anomaly → Detail → Root Cause → Action                  |
+| 8   | **Who owns this page?**                           | Review cadence, deletion criteria, metric thresholds.             |
+
+### Why This Matters
+
+**Bad Dashboard:** "You have 47 errors" (So what? Which one? Why should I care?)
+
+**Good Dashboard:** "3 critical bugs need attention. Highest priority: null pointer in checkout flow (94% confidence). One-click to see the fix."
+
+Generic analytics show data. Decision-driven dashboards show **what to do next**.
 
 ---
 
-## 📋 Implementation Status & Testing Guide
+## 📋 Implementation Status
 
 ### Phase 1: Foundation ✅ COMPLETE
 
-**Status:** Implemented and tested
-
-**What's Working:**
-
-- ✅ Project setup (Vite + Tailwind + React Query)
-- ✅ Layout components (Sidebar, Header) with collapsible navigation
-- ✅ Dark/Light mode theme toggle with system preference support
-- ✅ API client setup with typed query keys
+- ✅ Vite + Tailwind + React Query setup
+- ✅ Layout (Sidebar, Header, collapsible nav)
+- ✅ Dark/Light theme with system preference
 - ✅ Auth store with Zustand persistence
-- ✅ Login page UI (GitHub/Google OAuth buttons)
+- ✅ Login/Signup pages with email/password auth
 - ✅ Protected route wrappers
-- ✅ 69 unit tests passing
+- ✅ 87 unit tests passing
 
-**What's NOT Working (Expected):**
+### Phase 2: Core Pages ✅ COMPLETE
 
-- ❌ OAuth login flow (requires backend auth endpoints)
-- ❌ API data fetching (backend endpoints not yet implemented)
+- ✅ Decision-driven Dashboard Home (redesigned)
+- ✅ Events List with filters
+- ✅ RCA Detail view with tabs
+- ✅ React Query hooks
+- ✅ Mock data mode for development
 
-**How to Test Phase 1:**
+### Phase 3-5: See Part 2 Document
+
+- Advanced features, analytics, settings → `WEEK6_DASHBOARD_FEATURES_PART2.md`
+
+---
+
+## How to Test
 
 ```bash
-# 1. Start the frontend dev server
+# Start frontend
 cd web && npm run dev
 
-# 2. Open browser to http://localhost:5173
-# You should see the login page with:
-# - Buglens branding
-# - "Continue with GitHub" button
-# - "Continue with Google" button
-# - Email/password form
-# - Theme toggle in header (click to test dark/light mode)
+# Start backend (required for auth)
+npm run dev  # from root
 
-# 3. Run unit tests
-cd web && npm run test
-
-# Expected: 69 tests pass
+# Run tests
+cd web && npm test
 ```
 
-**Dev Mode Bypass (for testing protected pages):**
-To test the dashboard without OAuth, you can manually set auth state:
+**Dev Auth Bypass:**
 
 ```javascript
-// In browser console at http://localhost:5173
+// Browser console at http://localhost:5173
 localStorage.setItem(
   "buglens-auth",
   JSON.stringify({
@@ -63,15 +82,9 @@ localStorage.setItem(
         email: "dev@test.com",
         name: "Dev User",
         orgId: "org-1",
-        orgName: "Test Org",
         role: "admin",
       },
-      organization: {
-        id: "org-1",
-        name: "Test Org",
-        plan: "pro",
-        createdAt: new Date().toISOString(),
-      },
+      organization: { id: "org-1", name: "Test Org", plan: "pro" },
     },
   })
 );
@@ -80,989 +93,797 @@ location.reload();
 
 ---
 
-### Phase 2: Core Pages ✅ COMPLETE
-
-**Status:** Implemented and tested (85 tests passing)
-
-**What's Working:**
-
-- ✅ Dashboard home with metric cards and recent events (mock data)
-- ✅ Events list with filters and pagination (mock data)
-- ✅ RCA detail view with Summary, Root Cause, Fix Suggestion
-- ✅ Mock data mode for development testing (auto-enabled in dev)
-- ✅ React Query hooks: `useDashboardStats`, `useRecentEvents`, `useEventsList`, `useRCAResult`, etc.
-- ✅ Integrations page with connection status
-- ✅ Cost summary hooks for analytics
-- ✅ 14 new hooks tests (85 total tests)
-- ✅ API types (`web/src/types/api.ts`)
-
-**Files Created/Modified:**
-
-- `web/src/lib/mock-data.ts` - Mock data for development
-- `web/src/lib/hooks.ts` - React Query hooks (16 hooks)
-- `web/src/types/api.ts` - TypeScript types for API responses
-- `web/src/lib/__tests__/hooks.test.tsx` - Hook tests
-- Updated pages to use new hooks
-
-**How to Test Phase 2:**
-
-```bash
-# 1. Set up dev auth (see Phase 1 bypass above)
-
-# 2. Navigate to dashboard
-# URL: http://localhost:3000/
-# Expected:
-#   - 4 stat cards (Total Events, Resolved RCAs, Avg Resolution Time, Pending)
-#   - Recent Events table with 5 mock events
-#   - Quick Actions panel
-
-# 3. Navigate to events list
-# URL: http://localhost:3000/events
-# Expected:
-#   - Filterable table with 8 mock events
-#   - Severity filter (critical, high, medium, low)
-#   - Status filter (pending, processing, completed, failed)
-#   - Search functionality
-
-# 4. Navigate to RCA detail
-# URL: http://localhost:3000/rca/rca-001
-# Expected:
-#   - Title: "Null reference in user profile handler"
-#   - Summary section
-#   - Root Cause analysis
-#   - Suggested Fix with code diff
-#   - Analysis Findings (deterministic rules)
-#   - Stack trace table
-#   - Related code section
-#   - Metadata (tokens used, mode)
-
-# 5. Run unit tests
-cd web && npm test
-# Expected: 85 tests pass
-```
+## Page Specifications
 
 ---
 
-### Phase 3: Advanced Features 📋 TODO
+## 1. Login Page (`/login`)
 
-**What Should Work:**
+### Decision Framework
 
-- [ ] Evidence Graph visualization (React Flow)
-- [ ] Code context viewer with syntax highlighting
-- [ ] Feedback system (thumbs up/down + comment)
-- [ ] Timeline tab with breadcrumbs
+| Question            | Answer                                |
+| ------------------- | ------------------------------------- |
+| **Who?**            | New or returning user (any role)      |
+| **Decision?**       | "How do I get into my account?"       |
+| **Metrics?**        | None (action page, not analytics)     |
+| **Trust?**          | Buglens branding, security indicators |
+| **Cognitive Load?** | Minimal - single clear action         |
 
----
-
-### Phase 4: Analytics & Settings 📋 TODO
-
-**What Should Work:**
-
-- [ ] Cost analytics dashboard
-- [ ] Settings pages (org, user, notifications)
-- [ ] Slack integration configuration
-
----
-
-### Phase 5: Polish 📋 TODO
-
-**What Should Work:**
-
-- [ ] Loading skeletons
-- [ ] Error boundaries
-- [ ] Mobile responsive layouts
-- [ ] E2E tests with Playwright
-
----
-
-## 🎯 Core Deliverables
-
-### 1. Authentication & Authorization
-
-### 2. RCA Dashboard (Main View)
-
-### 3. RCA Detail View with Evidence Graph
-
-### 4. Events/Errors List
-
-### 5. Cost Analytics Dashboard
-
-### 6. Organization Settings
-
-### 7. Slack Integration
-
----
-
-## Page-by-Page Feature Breakdown
-
-### 1. Authentication Pages
-
-#### Login Page (`/login`)
-
-- **GitHub OAuth** login (primary)
-- Magic link email login (secondary)
-- Redirect to dashboard after auth
-- Remember organization selection
-
-#### Organization Selector (`/select-org`)
-
-- List user's organizations
-- Create new organization
-- Join organization via invite
-
----
-
-### 2. Dashboard Home (`/dashboard`)
-
-**Purpose:** Overview of recent incidents and system health
-
-#### Components:
+### Layout
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Dashboard - My Organization                      [Settings ⚙️] │
-├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────┐│
-│  │ Active Errors│ │ RCAs Today   │ │ Accuracy     │ │ Avg Time││
-│  │     12       │ │     8        │ │   84.2%      │ │  18 sec ││
-│  │   ▲ +3       │ │   ▼ -2       │ │   ▲ +2.1%    │ │  ▼ -5s  ││
-│  └──────────────┘ └──────────────┘ └──────────────┘ └─────────┘│
+│                        🔍 BUGLENS                               │
+│                   AI-Powered Error Analysis                     │
 │                                                                 │
-│  Recent RCAs                                        [View All →]│
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ 🔴 TypeError: Cannot read 'name' of undefined   2 min ago  ││
-│  │    /api/users/[id].ts:42  •  Confidence: 87%  •  [View →]  ││
-│  ├─────────────────────────────────────────────────────────────┤│
-│  │ 🟡 ReferenceError: db is not defined            15 min ago ││
-│  │    /lib/database.ts:18   •  Confidence: 72%  •  [View →]   ││
-│  ├─────────────────────────────────────────────────────────────┤│
-│  │ 🔴 UnhandledPromiseRejection                    1 hour ago ││
-│  │    /workers/sync.ts:94   •  Confidence: 91%  •  [View →]   ││
-│  └─────────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                                                         │   │
+│  │   Welcome back                                          │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │  🐙  Continue with GitHub                       │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │  🔵  Continue with Google                       │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   ──────────── or continue with email ────────────      │   │
+│  │                                                         │   │
+│  │   Email                                                 │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ you@company.com                                 │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Password                                              │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ ••••••••                                        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │              Sign In                            │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Don't have an account? Sign up                        │   │
+│  │                                                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
-│  Error Trend (7 days)                     Cost This Month      │
-│  ┌─────────────────────┐                 ┌────────────────────┐│
-│  │     📈 Chart        │                 │  LLM:    $4.20     ││
-│  │                     │                 │  GitHub: 12,450    ││
-│  │                     │                 │  ROI:    3,400%    ││
-│  └─────────────────────┘                 └────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### Features:
+### API Endpoints
 
-- **Metric Cards:** Active errors, RCAs generated, accuracy rate, avg processing time
-- **Recent RCAs List:** Last 5 RCAs with quick preview
-- **Error Trend Chart:** 7-day sparkline of error frequency
-- **Cost Summary Widget:** Monthly LLM/API usage and ROI
-- **Quick Actions:** Create test event, view all errors, go to settings
+```typescript
+POST / api / v1 / auth / login; // { email, password } → { user, tokens }
+POST / api / v1 / auth / signup; // { name, email, password, organizationName } → { user, tokens }
+POST / api / v1 / auth / github; // OAuth callback
+POST / api / v1 / auth / google; // OAuth callback
+POST / api / v1 / auth / refresh; // { refreshToken } → { accessToken }
+POST / api / v1 / auth / logout; // Invalidate session
+```
 
-#### API Endpoints Needed:
+---
+
+## 2. Signup Page (`/signup`)
+
+### Decision Framework
+
+| Question            | Answer                                               |
+| ------------------- | ---------------------------------------------------- |
+| **Who?**            | New user creating account + organization             |
+| **Decision?**       | "Should I sign up for Buglens?"                      |
+| **Trust?**          | Clear value prop, security indicators, OAuth options |
+| **Cognitive Load?** | Minimal fields, progressive disclosure               |
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                        🔍 BUGLENS                               │
+│                   AI-Powered Error Analysis                     │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                                                         │   │
+│  │   Create your account                                   │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │  🐙  Sign up with GitHub                        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │  🔵  Sign up with Google                        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   ──────────── or sign up with email ─────────────      │   │
+│  │                                                         │   │
+│  │   Full Name                                             │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ Jane Doe                                        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Work Email                                            │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ jane@company.com                                │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Organization Name                                     │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ Acme Corp                                       │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Password                                              │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │ ••••••••                            [👁]        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │   Min 8 chars, 1 uppercase, 1 number                    │   │
+│  │                                                         │   │
+│  │   ☑ I agree to Terms of Service and Privacy Policy     │   │
+│  │                                                         │   │
+│  │   ┌─────────────────────────────────────────────────┐   │   │
+│  │   │           Create Account                        │   │   │
+│  │   └─────────────────────────────────────────────────┘   │   │
+│  │                                                         │   │
+│  │   Already have an account? Sign in                      │   │
+│  │                                                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Dashboard Home (`/`) — DECISION-DRIVEN REDESIGN
+
+### Decision Framework
+
+| Question          | Answer                                                     |
+| ----------------- | ---------------------------------------------------------- |
+| **Who?**          | On-call engineer, 3am, pager just fired                    |
+| **Decision?**     | "Which bug do I fix first?"                                |
+| **Worry?**        | "Is this a real fire or noise? Can I trust this analysis?" |
+| **Metrics?**      | 3 max: Unresolved Critical, RCA Accuracy, Time to RCA      |
+| **Time Context?** | Last 24h focus, 7-day trend for confidence                 |
+| **Trust?**        | Data freshness bar, confidence scores, source links        |
+| **Drill-down?**   | Banner → Core Metrics → Ready to Fix list → RCA Detail     |
+
+### Design Principles Applied
+
+1. **System Health Banner** - Immediate fire/warning/ok status (0.5 seconds)
+2. **Data Freshness Bar** - "Last Sentry sync: 2 min ago" builds trust
+3. **3 Core Metrics** - Not 7, not 12. Three. Each with thresholds.
+4. **Ready to Fix Table** - Sorted by severity × confidence, not chronological
+5. **Deploy Impact Section** - Did the last deploy make things worse?
+6. **Quick Drill-down** - One click to action, not 3 clicks through charts
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ ◀ Buglens                                    [🔔] [User ▼] [☀]  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ 🟢 ALL SYSTEMS NORMAL — 0 critical, 2 high-priority pending ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ Last Sentry: 2m ago │ Last GitHub: 15m ago │ RCA Queue: 3   ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
+│  │ UNRESOLVED       │ │ RCA ACCURACY     │ │ AVG TIME TO RCA  │ │
+│  │ CRITICAL + HIGH  │ │ (Last 7 Days)    │ │ (Last 7 Days)    │ │
+│  │                  │ │                  │ │                  │ │
+│  │      2           │ │     87%          │ │    8.3 min       │ │
+│  │   ↓ from 5       │ │   ↑ from 82%     │ │   ↓ from 12 min  │ │
+│  │                  │ │                  │ │                  │ │
+│  │ 🟢 < 3 good      │ │ 🟢 > 85% good    │ │ 🟢 < 10m good    │ │
+│  │ 🟡 3-10 warning  │ │ 🟡 70-85% warn   │ │ 🟡 10-20m warn   │ │
+│  │ 🔴 > 10 panic    │ │ 🔴 < 70% panic   │ │ 🔴 > 20m panic   │ │
+│  └──────────────────┘ └──────────────────┘ └──────────────────┘ │
+│                                                                 │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  🔧 READY TO FIX (sorted by severity × confidence)              │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ Error                      │ Severity │ Confidence │ Action ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │ TypeError: Cannot read     │ 🔴 CRIT  │ ████░ 94%  │ [Fix→] ││
+│  │ 'id' of undefined          │ 847 users│            │        ││
+│  │ src/checkout/payment.ts:42 │          │            │        ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │ ReferenceError: user not   │ 🟠 HIGH  │ ███░░ 78%  │ [Fix→] ││
+│  │ defined                    │ 234 users│            │        ││
+│  │ src/auth/session.ts:128    │          │            │        ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │ Network timeout in API     │ 🟡 MED   │ ██░░░ 65%  │ [View] ││
+│  │ call                       │ 89 users │            │        ││
+│  │ src/api/client.ts:56       │          │            │        ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  📦 DEPLOY IMPACT (Last 24h)           📊 RCA QUALITY PULSE     │
+│  ┌────────────────────────────┐        ┌────────────────────────┐│
+│  │ v2.4.1 deployed 6h ago     │        │ Last 50 RCAs:          ││
+│  │                            │        │                        ││
+│  │ New errors: 2 ⚠️           │        │ ████████████░░ 84%     ││
+│  │ Resolved:   5 ✓            │        │ Accurate (42)          ││
+│  │ Regression: 1 🔴           │        │                        ││
+│  │                            │        │ ███░░░░░░░░░░░ 12%     ││
+│  │ [View Deploy Analysis →]   │        │ Partial (6)            ││
+│  └────────────────────────────┘        │                        ││
+│                                        │ █░░░░░░░░░░░░░ 4%      ││
+│                                        │ Wrong (2)              ││
+│                                        └────────────────────────┘│
+│                                                                 │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  🔍 QUICK FILTERS                                               │
+│  [My Assigned] [Critical Only] [Last Hour] [Needs Review]       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Component Breakdown
+
+#### 1. System Health Banner
+
+```typescript
+type SystemState = "fire" | "warning" | "ok";
+
+interface SystemHealthBannerProps {
+  criticalCount: number;
+  highCount: number;
+  state: SystemState;
+}
+
+// Thresholds:
+// fire: criticalCount > 0
+// warning: highCount > 3
+// ok: otherwise
+```
+
+#### 2. Data Freshness Bar
+
+```typescript
+interface DataFreshnessProps {
+  sentryLastSync: Date;
+  githubLastSync: Date;
+  rcaQueueDepth: number;
+}
+
+// Shows staleness warnings if:
+// - Sentry > 10 minutes stale
+// - GitHub > 1 hour stale
+// - Queue > 10 items
+```
+
+#### 3. Core Metric Card
+
+```typescript
+interface CoreMetricProps {
+  title: string;
+  value: number | string;
+  trend: { direction: "up" | "down" | "flat"; previous: number };
+  thresholds: {
+    good: { condition: string; value: number };
+    warning: { condition: string; value: number };
+    panic: { condition: string; value: number };
+  };
+}
+```
+
+#### 4. Ready to Fix Table
+
+```typescript
+interface ReadyToFixItem {
+  id: string;
+  title: string;
+  location: string;
+  severity: "critical" | "high" | "medium" | "low";
+  affectedUsers: number;
+  confidence: number; // 0-100
+  hasHighConfidenceFix: boolean;
+}
+
+// Sorting: severity_weight * confidence DESC
+// Only show items with confidence >= 60%
+```
+
+### API Endpoints
 
 ```typescript
 GET /api/v1/dashboard/summary
-GET /api/v1/rca-results?limit=5&sort=created_at:desc
-GET /api/v1/analytics/costs/summary
+// Response:
+{
+  systemHealth: {
+    state: 'fire' | 'warning' | 'ok',
+    criticalCount: number,
+    highCount: number,
+    message: string
+  },
+  dataFreshness: {
+    sentryLastSync: ISO8601,
+    githubLastSync: ISO8601,
+    rcaQueueDepth: number
+  },
+  coreMetrics: {
+    unresolvedCriticalHigh: { value: number, trend: {...}, thresholds: {...} },
+    rcaAccuracy7d: { value: number, trend: {...}, thresholds: {...} },
+    avgTimeToRca7d: { value: number, trend: {...}, thresholds: {...} }
+  },
+  readyToFix: ReadyToFixItem[],
+  deployImpact: {
+    version: string,
+    deployedAt: ISO8601,
+    newErrors: number,
+    resolvedErrors: number,
+    regressions: number
+  },
+  rcaQuality: {
+    accurate: number,
+    partial: number,
+    wrong: number,
+    total: number
+  }
+}
 ```
 
 ---
 
-### 3. RCA List Page (`/rcas`)
+## 4. Events List Page (`/events`)
 
-**Purpose:** Browse and search all RCA results
+### Decision Framework
 
-#### Features:
+| Question          | Answer                                                       |
+| ----------------- | ------------------------------------------------------------ |
+| **Who?**          | Engineer triaging errors OR manager reviewing patterns       |
+| **Decision?**     | "Which errors need investigation?" / "What patterns emerge?" |
+| **Metrics?**      | Error count by severity, trend direction, affected users     |
+| **Time Context?** | Default last 24h, expandable to 7d/30d                       |
+| **Trust?**        | Source attribution (Sentry project), timestamp accuracy      |
+| **Drill-down?**   | Filter → Select → View RCA → Take Action                     |
+
+### Layout
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  RCA Results                                                    │
+│ ◀ Buglens  │  Events                         [🔔] [User ▼] [☀] │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Filters:                                                       │
-│  [Environment ▼] [Status ▼] [Confidence ▼] [Date Range 📅]     │
-│  [🔍 Search errors...]                                         │
+│  Events & Errors                                                │
+│  Errors from your connected Sentry projects                     │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │ ID       │ Error            │ Confidence │ Time    │ Status ││
-│  ├──────────┼──────────────────┼────────────┼─────────┼────────┤│
-│  │ RCA-001  │ TypeError: Ca... │ ████░ 87%  │ 2m ago  │ ✅ New ││
-│  │ RCA-002  │ ReferenceErr...  │ ███░░ 72%  │ 15m ago │ ✅ New ││
-│  │ RCA-003  │ Unhandled...     │ █████ 91%  │ 1h ago  │ 👍 Ok  ││
-│  │ RCA-004  │ SyntaxError...   │ ██░░░ 45%  │ 2h ago  │ ❌ Bad ││
+│  │ Search errors...                                   [🔍]     ││
 │  └─────────────────────────────────────────────────────────────┘│
 │                                                                 │
-│  Showing 1-20 of 347 results         [← Prev] Page 1 [Next →]  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### Filters:
-
-- **Environment:** production, staging, development, all
-- **Status:** pending, accurate, partially_useful, not_useful
-- **Confidence Range:** slider 0-100%
-- **Date Range:** today, last 7 days, last 30 days, custom
-- **Search:** full-text search on error message, file path, root cause
-
-#### Table Columns:
-
-- ID (short UUID)
-- Error message (truncated)
-- Confidence meter (visual bar)
-- Created time (relative)
-- User feedback status
-- Actions (view, copy link)
-
-#### API Endpoints:
-
-```typescript
-GET /api/v1/rca-results?
-  environment=production&
-  feedback=useful&
-  confidence_min=0.7&
-  start_date=2025-12-01&
-  end_date=2025-12-15&
-  search=TypeError&
-  page=1&
-  limit=20
-```
-
----
-
-### 4. RCA Detail Page (`/rcas/:id`)
-
-**Purpose:** Deep dive into a single RCA with all evidence
-
-#### Layout:
-
-````
-┌─────────────────────────────────────────────────────────────────┐
-│  ← Back to RCAs                                                 │
+│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ ┌──────────┐│
+│  │All (127)│ │Critical 3│ │ High 12  │ │Medium 45│ │ Low 67   ││
+│  └─────────┘ └──────────┘ └──────────┘ └─────────┘ └──────────┘│
 │                                                                 │
-│  TypeError: Cannot read property 'name' of undefined            │
-│  /api/users/[id].ts:42  •  Production  •  2 minutes ago        │
-│                                                                 │
-│  Confidence: ████████░░ 87%                    [👍] [🔧] [❌]   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  [Summary] [Evidence Graph] [Code] [Timeline] [Commits]         │
-│  ━━━━━━━━━                                                      │
+│  Filters: [Environment ▼] [Status ▼] [Date Range ▼] [Has RCA ▼]│
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │                                                             ││
-│  │  Summary                                                    ││
-│  │  ─────────────────────────────────────────────────────────  ││
-│  │  A null check is missing before accessing the 'name'       ││
-│  │  property on the user object returned from database query. ││
+│  │ 🔴 TypeError: Cannot read property 'id' of undefined        ││
+│  │    src/checkout/payment.ts:42 • Production • 2 hours ago    ││
+│  │    👥 847 affected • 📊 RCA: 94% confidence                 ││
+│  │    [View RCA →]                                             ││
 │  │                                                             ││
-│  │  Root Cause                                                 ││
-│  │  ─────────────────────────────────────────────────────────  ││
-│  │  The `findUser(id)` function returns null when user is     ││
-│  │  not found, but the calling code assumes it always returns ││
-│  │  a valid user object.                                      ││
+│  ├─────────────────────────────────────────────────────────────┤│
 │  │                                                             ││
-│  │  Causal Chain                                               ││
-│  │  ─────────────────────────────────────────────────────────  ││
-│  │  1. User requests /api/users/999 (non-existent ID)         ││
-│  │     ↓                                                       ││
-│  │  2. findUser(999) returns null                              ││
-│  │     ↓                                                       ││
-│  │  3. Code accesses user.name without null check             ││
-│  │     ↓                                                       ││
-│  │  4. TypeError thrown                                        ││
+│  │ 🟠 ReferenceError: user is not defined                      ││
+│  │    src/auth/session.ts:128 • Production • 5 hours ago       ││
+│  │    👥 234 affected • 📊 RCA: 78% confidence                 ││
+│  │    [View RCA →]                                             ││
 │  │                                                             ││
-│  │  Suggested Fix                                              ││
-│  │  ─────────────────────────────────────────────────────────  ││
-│  │  ```diff                                                    ││
-│  │  - return { name: user.name, email: user.email };          ││
-│  │  + if (!user) return null;                                  ││
-│  │  + return { name: user.name, email: user.email };          ││
-│  │  ```                                                        ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │                                                             ││
+│  │ 🟡 NetworkError: Request timeout                            ││
+│  │    src/api/client.ts:56 • Staging • 1 day ago               ││
+│  │    👥 89 affected • ⏳ RCA Processing...                    ││
+│  │    [View Details →]                                         ││
+│  │                                                             ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │                                                             ││
+│  │ 🟢 ValidationError: Email format invalid                    ││
+│  │    src/forms/signup.ts:23 • Production • 3 days ago         ││
+│  │    👥 12 affected • ✓ Resolved                              ││
+│  │    [View History →]                                         ││
 │  │                                                             ││
 │  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-````
-
-#### Tabs:
-
-**Tab 1: Summary (default)**
-
-- Error summary
-- Root cause explanation
-- Causal chain (numbered steps)
-- Suggested fix with code diff
-- Test intentions (optional)
-
-**Tab 2: Evidence Graph**
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Evidence Graph                                                 │
 │                                                                 │
-│           [Error Event]                                         │
-│                │                                                │
-│                ├── caused by ──→ [Line 42: user.name]          │
-│                │                        │                       │
-│                │                        ├── introduced ──→ [abc123]
-│                │                        │                  @dev  │
-│                │                        │                       │
-│                │                        └── triggered ──→ [null]│
-│                │                                        847x    │
-│                │                                                │
-│                └── similar to ──→ [3 past bugs]                │
+│  Showing 1-20 of 127                         [← Prev] [Next →]  │
 │                                                                 │
-│  Legend: [●] Click node to expand details                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- Interactive D3.js/React Flow graph
-- Clickable nodes for more detail
-- Edge labels show relationship type
-- Confidence colors (green/yellow/red)
+### Key Features
 
-**Tab 3: Code Context**
+1. **Severity Tabs** - Quick filtering by severity level
+2. **Smart Search** - Search by error message, file path, or stack trace
+3. **Multi-Filter** - Environment, status, date range, RCA availability
+4. **User Impact** - Shows affected user count prominently
+5. **RCA Status** - Processing, complete with confidence, or needs review
+6. **Quick Actions** - Direct link to RCA or reprocess option
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Code Context                          /api/users/[id].ts       │
-│                                                                 │
-│  38 │   export async function GET(req) {                       │
-│  39 │     const id = req.params.id;                            │
-│  40 │     const user = await findUser(id);                     │
-│  41 │                                                          │
-│  42 │►    return { name: user.name, email: user.email };  ← ERROR
-│  43 │   }                                                      │
-│  44 │                                                          │
-│                                                                 │
-│  AST Findings:                                                  │
-│  • [HIGH] Missing null check before property access            │
-│  • [MED]  No error handling for database query                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-- Syntax-highlighted code
-- Error line highlighted
-- Line numbers
-- AST findings list below
-
-**Tab 4: Timeline**
-
-- Breadcrumb events before error
-- User actions leading to error
-- Console logs (if captured)
-
-**Tab 5: Commits**
-
-- Recent commits to error file
-- Commit that introduced the bug (if detected)
-- Author and timestamp
-
-#### Feedback Panel:
+### Event Card Information Hierarchy
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Was this RCA helpful?                                          │
-│                                                                 │
-│  [👍 Accurate]  [🔧 Partially Helpful]  [❌ Wrong]              │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ What was the actual root cause? (optional)                  ││
-│  │ [________________________________________________]          ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                                                                 │
-│  [Submit Feedback]                                              │
-└─────────────────────────────────────────────────────────────────┘
+1. Severity indicator (color + icon)
+2. Error type and message (primary text)
+3. Location (file:line) + environment + time
+4. Impact (affected users)
+5. RCA status (confidence score or processing state)
+6. Action button
 ```
 
-#### API Endpoints:
+### API Endpoints
 
 ```typescript
-GET /api/v1/rca-results/:id
-GET /api/v1/rca-results/:id/evidence-graph
-POST /api/v1/rca-results/:id/feedback
-```
+GET /api/v1/events
+// Query params:
+{
+  severity?: 'critical' | 'high' | 'medium' | 'low',
+  environment?: string,
+  status?: 'pending' | 'processing' | 'completed' | 'failed',
+  hasRca?: boolean,
+  search?: string,
+  startDate?: ISO8601,
+  endDate?: ISO8601,
+  page?: number,
+  limit?: number
+}
 
----
+// Response:
+{
+  events: Event[],
+  pagination: {
+    total: number,
+    page: number,
+    limit: number,
+    totalPages: number
+  },
+  summary: {
+    critical: number,
+    high: number,
+    medium: number,
+    low: number
+  }
+}
 
-### 5. Events List Page (`/events`)
-
-**Purpose:** View raw error events from Sentry
-
-#### Features:
-
-- Table with: message, environment, timestamp, status, RCA link
-- Filters: environment, status, date range
-- Click to view event detail or linked RCA
-- Bulk actions: reprocess, ignore
-
-#### API Endpoints:
-
-```typescript
-GET /api/v1/events?environment=production&status=done&page=1
 GET /api/v1/events/:id
 POST /api/v1/events/:id/reprocess
 ```
 
 ---
 
-### 6. Cost Analytics Page (`/analytics`)
+## 5. RCA Detail Page (`/rca/:id`)
 
-**Purpose:** Track costs and demonstrate ROI
+### Decision Framework
 
-#### Layout:
+| Question            | Answer                                                                |
+| ------------------- | --------------------------------------------------------------------- |
+| **Who?**            | Engineer fixing the bug OR reviewer validating RCA quality            |
+| **Decision?**       | "Is this analysis correct? Should I apply this fix?"                  |
+| **Trust?**          | Evidence sources, deterministic vs LLM findings, confidence breakdown |
+| **Cognitive Load?** | Progressive disclosure: Summary first, evidence on demand             |
+| **Drill-down?**     | Summary → Root Cause → Evidence → Code → Timeline                     |
+
+### Layout - Summary Tab (Default)
+
+````
+┌─────────────────────────────────────────────────────────────────┐
+│ ◀ Back to Events  │  RCA Detail               [🔔] [User ▼] [☀]│
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  TypeError: Cannot read property 'id' of undefined              │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ 🔴 CRITICAL │ 👥 847 users │ ⏱ 8.2 min analysis            ││
+│  │ Production  │ First seen: 2h ago │ Last seen: 5 min ago     ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ CONFIDENCE SCORE                                         │   │
+│  │                                                          │   │
+│  │ ████████████████████░░░░  94%                           │   │
+│  │                                                          │   │
+│  │ Breakdown:                                               │   │
+│  │ • Deterministic rules: 3 findings (HIGH confidence)      │   │
+│  │ • LLM analysis: Consistent with evidence                 │   │
+│  │ • Code context: Exact match found                        │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  [Summary] [Evidence Graph] [Code Context] [Timeline] [Feedback]│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  📋 ROOT CAUSE                                                  │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ The error occurs in `processPayment()` at line 42 of       ││
+│  │ `src/checkout/payment.ts`. The function attempts to        ││
+│  │ access `user.id` without first checking if `user` exists.  ││
+│  │                                                            ││
+│  │ This happens when:                                         ││
+│  │ 1. Session expires during checkout flow                    ││
+│  │ 2. `getUser()` returns null instead of throwing            ││
+│  │ 3. No null guard before property access                    ││
+│  │                                                            ││
+│  │ Evidence: ✓ AST analysis confirmed missing null check      ││
+│  │          ✓ Stack trace matches code location               ││
+│  │          ✓ Pattern matches "null-access" rule              ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  🔧 SUGGESTED FIX                                               │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ ```diff                                                    ││
+│  │ // src/checkout/payment.ts:40-45                           ││
+│  │                                                            ││
+│  │ async function processPayment(cartId: string) {            ││
+│  │   const user = await getUser();                            ││
+│  │ - const userId = user.id;                                  ││
+│  │ + if (!user) {                                             ││
+│  │ +   throw new AuthenticationError('User session expired'); ││
+│  │ + }                                                        ││
+│  │ + const userId = user.id;                                  ││
+│  │   return chargeCard(userId, cartId);                       ││
+│  │ }                                                          ││
+│  │ ```                                                        ││
+│  │                                                            ││
+│  │ [📋 Copy Fix] [🔗 Open in GitHub] [✅ Mark as Applied]     ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  📊 DETERMINISTIC FINDINGS (High Trust)                         │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ Rule: null-access │ Confidence: 95%                        ││
+│  │ "Potential null/undefined property access detected"        ││
+│  │ Location: payment.ts:42, column 23                         ││
+│  │ Pattern: Member access without preceding null check        ││
+│  ├─────────────────────────────────────────────────────────────┤│
+│  │ Rule: missing-error-boundary │ Confidence: 78%             ││
+│  │ "Async function lacks try-catch wrapper"                   ││
+│  │ Location: payment.ts:40-46                                 ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  💬 FEEDBACK                                                    │
+│  Was this analysis helpful?                                     │
+│  [👍 Accurate] [🤔 Partially Helpful] [👎 Wrong]               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+````
+
+### Tab: Evidence Graph
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Cost & ROI Analytics                      [December 2025 ▼]    │
-├─────────────────────────────────────────────────────────────────┤
+│  [Summary] [Evidence Graph] [Code Context] [Timeline] [Feedback]│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
 │                                                                 │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────┐│
-│  │ Total RCAs   │ │ LLM Cost     │ │ Accuracy     │ │ ROI     ││
-│  │    347       │ │   $4.20      │ │   84.2%      │ │ 3,400%  ││
-│  │              │ │  2.1M tokens │ │              │ │ $14,325 ││
-│  └──────────────┘ └──────────────┘ └──────────────┘ └─────────┘│
+│  Evidence Relationship Graph                                    │
 │                                                                 │
-│  Cost per RCA Trend                                             │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │                                                             ││
-│  │     $0.15 ─────┬─────────────────────────────────────       ││
-│  │               │         ●                                   ││
-│  │     $0.12 ────┼───●────────●─────●─────●─────●              ││
+│  │        ┌─────────────┐                                      ││
+│  │        │   ERROR     │                                      ││
+│  │        │ TypeError   │                                      ││
+│  │        └──────┬──────┘                                      ││
 │  │               │                                             ││
-│  │     $0.09 ────┴─────────────────────────────────────        ││
-│  │          Dec 1    5       10      15      20      25        ││
+│  │        ┌──────▼──────┐                                      ││
+│  │        │ STACK FRAME │                                      ││
+│  │        │ payment.ts  │                                      ││
+│  │        │ line 42     │                                      ││
+│  │        └──────┬──────┘                                      ││
+│  │               │                                             ││
+│  │    ┌──────────┼──────────┐                                  ││
+│  │    │          │          │                                  ││
+│  │ ┌──▼───┐  ┌───▼───┐  ┌───▼────┐                            ││
+│  │ │ CODE │  │ RULE  │  │ COMMIT │                            ││
+│  │ │CONTEXT│ │FINDING│  │ abc123 │                            ││
+│  │ │      │  │null-  │  │ 2d ago │                            ││
+│  │ │      │  │access │  │        │                            ││
+│  │ └──────┘  └───────┘  └────────┘                            ││
+│  │                                                             ││
+│  │  Legend: [Error] [Stack] [Code] [Rule] [Commit]            ││
 │  │                                                             ││
 │  └─────────────────────────────────────────────────────────────┘│
 │                                                                 │
-│  ┌──────────────────────────┐  ┌──────────────────────────────┐│
-│  │ Quality Breakdown        │  │ Value Delivered              ││
-│  │                          │  │                              ││
-│  │   ████████ 82.7% Acc    │  │  Hours Saved: 191 hrs        ││
-│  │   ██░░░░░░ 12.1% Partial│  │  Avg Time:   12 min (was 45) ││
-│  │   █░░░░░░░  5.2% Wrong  │  │  Value:      $14,325         ││
-│  │                          │  │  (at $75/hr engineering)     ││
-│  └──────────────────────────┘  └──────────────────────────────┘│
+│  Click any node to see details                                  │
 │                                                                 │
-│  Daily Usage                                                    │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ Date       │ RCAs │ Tokens   │ Cost   │ GitHub │ Accuracy  ││
-│  ├────────────┼──────┼──────────┼────────┼────────┼───────────┤│
-│  │ Dec 15     │  12  │  72,400  │ $0.14  │  450   │  91.7%    ││
-│  │ Dec 14     │  28  │ 168,000  │ $0.34  │  980   │  82.1%    ││
-│  │ Dec 13     │  15  │  90,000  │ $0.18  │  520   │  86.7%    ││
-│  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### Features:
-
-- **Period Selector:** This month, last month, custom range
-- **Metric Cards:** Total RCAs, LLM cost, accuracy rate, ROI
-- **Cost Trend Chart:** Line chart of cost per RCA over time
-- **Quality Pie Chart:** Accurate / Partial / Wrong breakdown
-- **Value Calculator:** Hours saved, engineering value
-- **Daily Usage Table:** Breakdown by day
-
-#### API Endpoints:
-
-```typescript
-GET /api/v1/analytics/costs?start_date=2025-12-01&end_date=2025-12-31
-GET /api/v1/analytics/costs/trends?days=30
-GET /api/v1/analytics/quality
-```
-
----
-
-### 7. Settings Page (`/settings`)
-
-#### Sub-pages:
-
-**7a. Organization Settings (`/settings/organization`)**
-
-- Organization name, slug
-- Plan details (free/pro/enterprise)
-- Usage limits display
-- Delete organization
-
-**7b. Integrations (`/settings/integrations`)**
+### Tab: Code Context
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Integrations                                                   │
-├─────────────────────────────────────────────────────────────────┤
+│  [Summary] [Evidence Graph] [Code Context] [Timeline] [Feedback]│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  📁 src/checkout/payment.ts                    [Open in GitHub] │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │ 🔵 Sentry                                      [Connected ✓]││
-│  │ Project: my-app                                             ││
-│  │ Webhook URL: https://api.buglens.io/webhooks/sentry/abc123  ││
-│  │ Last event: 2 minutes ago                                   ││
-│  │                                      [Configure] [Disconnect]││
+│  │ 38 │                                                       ││
+│  │ 39 │ // Process payment for cart                           ││
+│  │ 40 │ async function processPayment(cartId: string) {       ││
+│  │ 41 │   const user = await getUser();                       ││
+│  │ 42▶│   const userId = user.id;  // ← ERROR HERE           ││
+│  │ 43 │   return chargeCard(userId, cartId);                  ││
+│  │ 44 │ }                                                     ││
+│  │ 45 │                                                       ││
+│  │ 46 │ async function getUser(): Promise<User | null> {      ││
+│  │ 47 │   const session = getSession();                       ││
+│  │ 48 │   if (!session) return null;  // ← Returns null!      ││
+│  │ 49 │   return session.user;                                ││
+│  │ 50 │ }                                                     ││
 │  └─────────────────────────────────────────────────────────────┘│
 │                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ 🐙 GitHub                                      [Connected ✓]││
-│  │ Installation: my-org                                        ││
-│  │ Repositories: 12 connected                                  ││
-│  │ Last sync: 1 hour ago                                       ││
-│  │                                      [Configure] [Disconnect]││
-│  └─────────────────────────────────────────────────────────────┘│
+│  Related Files:                                                 │
+│  • src/auth/session.ts (getSession definition)                 │
+│  • src/types/user.ts (User type definition)                    │
 │                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │ 💬 Slack                                       [Connect →]  ││
-│  │ Send RCA notifications to your team                        ││
-│  │                                                             ││
-│  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**7c. Slack Configuration (`/settings/integrations/slack`)**
+### Tab: Timeline
 
-- Select notification channel
-- Configure notification triggers
-- Test notification button
-- Webhook URL for interactive buttons
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  [Summary] [Evidence Graph] [Code Context] [Timeline] [Feedback]│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  Event Timeline (reconstructed from breadcrumbs)                │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                                                             ││
+│  │  14:23:01  ● User clicked "Checkout"                       ││
+│  │            │ category: ui.click                             ││
+│  │            │                                                ││
+│  │  14:23:02  ● Cart loaded successfully                      ││
+│  │            │ category: fetch, status: 200                   ││
+│  │            │                                                ││
+│  │  14:23:03  ● Session check initiated                       ││
+│  │            │ category: auth                                 ││
+│  │            │                                                ││
+│  │  14:23:03  ● Session expired (null returned)  ⚠️           ││
+│  │            │ category: auth, status: expired                ││
+│  │            │                                                ││
+│  │  14:23:03  ● processPayment() called                       ││
+│  │            │ category: function                             ││
+│  │            │                                                ││
+│  │  14:23:03  ✖ TypeError thrown                   🔴         ││
+│  │              Cannot read property 'id' of undefined         ││
+│  │                                                             ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  Total duration: 2.3 seconds                                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-**7d. Team Members (`/settings/team`)**
+### Tab: Feedback
 
-- List members with roles
-- Invite new member
-- Change roles (owner, admin, member)
-- Remove member
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  [Summary] [Evidence Graph] [Code Context] [Timeline] [Feedback]│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                                 │
+│  Rate This Analysis                                             │
+│                                                                 │
+│  How accurate was this RCA?                                     │
+│                                                                 │
+│  ┌─────────┐  ┌─────────────────┐  ┌─────────┐                 │
+│  │   👍    │  │       🤔        │  │   👎    │                 │
+│  │Accurate │  │Partially Helpful│  │  Wrong  │                 │
+│  └─────────┘  └─────────────────┘  └─────────┘                 │
+│                                                                 │
+│  What was the actual root cause? (optional)                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                                                             ││
+│  │                                                             ││
+│  │                                                             ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  Did you apply the suggested fix?                               │
+│  ○ Yes, exactly as suggested                                    │
+│  ○ Yes, with modifications                                      │
+│  ○ No, fixed differently                                        │
+│  ○ No, not applicable                                           │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                   Submit Feedback                           ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  Your feedback improves our analysis accuracy.                  │
+│  Current org accuracy: 87% (based on 142 reviews)               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-**7e. API Keys (`/settings/api-keys`)**
-
-- Generate API keys
-- Revoke keys
-- Usage logs per key
-
----
-
-## Component Library
-
-### Shared Components Needed:
+### API Endpoints
 
 ```typescript
-// UI Components
-Button; // Primary, secondary, danger variants
-Input; // Text, email, search
-Select; // Dropdown with search
-DatePicker; // Range selector
-Modal; // Overlay dialogs
-Toast; // Success/error notifications
-Badge; // Status indicators
-Avatar; // User profile images
-Tooltip; // Hover info
-
-// Data Display
-Table; // Sortable, filterable
-Pagination; // Page navigation
-MetricCard; // Number with trend indicator
-Chart; // Line, bar, pie (Recharts)
-CodeViewer; // Syntax highlighted code
-DiffViewer; // Side-by-side or unified diff
-Timeline; // Vertical step list
-
-// Layout
-Sidebar; // Navigation
-Header; // Top bar with user menu
-PageContainer; // Max-width wrapper
-Tabs; // Tab navigation
-Card; // Content container
-
-// Feedback
-ConfidenceMeter; // Visual confidence bar
-FeedbackPanel; // Thumbs up/down with notes
-EmptyState; // No data placeholder
-LoadingState; // Skeleton loaders
-ErrorState; // Error with retry
-```
-
----
-
-## State Management
-
-### Global State (Zustand):
-
-```typescript
-interface AppState {
-  user: User | null;
-  organization: Organization | null;
-  theme: "light" | "dark";
-  sidebarCollapsed: boolean;
-}
-```
-
-### Server State (React Query):
-
-```typescript
-// Query keys
-["dashboard", "summary"][("rca-results", filters)][("rca-results", id)][
-  ("events", filters)
-][("analytics", "costs", dateRange)]["organization"]["integrations"];
-```
-
----
-
-## API Route Summary
-
-### Auth
-
-```
-POST /api/v1/auth/github/callback
-POST /api/v1/auth/magic-link
-POST /api/v1/auth/logout
-GET  /api/v1/auth/me
-```
-
-### Dashboard
-
-```
-GET  /api/v1/dashboard/summary
-```
-
-### RCA Results
-
-```
-GET  /api/v1/rca-results
-GET  /api/v1/rca-results/:id
-GET  /api/v1/rca-results/:id/evidence-graph
-POST /api/v1/rca-results/:id/feedback
-```
-
-### Events
-
-```
-GET  /api/v1/events
-GET  /api/v1/events/:id
-POST /api/v1/events/:id/reprocess
-```
-
-### Analytics
-
-```
-GET  /api/v1/analytics/costs
-GET  /api/v1/analytics/costs/trends
-GET  /api/v1/analytics/quality
-```
-
-### Organization
-
-```
-GET  /api/v1/organizations/:id
-PUT  /api/v1/organizations/:id
-GET  /api/v1/organizations/:id/members
-POST /api/v1/organizations/:id/members
-DELETE /api/v1/organizations/:id/members/:userId
-```
-
-### Integrations
-
-```
-GET  /api/v1/integrations
-GET  /api/v1/integrations/:type
-PUT  /api/v1/integrations/:type
-DELETE /api/v1/integrations/:type
-POST /api/v1/integrations/slack/test
-```
-
-### Webhooks (already implemented)
-
-```
-POST /api/v1/webhooks/sentry/:orgId
-POST /api/v1/webhooks/github
-POST /api/v1/slack/actions
-```
-
----
-
-## Tech Stack Confirmation
-
-| Layer             | Technology                     |
-| ----------------- | ------------------------------ |
-| Framework         | React 18 + TypeScript          |
-| Build             | Vite                           |
-| Styling           | Tailwind CSS                   |
-| State (Client)    | Zustand                        |
-| State (Server)    | React Query (TanStack Query)   |
-| Routing           | React Router v6                |
-| Charts            | Recharts                       |
-| Graph Viz         | React Flow or D3.js            |
-| Code Highlighting | Prism.js or Shiki              |
-| Forms             | React Hook Form + Zod          |
-| HTTP Client       | Axios or fetch                 |
-| Testing           | Vitest + React Testing Library |
-
----
-
-## 🌗 Theme System: Dark/Light Mode
-
-### Overview
-
-Buglens supports both dark and light themes with:
-
-- System preference detection (prefers-color-scheme)
-- Manual toggle with persistence (localStorage)
-- Smooth transitions between themes
-- Accessible color contrast in both modes
-
-### Implementation
-
-#### Theme Store (Zustand)
-
-```typescript
-// stores/theme.ts
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-
-type Theme = "light" | "dark" | "system";
-
-interface ThemeStore {
-  theme: Theme;
-  resolvedTheme: "light" | "dark";
-  setTheme: (theme: Theme) => void;
-}
-
-export const useThemeStore = create<ThemeStore>()(
-  persist(
-    (set, get) => ({
-      theme: "system",
-      resolvedTheme: "light",
-      setTheme: (theme) => {
-        const resolved =
-          theme === "system"
-            ? window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? "dark"
-              : "light"
-            : theme;
-
-        document.documentElement.classList.toggle("dark", resolved === "dark");
-        set({ theme, resolvedTheme: resolved });
-      },
-    }),
-    { name: "buglens-theme" }
-  )
-);
-```
-
-#### Tailwind Configuration
-
-```javascript
-// tailwind.config.js
-module.exports = {
-  darkMode: "class",
-  theme: {
-    extend: {
-      colors: {
-        // Light mode
-        background: {
-          DEFAULT: "#ffffff",
-          secondary: "#f9fafb",
-          tertiary: "#f3f4f6",
-        },
-        foreground: {
-          DEFAULT: "#111827",
-          secondary: "#4b5563",
-          muted: "#9ca3af",
-        },
-        // Dark mode overrides via dark: prefix
-        // dark:bg-gray-900, dark:text-gray-100, etc.
-      },
-    },
+GET /api/v1/rca-results/:id
+// Response:
+{
+  id: string,
+  eventId: string,
+  status: 'processing' | 'completed' | 'failed',
+  confidence: number,
+  confidenceBreakdown: {
+    deterministicFindings: number,
+    llmConsistency: number,
+    codeContextMatch: number
   },
-};
-```
-
-#### Theme Toggle Component
-
-```tsx
-// components/ThemeToggle.tsx
-import { Moon, Sun, Monitor } from "lucide-react";
-import { useThemeStore } from "@/stores/theme";
-
-export function ThemeToggle() {
-  const { theme, setTheme } = useThemeStore();
-
-  return (
-    <div className="flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
-      <button
-        onClick={() => setTheme("light")}
-        className={cn(
-          "p-2 rounded-md transition-colors",
-          theme === "light"
-            ? "bg-white dark:bg-gray-700 shadow"
-            : "hover:bg-gray-200 dark:hover:bg-gray-700"
-        )}
-        aria-label="Light mode"
-      >
-        <Sun className="w-4 h-4" />
-      </button>
-      <button
-        onClick={() => setTheme("dark")}
-        className={cn(
-          "p-2 rounded-md transition-colors",
-          theme === "dark"
-            ? "bg-white dark:bg-gray-700 shadow"
-            : "hover:bg-gray-200 dark:hover:bg-gray-700"
-        )}
-        aria-label="Dark mode"
-      >
-        <Moon className="w-4 h-4" />
-      </button>
-      <button
-        onClick={() => setTheme("system")}
-        className={cn(
-          "p-2 rounded-md transition-colors",
-          theme === "system"
-            ? "bg-white dark:bg-gray-700 shadow"
-            : "hover:bg-gray-200 dark:hover:bg-gray-700"
-        )}
-        aria-label="System preference"
-      >
-        <Monitor className="w-4 h-4" />
-      </button>
-    </div>
-  );
-}
-```
-
-### Color Palette
-
-#### Light Mode
-
-| Element        | Color     | Hex       |
-| -------------- | --------- | --------- |
-| Background     | White     | `#ffffff` |
-| Surface        | Gray 50   | `#f9fafb` |
-| Border         | Gray 200  | `#e5e7eb` |
-| Text Primary   | Gray 900  | `#111827` |
-| Text Secondary | Gray 600  | `#4b5563` |
-| Primary        | Blue 600  | `#2563eb` |
-| Success        | Green 600 | `#16a34a` |
-| Warning        | Amber 500 | `#f59e0b` |
-| Error          | Red 600   | `#dc2626` |
-
-#### Dark Mode
-
-| Element        | Color     | Hex       |
-| -------------- | --------- | --------- |
-| Background     | Gray 950  | `#030712` |
-| Surface        | Gray 900  | `#111827` |
-| Border         | Gray 700  | `#374151` |
-| Text Primary   | Gray 100  | `#f3f4f6` |
-| Text Secondary | Gray 400  | `#9ca3af` |
-| Primary        | Blue 500  | `#3b82f6` |
-| Success        | Green 500 | `#22c55e` |
-| Warning        | Amber 400 | `#fbbf24` |
-| Error          | Red 500   | `#ef4444` |
-
-### Component Examples
-
-```tsx
-// Example: Card component with dark mode
-function Card({ children, title }: CardProps) {
-  return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-      {title && (
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
-            {title}
-          </h3>
-        </div>
-      )}
-      <div className="p-4">{children}</div>
-    </div>
-  );
+  summary: string,
+  rootCause: {
+    description: string,
+    evidence: string[],
+    location: { file: string, line: number, column: number }
+  },
+  suggestedFix: {
+    description: string,
+    diff: string,
+    file: string,
+    startLine: number,
+    endLine: number
+  },
+  deterministicFindings: Array<{
+    ruleId: string,
+    title: string,
+    confidence: number,
+    description: string,
+    location: { file: string, line: number }
+  }>,
+  stackTrace: StackFrame[],
+  codeContext: Array<{
+    file: string,
+    content: string,
+    highlightLine: number,
+    startLine: number
+  }>,
+  timeline: Array<{
+    timestamp: ISO8601,
+    category: string,
+    message: string,
+    level: 'info' | 'warning' | 'error'
+  }>,
+  metadata: {
+    llmTokensUsed: number,
+    analysisTimeMs: number,
+    model: string
+  },
+  createdAt: ISO8601,
+  updatedAt: ISO8601
 }
 
-// Example: Code viewer with dark mode
-function CodeViewer({ code, language }: CodeViewerProps) {
-  return (
-    <pre className="bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg p-4 overflow-x-auto">
-      <code className="text-sm text-gray-800 dark:text-gray-200 font-mono">
-        {code}
-      </code>
-    </pre>
-  );
-}
-```
+GET /api/v1/rca-results/:id/evidence-graph
+// Returns nodes and edges for React Flow visualization
 
-### Initialization
-
-```tsx
-// App.tsx or main.tsx
-import { useEffect } from "react";
-import { useThemeStore } from "@/stores/theme";
-
-function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const { theme, setTheme } = useThemeStore();
-
-  useEffect(() => {
-    // Initialize theme on mount
-    setTheme(theme);
-
-    // Listen for system preference changes
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => {
-      if (theme === "system") {
-        setTheme("system");
-      }
-    };
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
-
-  return <>{children}</>;
+POST /api/v1/rca-results/:id/feedback
+// Body:
+{
+  rating: 'accurate' | 'partial' | 'wrong',
+  actualRootCause?: string,
+  fixApplied: 'exact' | 'modified' | 'different' | 'not-applicable'
 }
 ```
 
 ---
 
-## Implementation Priority
+## Continued in Part 2
 
-### Phase 1 (Days 1-2): Foundation
+See `WEEK6_DASHBOARD_FEATURES_PART2.md` for:
 
-- [ ] Project setup (Vite + Tailwind + React Query)
-- [ ] Auth flow (GitHub OAuth)
-- [ ] Layout components (Sidebar, Header)
-- [ ] API client setup
-
-### Phase 2 (Days 3-4): Core Pages
-
-- [ ] Dashboard home with metrics
-- [ ] RCA list with filters
-- [ ] RCA detail view (Summary tab)
-
-### Phase 3 (Days 5-6): Advanced Features
-
-- [ ] Evidence Graph visualization
-- [ ] Code context viewer
-- [ ] Feedback system
-
-### Phase 4 (Days 7-8): Analytics & Settings
-
-- [ ] Cost analytics dashboard
-- [ ] Settings pages
-- [ ] Slack integration config
-
-### Phase 5 (Days 9-10): Polish
-
-- [ ] Loading states
-- [ ] Error handling
-- [ ] Mobile responsive
-- [ ] E2E tests
-
----
-
-## Success Criteria
-
-- [ ] User can log in via GitHub OAuth
-- [ ] Dashboard shows recent RCAs and metrics
-- [ ] RCA list is filterable and searchable
-- [ ] RCA detail shows all evidence tabs
-- [ ] Evidence graph is interactive
-- [ ] Feedback can be submitted
-- [ ] Cost analytics shows ROI
-- [ ] Settings allow integration configuration
-- [ ] Responsive on tablet/desktop
-- [ ] Page load < 2 seconds
-- [ ] All API calls handle errors gracefully
+- Cost Analytics Page (Decision: "Is Buglens worth the money?")
+- Settings Pages (Decision: "How do I configure my organization?")
+- Integrations Configuration (Decision: "Are my integrations healthy?")
+- Component Library
+- Theme System
+- Tech Stack
+- Implementation Priority
+- Success Criteria

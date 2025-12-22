@@ -32,7 +32,9 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-const refreshSchema = z.object({
+// Reserved for POST /api/auth/refresh endpoint (future implementation)
+// Exported to prevent unused variable error while keeping for future use
+export const refreshSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
 });
 

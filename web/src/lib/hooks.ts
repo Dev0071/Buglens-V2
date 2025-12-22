@@ -398,3 +398,110 @@ export function useDisconnectIntegration() {
     },
   });
 }
+
+// ============================================================================
+// Analytics Hooks
+// ============================================================================
+
+export interface AnalyticsSummary {
+  totalCost: number;
+  costChange: number;
+  totalTokens: number;
+  tokenChange: number;
+  totalRCAs: number;
+  rcaChange: number;
+  avgCostPerRCA: number;
+  avgTimePerRCA: number;
+  roi: number;
+  budgetUsed: number;
+  budgetLimit: number;
+  qualityBreakdown: {
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  };
+}
+
+export interface DailyAnalytics {
+  date: string;
+  events: number;
+  rcas: number;
+  tokens: number;
+  cost: number;
+  avgConfidence: number;
+}
+
+/**
+ * Fetch analytics summary for a given time period
+ */
+export function useAnalyticsSummary(period: "7d" | "30d" | "90d" = "30d") {
+  return useQuery({
+    queryKey: ["analytics", "summary", period],
+    queryFn: async (): Promise<AnalyticsSummary> => {
+      if (isMockMode()) {
+        await mockDelay(400);
+
+        // Generate realistic mock data based on period
+        const multiplier = period === "7d" ? 1 : period === "30d" ? 4 : 12;
+
+        return {
+          totalCost: 45.67 * multiplier + Math.random() * 10,
+          costChange: -8.5 + Math.random() * 20,
+          totalTokens: 2_150_000 * multiplier,
+          tokenChange: -5 + Math.random() * 15,
+          totalRCAs: 156 * multiplier,
+          rcaChange: 12 + Math.random() * 10,
+          avgCostPerRCA: 0.12 + Math.random() * 0.05,
+          avgTimePerRCA: 23 + Math.random() * 10,
+          roi: 180 + Math.random() * 50,
+          budgetUsed: 45.67 * multiplier,
+          budgetLimit: 100 * multiplier,
+          qualityBreakdown: {
+            highConfidence: Math.floor(100 * multiplier + Math.random() * 20),
+            mediumConfidence: Math.floor(40 * multiplier + Math.random() * 10),
+            lowConfidence: Math.floor(16 * multiplier + Math.random() * 5),
+          },
+        };
+      }
+      return apiClient.get<AnalyticsSummary>(
+        `/api/analytics/summary?period=${period}`
+      );
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Fetch daily analytics data for charts
+ */
+export function useDailyAnalytics(period: "7d" | "30d" | "90d" = "30d") {
+  return useQuery({
+    queryKey: ["analytics", "daily", period],
+    queryFn: async (): Promise<DailyAnalytics[]> => {
+      if (isMockMode()) {
+        await mockDelay(500);
+
+        const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+        const data: DailyAnalytics[] = [];
+
+        for (let i = days - 1; i >= 0; i--) {
+          const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+          data.push({
+            date: date.toISOString().split("T")[0],
+            events: Math.floor(30 + Math.random() * 50),
+            rcas: Math.floor(25 + Math.random() * 40),
+            tokens: Math.floor(50000 + Math.random() * 30000),
+            cost: 1.2 + Math.random() * 2,
+            avgConfidence: 0.7 + Math.random() * 0.2,
+          });
+        }
+
+        return data;
+      }
+      return apiClient.get<DailyAnalytics[]>(
+        `/api/analytics/daily?period=${period}`
+      );
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}

@@ -62,6 +62,15 @@ const envSchema = z.object({
   GITHUB_APP_PRIVATE_KEY_SECRET_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
 
+  // Jira (Atlassian OAuth 2.0)
+  JIRA_CLIENT_ID: z.string().optional(),
+  JIRA_CLIENT_SECRET: z.string().optional(),
+
+  // Microsoft Teams (Azure AD OAuth 2.0)
+  TEAMS_CLIENT_ID: z.string().optional(),
+  TEAMS_CLIENT_SECRET: z.string().optional(),
+  TEAMS_TENANT_ID: z.string().optional(), // 'common' for multi-tenant apps
+
   // Python integration
   PYTHON_BIN: z.string().default("python3"),
   PYTHON_ANALYZER_TIMEOUT_MS: z.coerce.number().default(10000),

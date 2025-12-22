@@ -13,15 +13,16 @@
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { query, transaction } from "../db/client.js";
-import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
 
 // Constants
 const SALT_ROUNDS = 12;
 const REFRESH_TOKEN_BYTES = 32;
 const SESSION_EXPIRY_DAYS = 30;
-const VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
-const RESET_TOKEN_EXPIRY_HOURS = 1;
+// Reserved for email verification feature (future implementation)
+// Exported to prevent unused variable error while keeping for future use
+export const VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
+export const RESET_TOKEN_EXPIRY_HOURS = 1;
 
 // ============================================
 // Types
@@ -180,12 +181,11 @@ export function validatePassword(password: string): {
 // ============================================
 
 export class AuthService {
-  private readonly jwtSecret: string;
-  private readonly jwtExpiresIn: string;
+  // JWT is handled by Fastify's jwt plugin via server.jwt.sign()
+  // These would be used if we handled JWT signing directly
 
-  constructor(jwtSecret?: string, jwtExpiresIn?: string) {
-    this.jwtSecret = jwtSecret || config.JWT_SECRET;
-    this.jwtExpiresIn = jwtExpiresIn || config.JWT_EXPIRES_IN;
+  constructor(_jwtSecret?: string, _jwtExpiresIn?: string) {
+    // Config values available via config.JWT_SECRET and config.JWT_EXPIRES_IN if needed
   }
 
   /**

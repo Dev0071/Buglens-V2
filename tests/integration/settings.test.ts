@@ -22,7 +22,8 @@ import {
   resetTestOrg,
   cleanupTestData,
   seedCompleteScenario,
-  ensureSecondTestOrg,
+  // Reserved for cross-org isolation tests
+  ensureSecondTestOrg as _ensureSecondTestOrg,
   cleanupSecondTestOrg,
 } from "../helpers/test-utils.js";
 import { query } from "../../src/db/client.js";

@@ -15,6 +15,8 @@
     "migrate:create": "node-pg-migrate create",
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
+    "db:seed": "psql $DATABASE_URL -f scripts/seed-dev-data-full.sql",
+    "db:reset": "npm run migrate:down && npm run migrate:up && npm run db:seed",
     "worker": "tsx src/workers/index.ts"
   },
   "dependencies": {
@@ -44,6 +46,7 @@
     "@types/pg": "^8.10.9",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "@vitest/ui": "^1.0.0",
     "eslint": "^8.54.0",
     "eslint-config-prettier": "^9.1.0",

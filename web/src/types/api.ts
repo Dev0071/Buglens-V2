@@ -2,14 +2,23 @@
  * API response types for Buglens frontend
  */
 
-// Dashboard stats
+// Dashboard stats - decision-driven metrics
 export interface DashboardStats {
+  // Core metrics (displayed prominently)
+  criticalUnresolved: number; // PANIC if > 0
+  highUnresolved: number; // WARNING if > 3
+  rcaAccuracy: number; // % based on feedback (7d)
+  avgResolutionTime: number; // seconds to generate RCA
+
+  // Trends
+  eventsChange: number; // % change from previous period (spike detection)
+  unresolvedTrend: number; // % change in unresolved count
+  resolutionTimeChange: number; // % change in resolution time
+
+  // Supporting metrics (for context)
   totalEvents: number;
-  eventsChange: number; // % change from previous period
   resolvedRCAs: number;
   resolvedChange: number;
-  avgResolutionTime: number; // in minutes
-  resolutionTimeChange: number;
   pendingAnalysis: number;
 }
 
@@ -21,6 +30,7 @@ export interface RecentEvent {
   status: "pending" | "processing" | "completed" | "failed";
   createdAt: string;
   rcaId?: string;
+  confidence?: number; // RCA confidence score 0-1
 }
 
 // Full event object from events list
@@ -128,12 +138,12 @@ export interface RCAResult {
 }
 
 // Integration types
-export type IntegrationType = "sentry" | "github" | "slack";
+export type IntegrationType = "sentry" | "github" | "slack" | "jira" | "teams";
 export type IntegrationStatus = "connected" | "disconnected" | "error";
 
 export interface Integration {
   id: string;
-  type: IntegrationType;
+  type: IntegrationType | string; // Allow string for flexibility
   name: string;
   status: IntegrationStatus;
   configuredAt?: string;

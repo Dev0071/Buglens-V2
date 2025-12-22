@@ -1,6 +1,13 @@
 /**
  * Mock data for development mode
- * When VITE_USE_MOCK_DATA=true, API calls return this mock data instead of hitting backend
+ *
+ * By default, the frontend uses REAL API data from the backend.
+ * To use mock data instead, set VITE_USE_MOCK_DATA=true in your .env file.
+ *
+ * This is useful when:
+ * - Backend is not running
+ * - Developing UI without database
+ * - Testing specific edge cases
  */
 
 import type {
@@ -13,9 +20,13 @@ import type {
 
 /**
  * Check if mock data mode is enabled
+ *
+ * IMPORTANT: Default is FALSE - we use real API data by default
+ * Set VITE_USE_MOCK_DATA=true to enable mock data
  */
 export const isMockMode = (): boolean => {
-  return import.meta.env.VITE_USE_MOCK_DATA === "true" || import.meta.env.DEV;
+  // Only use mock data if explicitly enabled via environment variable
+  return import.meta.env.VITE_USE_MOCK_DATA === "true";
 };
 
 /**
@@ -26,20 +37,29 @@ export const mockDelay = (ms = 500): Promise<void> => {
 };
 
 /**
- * Dashboard stats mock data
+ * Dashboard stats mock data - decision-driven metrics
  */
 export const mockDashboardStats: DashboardStats = {
+  // Core metrics (what the on-call engineer cares about)
+  criticalUnresolved: 0, // System healthy when 0
+  highUnresolved: 2, // Should trigger warning banner
+  rcaAccuracy: 84, // Based on feedback (good = >80%)
+  avgResolutionTime: 23, // Seconds (good = <30s)
+
+  // Trends (for context)
+  eventsChange: 12, // % increase triggers spike warning if >50%
+  unresolvedTrend: -15, // Negative = improving
+  resolutionTimeChange: -5, // Negative = faster
+
+  // Supporting metrics
   totalEvents: 156,
-  eventsChange: 12,
   resolvedRCAs: 89,
   resolvedChange: 8,
-  avgResolutionTime: 23,
-  resolutionTimeChange: -5,
   pendingAnalysis: 7,
 };
 
 /**
- * Recent events mock data
+ * Recent events mock data with confidence scores
  */
 export const mockRecentEvents: RecentEvent[] = [
   {
@@ -47,38 +67,43 @@ export const mockRecentEvents: RecentEvent[] = [
     message: "TypeError: Cannot read property 'name' of undefined",
     severity: "high",
     status: "completed",
-    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 min ago
+    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
     rcaId: "rca-001",
+    confidence: 0.87,
   },
   {
     id: "evt-002",
     message: "ReferenceError: db is not defined",
     severity: "medium",
     status: "processing",
-    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
+    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+    confidence: 0.72,
   },
   {
     id: "evt-003",
     message: "UnhandledPromiseRejection: Connection refused to database",
     severity: "critical",
     status: "completed",
-    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), // 1 hour ago
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     rcaId: "rca-002",
+    confidence: 0.91,
   },
   {
     id: "evt-004",
     message: "SyntaxError: Unexpected token < in JSON at position 0",
     severity: "low",
     status: "pending",
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    confidence: 0.45,
   },
   {
     id: "evt-005",
     message: "TypeError: Cannot read property 'map' of null",
     severity: "high",
     status: "completed",
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
     rcaId: "rca-003",
+    confidence: 0.89,
   },
 ];
 

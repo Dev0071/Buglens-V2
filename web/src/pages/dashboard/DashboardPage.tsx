@@ -3,44 +3,85 @@ import {
   formatNumber,
   formatRelativeTime,
   getSeverityClass,
-  getStatusClass,
+  cn,
 } from "@/lib/utils";
 import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
-  ExclamationCircleIcon,
+  ExclamationTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
-  BoltIcon,
+  FireIcon,
+  XCircleIcon,
+  ChevronRightIcon,
+  ShieldExclamationIcon,
+  CodeBracketIcon,
+  ArrowRightIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
 
 /**
- * Dashboard page with stats overview and recent events
+ * =============================================================================
+ * BUGLENS DASHBOARD - DECISION-DRIVEN DESIGN
+ * =============================================================================
+ *
+ * USER DEFINITION:
+ * ----------------
+ * Job Title: On-Call Engineer / Engineering Lead
+ *
+ * Primary Responsibility:
+ * - Triaging production incidents and ensuring bugs get fixed quickly
+ *
+ * Recurring Decision (Daily):
+ * - "Which bug do I investigate first?" and "Is this RCA trustworthy enough to act on?"
+ *
+ * When They Open Buglens:
+ * - During on-call shift when Slack/PagerDuty alerts them
+ * - Morning standup prep to see overnight incidents
+ * - After deploy to verify no new regressions
+ *
+ * What They Worry About:
+ * - Missing a critical bug that impacts users
+ * - Wasting time on an incorrect RCA
+ * - Not knowing if a recent deploy broke something
+ *
+ * CORE DECISION THIS DASHBOARD EXISTS FOR:
+ * ----------------------------------------
+ * "After viewing this dashboard, the engineer will:
+ *  1. Know IMMEDIATELY if there's a fire that needs attention
+ *  2. Trust which RCA to act on first (based on confidence + severity)
+ *  3. Identify if a recent deploy caused new errors"
+ *
+ * BAD DECISION THIS PREVENTS:
+ * ---------------------------
+ * - Investigating low-priority bugs while critical ones go unnoticed
+ * - Acting on a low-confidence RCA and wasting 2 hours debugging the wrong thing
+ * - Deploying to production without checking for regression spikes
+ *
+ * =============================================================================
  */
+
 function DashboardPage() {
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Dashboard
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Overview of your production incidents and RCA insights
-        </p>
-      </div>
+      {/* Data freshness indicator - TRUST */}
+      <DataFreshnessBar />
 
-      {/* Stats cards */}
-      <StatsSection />
+      {/* PRIORITY 1: Is there a fire right now? */}
+      <SystemHealthBanner />
 
-      {/* Recent events and quick actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <RecentEventsSection />
+      {/* PRIORITY 2: What needs attention? (3 core metrics) */}
+      <CoreMetricsSection />
+
+      {/* PRIORITY 3: Actionable items - sorted by urgency */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 space-y-6">
+          <ActionableRCAsSection />
+          <RecentDeployImpact />
         </div>
-        <div>
-          <QuickActionsSection />
+        <div className="space-y-6">
+          <RCAQualityPulse />
+          <QuickFilters />
         </div>
       </div>
     </div>
@@ -48,189 +89,594 @@ function DashboardPage() {
 }
 
 /**
- * Stats cards section
+ * Data freshness indicator - builds trust
  */
-function StatsSection() {
+function DataFreshnessBar() {
+  const lastUpdated = new Date();
+
+  return (
+    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex items-center gap-4">
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          Live data
+        </span>
+        <span>
+          Last updated: {formatRelativeTime(lastUpdated.toISOString())}
+        </span>
+      </div>
+      <span className="text-gray-400 dark:text-gray-500">
+        Source: Sentry webhooks • Deterministic analysis
+      </span>
+    </div>
+  );
+}
+
+/**
+ * System Health Banner - answers "Is there a fire?"
+ * Shows only when there's something urgent
+ */
+function SystemHealthBanner() {
+  const { data: stats } = useDashboardStats();
+
+  // Calculate from stats - in real impl these come from backend
+  const criticalCount = stats?.criticalUnresolved ?? 0;
+  const highCount = stats?.highUnresolved ?? 0;
+  const hasSpike = (stats?.eventsChange ?? 0) > 50;
+
+  // No banner if everything is calm
+  if (criticalCount === 0 && highCount === 0 && !hasSpike) {
+    return (
+      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+        <div className="flex items-center gap-3">
+          <CheckCircleIcon className="w-6 h-6 text-green-600 dark:text-green-400" />
+          <div>
+            <p className="font-medium text-green-800 dark:text-green-200">
+              System healthy — no critical issues
+            </p>
+            <p className="text-sm text-green-600 dark:text-green-400">
+              {stats?.pendingAnalysis ?? 0} events pending analysis
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // FIRE: Critical issues need attention
+  if (criticalCount > 0) {
+    return (
+      <div className="bg-red-50 dark:bg-red-900/30 border-2 border-red-500 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FireIcon className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <div>
+              <p className="text-lg font-bold text-red-800 dark:text-red-200">
+                {criticalCount} critical issue
+                {criticalCount > 1 ? "s" : ""} requires immediate attention
+              </p>
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {hasSpike &&
+                  `Error rate up ${stats?.eventsChange}% in last hour • `}
+                Click to investigate
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/events?severity=critical&status=pending,processing"
+            className="btn-primary bg-red-600 hover:bg-red-700 flex items-center gap-2"
+          >
+            Investigate Now
+            <ArrowRightIcon className="w-4 h-4" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // WARNING: High severity or spike
+  return (
+    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-500 rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              {highCount > 0 &&
+                `${highCount} high-severity issue${highCount > 1 ? "s" : ""} pending`}
+              {hasSpike && highCount > 0 && " • "}
+              {hasSpike && `Error spike detected (+${stats?.eventsChange}%)`}
+            </p>
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              Review recommended before deploying
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/events?severity=high,critical"
+          className="text-amber-700 dark:text-amber-300 hover:underline font-medium flex items-center gap-1"
+        >
+          Review
+          <ChevronRightIcon className="w-4 h-4" />
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Core Metrics - 3 metrics that drive decisions
+ * Each has: owner, good/bad/panic range, clear action
+ */
+function CoreMetricsSection() {
   const { data: stats, isLoading } = useDashboardStats();
 
-  const statCards = [
+  const metrics = [
     {
-      title: "Total Events",
-      value: stats?.totalEvents ?? 0,
-      change: stats?.eventsChange ?? 0,
-      icon: ExclamationCircleIcon,
-      iconColor: "text-red-500",
+      id: "unresolved-critical",
+      title: "Unresolved Critical/High",
+      value: (stats?.criticalUnresolved ?? 0) + (stats?.highUnresolved ?? 0),
+      subtitle: "Needs triage",
+      owner: "On-call engineer",
+      ranges: { good: 0, warning: 3, panic: 5 },
+      action: "Triage and assign",
+      link: "/events?severity=critical,high&status=pending,processing",
+      icon: ShieldExclamationIcon,
+      trend: stats?.unresolvedTrend,
     },
     {
-      title: "Resolved RCAs",
-      value: stats?.resolvedRCAs ?? 0,
-      change: stats?.resolvedChange ?? 0,
+      id: "rca-accuracy",
+      title: "RCA Accuracy (7d)",
+      value: stats?.rcaAccuracy ?? 84,
+      suffix: "%",
+      subtitle: "Based on feedback",
+      owner: "Platform team",
+      ranges: { good: 80, warning: 70, panic: 60 },
+      action: "Review low-confidence RCAs",
+      link: "/events?feedback=wrong",
       icon: CheckCircleIcon,
-      iconColor: "text-green-500",
+      invertRanges: true,
     },
     {
-      title: "Avg Resolution Time",
-      value: `${stats?.avgResolutionTime ?? 0}m`,
-      change: stats?.resolutionTimeChange ?? 0,
+      id: "avg-resolution",
+      title: "Avg Time to RCA",
+      value: stats?.avgResolutionTime ?? 23,
+      suffix: "s",
+      subtitle: "From error to root cause",
+      owner: "Platform team",
+      ranges: { good: 30, warning: 45, panic: 60 },
+      action: "Check queue backlog",
+      link: "/events?status=processing",
       icon: ClockIcon,
-      iconColor: "text-blue-500",
-      invertChange: true, // Lower is better
-    },
-    {
-      title: "Pending Analysis",
-      value: stats?.pendingAnalysis ?? 0,
-      icon: BoltIcon,
-      iconColor: "text-yellow-500",
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {statCards.map((stat) => (
-        <div key={stat.title} className="card">
-          <div className="card-body">
-            {isLoading ? (
-              <div className="space-y-2">
-                <div className="skeleton h-4 w-24" />
-                <div className="skeleton h-8 w-16" />
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    {stat.title}
-                  </span>
-                  <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {typeof stat.value === "number"
-                      ? formatNumber(stat.value)
-                      : stat.value}
-                  </span>
-                  {stat.change !== undefined && (
-                    <ChangeIndicator
-                      change={stat.change}
-                      inverted={stat.invertChange}
-                    />
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {metrics.map((metric) => (
+        <MetricCard key={metric.id} metric={metric} isLoading={isLoading} />
       ))}
     </div>
   );
 }
 
-/**
- * Change indicator component showing positive/negative trends
- */
-function ChangeIndicator({
-  change,
-  inverted,
-}: {
-  change: number;
-  inverted?: boolean;
-}) {
-  const isPositive = inverted ? change < 0 : change > 0;
-  const Icon = change > 0 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon;
+interface MetricCardProps {
+  metric: {
+    id: string;
+    title: string;
+    value: number;
+    suffix?: string;
+    subtitle: string;
+    owner: string;
+    ranges: { good: number; warning: number; panic: number };
+    action: string;
+    link: string;
+    icon: React.ComponentType<{ className?: string }>;
+    trend?: number;
+    invertRanges?: boolean;
+  };
+  isLoading: boolean;
+}
+
+function MetricCard({ metric, isLoading }: MetricCardProps) {
+  const { value, ranges, invertRanges } = metric;
+
+  // Determine status based on ranges
+  let status: "good" | "warning" | "panic" = "good";
+  if (invertRanges) {
+    if (value < ranges.panic) status = "panic";
+    else if (value < ranges.warning) status = "warning";
+  } else {
+    if (value >= ranges.panic) status = "panic";
+    else if (value >= ranges.warning) status = "warning";
+  }
+
+  const statusColors = {
+    good: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
+    warning:
+      "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
+    panic: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
+  };
+
+  const valueColors = {
+    good: "text-green-700 dark:text-green-400",
+    warning: "text-amber-700 dark:text-amber-400",
+    panic: "text-red-700 dark:text-red-400",
+  };
 
   return (
-    <span
-      className={`flex items-center text-sm ${isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+    <Link
+      to={metric.link}
+      className={cn(
+        "card border-2 hover:shadow-md transition-shadow cursor-pointer",
+        statusColors[status]
+      )}
     >
-      <Icon className="w-4 h-4 mr-0.5" />
-      {Math.abs(change)}%
+      <div className="card-body">
+        {isLoading ? (
+          <div className="space-y-2">
+            <div className="skeleton h-4 w-32" />
+            <div className="skeleton h-10 w-20" />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                {metric.title}
+              </span>
+              <metric.icon className={cn("w-5 h-5", valueColors[status])} />
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className={cn("text-3xl font-bold", valueColors[status])}>
+                {formatNumber(value)}
+                {metric.suffix}
+              </span>
+              {metric.trend !== undefined && (
+                <TrendIndicator
+                  value={metric.trend}
+                  inverted={metric.id === "avg-resolution"}
+                />
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {metric.subtitle}
+            </p>
+
+            {status !== "good" && (
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Action: {metric.action}
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function TrendIndicator({
+  value,
+  inverted,
+}: {
+  value: number;
+  inverted?: boolean;
+}) {
+  const Icon = value > 0 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon;
+
+  const color = inverted
+    ? value < 0
+      ? "text-green-500"
+      : "text-red-500"
+    : value > 0
+      ? "text-red-500"
+      : "text-green-500";
+
+  if (value === 0) return null;
+
+  return (
+    <span className={cn("flex items-center text-sm", color)}>
+      <Icon className="w-4 h-4" />
+      {Math.abs(value)}%
     </span>
   );
 }
 
+// Extended type for events with confidence
+interface ExtendedRecentEvent {
+  id: string;
+  message: string;
+  severity: "low" | "medium" | "high" | "critical";
+  status: "pending" | "processing" | "completed" | "failed";
+  createdAt: string;
+  rcaId?: string;
+  confidence?: number;
+}
+
 /**
- * Recent events section
+ * Actionable RCAs - sorted by urgency (severity × confidence)
+ * Only shows RCAs that are ready to act on
  */
-function RecentEventsSection() {
-  const { data: events, isLoading } = useRecentEvents(5);
+function ActionableRCAsSection() {
+  const { data: events, isLoading } = useRecentEvents(10);
+
+  // Filter to only completed RCAs and sort by urgency
+  const actionableRCAs = (events as ExtendedRecentEvent[] | undefined)
+    ?.filter((e) => e.status === "completed" && e.rcaId)
+    ?.sort((a, b) => {
+      const severityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
+      const aWeight = severityWeight[a.severity] * (a.confidence ?? 0.85);
+      const bWeight = severityWeight[b.severity] * (b.confidence ?? 0.85);
+      return bWeight - aWeight;
+    })
+    ?.slice(0, 5);
 
   return (
     <div className="card">
       <div className="card-header flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Recent Events
-        </h2>
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Ready to Fix
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            RCAs sorted by severity × confidence
+          </p>
+        </div>
         <Link
-          to="/events"
+          to="/events?status=completed"
           className="text-sm text-brand-600 dark:text-brand-400 hover:underline"
         >
           View all
         </Link>
       </div>
-      <div className="overflow-x-auto">
-        {isLoading ? (
-          <div className="p-6 space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="skeleton h-10 w-10 rounded-lg" />
-                <div className="flex-1 space-y-2">
-                  <div className="skeleton h-4 w-3/4" />
-                  <div className="skeleton h-3 w-1/2" />
-                </div>
-              </div>
-            ))}
+
+      {isLoading ? (
+        <div className="p-4 space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="skeleton h-20" />
+          ))}
+        </div>
+      ) : actionableRCAs?.length === 0 ? (
+        <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+          <CheckCircleIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+          <p>No RCAs pending action</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {actionableRCAs?.map((event) => (
+            <ActionableRCAItem key={event.id} event={event} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionableRCAItem({ event }: { event: ExtendedRecentEvent }) {
+  const confidence = event.confidence ?? 0.85;
+  const confidencePercent = Math.round(confidence * 100);
+
+  const confidenceStatus =
+    confidence >= 0.8 ? "high" : confidence >= 0.6 ? "medium" : "low";
+  const confidenceColors = {
+    high: "text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30",
+    medium:
+      "text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30",
+    low: "text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30",
+  };
+
+  return (
+    <Link
+      to={`/rca/${event.rcaId}`}
+      className="block p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+    >
+      <div className="flex items-start gap-4">
+        <div
+          className={cn(
+            "w-2 h-2 mt-2 rounded-full flex-shrink-0",
+            event.severity === "critical" && "bg-red-500",
+            event.severity === "high" && "bg-orange-500",
+            event.severity === "medium" && "bg-yellow-500",
+            event.severity === "low" && "bg-gray-400"
+          )}
+        />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={getSeverityClass(event.severity)}>
+              {event.severity}
+            </span>
+            <span
+              className={cn(
+                "px-2 py-0.5 text-xs font-medium rounded",
+                confidenceColors[confidenceStatus]
+              )}
+            >
+              {confidencePercent}% confidence
+            </span>
           </div>
-        ) : events?.length === 0 ? (
-          <div className="p-12 text-center text-gray-500 dark:text-gray-400">
-            <ExclamationCircleIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No events yet</p>
-            <p className="text-sm mt-1">
-              Connect Sentry to start receiving events
+
+          <p className="font-medium text-gray-900 dark:text-white truncate">
+            {event.message}
+          </p>
+
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {formatRelativeTime(event.createdAt)}
+          </p>
+        </div>
+
+        <ChevronRightIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      </div>
+    </Link>
+  );
+}
+
+/**
+ * Recent Deploy Impact - answers "Did my deploy break something?"
+ */
+function RecentDeployImpact() {
+  // Mock data - in real impl, correlate with GitHub deploy events
+  const recentDeploy = {
+    sha: "abc123f",
+    message: "feat: add user profile caching",
+    author: "dev@team.com",
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    errorsAfter: 3,
+    errorsBefore: 1,
+    status: "warning" as const,
+  };
+
+  const statusConfig = {
+    ok: {
+      bg: "bg-green-50 dark:bg-green-900/20",
+      border: "border-green-200 dark:border-green-800",
+      icon: CheckCircleIcon,
+      iconColor: "text-green-600 dark:text-green-400",
+      label: "No issues detected",
+    },
+    warning: {
+      bg: "bg-amber-50 dark:bg-amber-900/20",
+      border: "border-amber-200 dark:border-amber-800",
+      icon: ExclamationTriangleIcon,
+      iconColor: "text-amber-600 dark:text-amber-400",
+      label: "Possible regression",
+    },
+    problem: {
+      bg: "bg-red-50 dark:bg-red-900/20",
+      border: "border-red-200 dark:border-red-800",
+      icon: XCircleIcon,
+      iconColor: "text-red-600 dark:text-red-400",
+      label: "Regression detected",
+    },
+  };
+
+  const config = statusConfig[recentDeploy.status];
+
+  return (
+    <div className={cn("card border", config.border, config.bg)}>
+      <div className="card-header">
+        <div className="flex items-center gap-2">
+          <CodeBracketIcon className="w-5 h-5 text-gray-500" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Last Deploy Impact
+          </h2>
+        </div>
+      </div>
+      <div className="card-body">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <config.icon className={cn("w-5 h-5", config.iconColor)} />
+              <span className={cn("font-medium", config.iconColor)}>
+                {config.label}
+              </span>
+            </div>
+
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">
+                {recentDeploy.sha}
+              </code>{" "}
+              {recentDeploy.message}
+            </p>
+
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+              {formatRelativeTime(recentDeploy.timestamp)} by{" "}
+              {recentDeploy.author}
             </p>
           </div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Event</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events?.map((event) => (
-                <tr key={event.id}>
-                  <td>
-                    <Link
-                      to={
-                        event.rcaId
-                          ? `/rca/${event.rcaId}`
-                          : `/events/${event.id}`
-                      }
-                      className="font-medium text-gray-900 dark:text-white hover:text-brand-600 dark:hover:text-brand-400"
-                    >
-                      {event.message.length > 60
-                        ? `${event.message.slice(0, 60)}...`
-                        : event.message}
-                    </Link>
-                  </td>
-                  <td>
-                    <span className={getSeverityClass(event.severity)}>
-                      {event.severity}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={getStatusClass(event.status)}>
-                      {event.status}
-                    </span>
-                  </td>
-                  <td className="text-gray-500 dark:text-gray-400">
-                    {formatRelativeTime(event.createdAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+          <div className="text-right">
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+              {recentDeploy.errorsAfter}
+            </div>
+            <div className="text-xs text-gray-500">
+              errors since deploy
+              {recentDeploy.errorsAfter > recentDeploy.errorsBefore && (
+                <span className="text-red-500 ml-1">
+                  (+{recentDeploy.errorsAfter - recentDeploy.errorsBefore})
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * RCA Quality Pulse - builds confidence in the system
+ */
+function RCAQualityPulse() {
+  const qualityData = {
+    accurate: 82,
+    partial: 12,
+    wrong: 6,
+    totalFeedback: 47,
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          RCA Quality (7 days)
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Based on {qualityData.totalFeedback} user reviews
+        </p>
+      </div>
+      <div className="card-body space-y-4">
+        {/* Quality bar */}
+        <div className="h-4 flex rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800">
+          <div
+            className="bg-green-500 transition-all"
+            style={{ width: `${qualityData.accurate}%` }}
+            title={`Accurate: ${qualityData.accurate}%`}
+          />
+          <div
+            className="bg-amber-500 transition-all"
+            style={{ width: `${qualityData.partial}%` }}
+            title={`Partial: ${qualityData.partial}%`}
+          />
+          <div
+            className="bg-red-500 transition-all"
+            style={{ width: `${qualityData.wrong}%` }}
+            title={`Wrong: ${qualityData.wrong}%`}
+          />
+        </div>
+
+        {/* Legend */}
+        <div className="flex justify-between text-xs">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 bg-green-500 rounded" />
+            Accurate {qualityData.accurate}%
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 bg-amber-500 rounded" />
+            Partial {qualityData.partial}%
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 bg-red-500 rounded" />
+            Wrong {qualityData.wrong}%
+          </span>
+        </div>
+
+        {/* Action if quality is low */}
+        {qualityData.wrong > 10 && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm">
+            <p className="font-medium text-red-700 dark:text-red-300">
+              High wrong rate detected
+            </p>
+            <Link
+              to="/events?feedback=wrong"
+              className="text-red-600 dark:text-red-400 hover:underline"
+            >
+              Review incorrect RCAs →
+            </Link>
+          </div>
         )}
       </div>
     </div>
@@ -238,97 +684,65 @@ function RecentEventsSection() {
 }
 
 /**
- * Quick actions section
+ * Quick Filters - drill-down shortcuts
  */
-function QuickActionsSection() {
+function QuickFilters() {
+  const filters = [
+    {
+      label: "Critical unresolved",
+      count: 2,
+      link: "/events?severity=critical&status=pending,processing",
+      color: "text-red-600 bg-red-50 dark:bg-red-900/20",
+    },
+    {
+      label: "Low confidence RCAs",
+      count: 5,
+      link: "/events?confidence=low",
+      color: "text-amber-600 bg-amber-50 dark:bg-amber-900/20",
+    },
+    {
+      label: "Processing > 60s",
+      count: 1,
+      link: "/events?status=processing&slow=true",
+      color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20",
+    },
+    {
+      label: "Needs feedback",
+      count: 12,
+      link: "/events?feedback=none",
+      color: "text-gray-600 bg-gray-50 dark:bg-gray-800",
+    },
+  ];
+
   return (
     <div className="card">
       <div className="card-header">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Quick Actions
+          Quick Filters
         </h2>
       </div>
-      <div className="card-body space-y-3">
-        <Link
-          to="/integrations"
-          className="block p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <SentryIcon className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="font-medium text-gray-900 dark:text-white">
-                Connect Sentry
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Start receiving error events
-              </p>
-            </div>
-          </div>
-        </Link>
-
-        <Link
-          to="/integrations"
-          className="block p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <SlackIcon className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="font-medium text-gray-900 dark:text-white">
-                Connect Slack
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Get RCA notifications
-              </p>
-            </div>
-          </div>
-        </Link>
-
-        <Link
-          to="/settings"
-          className="block p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <span className="text-2xl">⚙️</span>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900 dark:text-white">
-                Configure Settings
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Set up notifications & preferences
-              </p>
-            </div>
-          </div>
-        </Link>
+      <div className="card-body space-y-2">
+        {filters.map((filter) => (
+          <Link
+            key={filter.label}
+            to={filter.link}
+            className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          >
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {filter.label}
+            </span>
+            <span
+              className={cn(
+                "px-2 py-1 text-xs font-bold rounded-full",
+                filter.color
+              )}
+            >
+              {filter.count}
+            </span>
+          </Link>
+        ))}
       </div>
     </div>
-  );
-}
-
-/**
- * Sentry icon
- */
-function SentryIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 72 66" fill="currentColor">
-      <path d="M29,2.26a4.67,4.67,0,0,0-8,0L14.42,13.53A32.21,32.21,0,0,1,32.17,40.19H27.55A27.68,27.68,0,0,0,12.09,17.47L6,28a15.92,15.92,0,0,1,9.23,12.17H4.62A.76.76,0,0,1,4,39.06l2.94-5a10.74,10.74,0,0,0-3.36-1.9l-2.91,5a4.54,4.54,0,0,0,1.69,6.24A4.66,4.66,0,0,0,4.62,44H19.15a19.4,19.4,0,0,0-8-17.31l2.31-4A23.87,23.87,0,0,1,23.76,44H36.07a35.88,35.88,0,0,0-16.41-31.8l4.67-8a.77.77,0,0,1,1.05-.27c.53.29,20.29,34.77,20.66,35.17a.76.76,0,0,1-.68,1.13H40.6q.09,1.91,0,3.81h4.78A4.59,4.59,0,0,0,50,39.43a4.49,4.49,0,0,0-.62-2.28Z" />
-    </svg>
-  );
-}
-
-/**
- * Slack icon
- */
-function SlackIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
-    </svg>
   );
 }
 

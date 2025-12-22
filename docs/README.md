@@ -1,177 +1,153 @@
-# Buglens
+# Buglens Documentation
 
-AI-powered Root Cause Analysis copilot for production incidents.
+> AI-powered Root Cause Analysis copilot for production incidents.
 
-## Quick Start
+**Last Updated:** December 2025
 
-### Prerequisites
+---
 
-- Node.js 20+
-- Python 3.11+
-- PostgreSQL 15+
-- Redis 7+
-- AWS account (for production)
+## 📋 Quick Navigation
 
-### Development Setup
+| I want to...                 | Read this                                                               |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| Get started developing       | [Quick Start Guide](./QUICKSTART.md)                                    |
+| Understand the architecture  | [Architecture Overview](./Buglens%20Architecture%20UPDATED.md)          |
+| Learn the core philosophy    | [Design Philosophy](./PHILOSOPHY.md)                                    |
+| See the development roadmap  | [Phase 1 Roadmap](<./Buglens%20Roadmap%20Phase%201%20(Week%201-6).md>)  |
+| Build dashboard features     | [Dashboard Features](./WEEK6_DASHBOARD_FEATURES.md)                     |
+| Integrate with Sentry/GitHub | [Technical: API Layer](./technical/01-api-layer.md)                     |
+| Understand the data pipeline | [Technical: Extraction Pipeline](./technical/02-extraction-pipeline.md) |
+| Run tests                    | [Testing Guide](./TESTING_GUIDE.md)                                     |
 
-1. **Install Node dependencies:**
+---
 
-```bash
-npm install
-```
+## 📚 Documentation Categories
 
-2. **Setup Python environment:**
+### 🏗️ Architecture & Design
 
-```bash
-cd python
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt -r requirements-dev.txt
-```
+Core architectural decisions and system design.
 
-3. **Configure environment:**
+| Document                                                        | Description                                          | Audience         |
+| --------------------------------------------------------------- | ---------------------------------------------------- | ---------------- |
+| [Architecture Overview](./Buglens%20Architecture%20UPDATED.md)  | Complete system architecture, data flow              | All Engineers    |
+| [Design Philosophy](./PHILOSOPHY.md)                            | Core principles: Deterministic-First, Evidence Graph | All Engineers    |
+| [LLM Architecture](./buglens%20llm%20architecture%20UPDATED.md) | GPT-4o-mini strategy, prompts, costs                 | ML/LLM Engineers |
+| [Product Requirements](./buglens_prd.md)                        | PRD, success metrics, user stories                   | Product Team     |
 
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
+### 📅 Roadmaps & Planning
 
-4. **Run database migrations:**
+Development timeline and feature planning.
 
-```bash
-npm run migrate:up
-```
+| Document                                                                | Description                      | Audience         |
+| ----------------------------------------------------------------------- | -------------------------------- | ---------------- |
+| [Phase 1 Roadmap](<./Buglens%20Roadmap%20Phase%201%20(Week%201-6).md>)  | Weeks 1-6: MVP development       | Engineering Team |
+| [Phase 2 Roadmap](<./Buglens%20Roadmap%20Phase%202%20(Week%207-12).md>) | Weeks 7-12: Production hardening | Engineering Team |
+| [Progress Tracker](./PROGRESS.md)                                       | Current implementation status    | Project Manager  |
 
-5. **Start development server:**
+### 🔧 Technical Documentation
 
-```bash
-npm run dev
-```
+Deep-dive into each system component.
 
-### Project Structure
+| Document                                                     | Description                     | Audience          |
+| ------------------------------------------------------------ | ------------------------------- | ----------------- |
+| [Technical Index](./technical/README.md)                     | Index of all technical docs     | All Engineers     |
+| [API Layer](./technical/01-api-layer.md)                     | Fastify API, middleware, routes | Backend Engineers |
+| [Extraction Pipeline](./technical/02-extraction-pipeline.md) | 3-stage extraction system       | Core Engineers    |
+| [Code Fetcher](./technical/03-code-fetcher.md)               | GitHub caching strategy         | Core Engineers    |
+| [Python Analysis](./technical/05-python-analysis.md)         | AST analysis with tree-sitter   | Python Engineers  |
+| [Workers & Queues](./technical/07-workers-queues.md)         | BullMQ job processing           | Backend Engineers |
+| [Database](./technical/08-database.md)                       | PostgreSQL, RLS, migrations     | Backend Engineers |
 
-```
-buglens/
-├── src/                  # Node.js/TypeScript backend
-│   ├── api/             # Fastify API routes
-│   ├── workers/         # BullMQ job processors
-│   ├── services/        # Business logic
-│   ├── db/              # Database models & migrations
-│   ├── types/           # TypeScript type definitions
-│   └── utils/           # Shared utilities
-├── python/              # Python workers
-│   ├── analyzers/       # AST analysis & deterministic rules
-│   ├── llm/             # GPT-4o-mini orchestration
-│   ├── timeline/        # Log reconstruction
-│   └── utils/           # Python utilities
-├── web/                 # React frontend
-├── tests/               # Test suites
-├── terraform/           # Infrastructure as code
-└── scripts/             # Build & deployment scripts
-```
+### 🖥️ Dashboard & UI
 
-### Architecture
+Frontend specifications and implementation guides.
 
-**Modular Monolith** - Single Node.js application with embedded Python workers.
+| Document                                                         | Description              | Audience           |
+| ---------------------------------------------------------------- | ------------------------ | ------------------ |
+| [Dashboard Features Part 1](./WEEK6_DASHBOARD_FEATURES.md)       | Core dashboard specs     | Frontend Engineers |
+| [Dashboard Features Part 2](./WEEK6_DASHBOARD_FEATURES_PART2.md) | Advanced dashboard specs | Frontend Engineers |
 
-- **API Server:** Fastify + TypeScript
-- **Queue:** BullMQ + Redis
-- **Database:** PostgreSQL 15 with row-level security
-- **Cache:** Three-tier (Redis → S3 → Database)
-- **LLM:** GPT-4o-mini (no local models for MVP)
-- **Python Integration:** child_process with stdin/stdout JSON
+### 🧪 Testing & Quality
 
-### Key Principles
+Testing strategies and guides.
 
-1. **Deterministic-First:** 80% quality from AST/pattern matching, 20% from LLM
-2. **Multi-Tenancy:** Every table has `org_id`, row-level security enabled
-3. **Cost Controls:** Rate limits per org, token tracking, three-tier caching
-4. **Evidence-Based:** Never let LLM make unsupported claims
+| Document                                    | Description                  | Audience     |
+| ------------------------------------------- | ---------------------------- | ------------ |
+| [Testing Guide](./TESTING_GUIDE.md)         | Manual testing instructions  | QA/Engineers |
+| [E2E Testing Guide](./E2E_TESTING_GUIDE.md) | End-to-end testing scenarios | QA/Engineers |
 
-### Development Workflow
+### 📊 Business & Strategy
 
-When implementing features, always:
+Market analysis and competitive positioning.
 
-1. Define the **Schema** (Database & Zod)
-2. Define the **Interface** (Types)
-3. Write the **Test Case** (Vitest for TS, Pytest for Python)
-4. Implement the **Logic**
+| Document                                          | Description                         | Audience           |
+| ------------------------------------------------- | ----------------------------------- | ------------------ |
+| [Competitive Strategy](./COMPETITIVE_STRATEGY.md) | Sentry Seer comparison, positioning | Founders/Sales     |
+| [Market Analysis](./MARKET_ANALYSIS_REPORT.md)    | Market size, competitors, gaps      | Founders/Investors |
+| [Founders Note](./Founders%20note.md)             | Critical cost/scale insights        | Founders           |
 
-### Scripts
+### 📝 Meta & Operational
 
-```bash
-npm run dev          # Start development server
-npm run build        # Build TypeScript
-npm run test         # Run tests
-npm run lint         # Lint code
-npm run format       # Format code
-npm run migrate:up   # Apply database migrations
-npm run worker       # Start BullMQ worker
-```
+Documentation maintenance and updates.
 
-### Testing
+| Document                                                    | Description                    | Audience      |
+| ----------------------------------------------------------- | ------------------------------ | ------------- |
+| [Quick Start Guide](./QUICKSTART.md)                        | Development setup instructions | New Engineers |
+| [Documentation Updates](./DOCUMENTATION_UPDATES_SUMMARY.md) | Changelog of doc updates       | Maintainers   |
+| [Weekly Audit - Week 2](./Weekly_Audit_Week02.md)           | Code review for week 2         | Tech Leads    |
 
-```bash
-# TypeScript tests
-npm test
+---
 
-# Python tests
-cd python
-pytest
-```
+## 🏛️ Core Principles
 
-Load testing scenarios using `k6` live in `scripts/k6/` (see the README in that directory). Run them against a local stack to validate rate-limiting behaviour before large refactors.
+Before diving into implementation, understand these foundational principles:
 
-### Continuous Integration
+### 1. Deterministic-First
 
-Buglens uses a GitHub Actions pipeline defined in `.github/workflows/ci.yml`. The workflow provisions PostgreSQL and Redis services, applies migrations, and enforces linting/type-checking/testing for both TypeScript and Python workspaces.
+> **80% of RCA quality comes from deterministic analysis, 20% from LLM.**
 
-**Required CI Secrets / Environment Variables**
+The system has two layers:
 
-| Variable                | Purpose                                                                                                                      |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | Connection string to ephemeral Postgres service (set to `postgresql://postgres:postgres@localhost:5432/buglens_test` in CI). |
-| `REDIS_URL`             | Redis connection used by rate limits (`redis://localhost:6379`).                                                             |
-| `S3_BUCKET_NAME`        | Temporary name for artifact bucket (CI uses `buglens-ci-artifacts`).                                                         |
-| `JWT_SECRET`            | Symmetric key required for Fastify JWT plugin during tests.                                                                  |
-| `SENTRY_WEBHOOK_SECRET` | Shared secret for signed Sentry webhook tests.                                                                               |
-| `GITHUB_WEBHOOK_SECRET` | Shared secret for GitHub webhook HMAC tests.                                                                                 |
+- **Layer 1 (Deterministic):** AST analysis, pattern matching, stack trace mapping
+- **Layer 2 (LLM):** Narrative generation, explanation, contextualization
 
-**Local Stack Expectations**
+**Why:** LLM competitors fail on AI-generated code because they hallucinate. Our competitive moat is deterministic analysis that catches signature bugs, then LLM explains them clearly.
 
-- The workflow spins up Docker services for PostgreSQL 15 and Redis 7; ensure matching versions locally (`docker-compose up postgres redis`).
-- Database migrations run via `npm run migrate:up`; migrations must be idempotent and self-contained.
-- Redis-backed rate limiting is exercised in integration tests—flush keys between local test runs if you exceed quotas.
-- Python checks (`black`, `mypy`, `pytest`) execute after Node tests; keep `requirements.txt` and `requirements-dev.txt` synchronized with runtime needs.
+### 2. Multi-Tenancy from Day 1
 
-To replicate the CI locally:
+Every table has `org_id`. Row-level security enabled. No exceptions.
 
-```bash
-# Start dependencies with docker-compose
-docker-compose up -d postgres redis
+### 3. Cost Controls Always
 
-# Apply migrations and run quality gates
-npm run migrate:up
-npm run lint
-npx tsc --noEmit
-npm test -- --run
+Rate limits per organization. Token tracking. Three-tier caching (Redis → S3 → API).
 
-# Python quality gates
-cd python
-black --check .
-mypy .
-pytest
-```
+### 4. Evidence-Based Claims
 
-### Documentation
+Never let LLM make unsupported assertions. Every claim must reference actual code/logs.
 
-- [Architecture](./Buglens%20Architecture%20UPDATED.md)
-- [Phase 1 Roadmap (Weeks 1-6)](<./Buglens%20Roadmap%20Phase%201%20(Week%201-6).md>)
-- [Phase 2 Roadmap (Weeks 7-12)](<./Buglens%20Roadmap%20Phase%202%20(Week%207-12).md>)
-- [LLM Architecture](./buglens%20llm%20architecture%20UPDATED.md)
-- [Product Requirements](./buglens_prd.md)
-- [AI Agent Instructions](./.github/copilot-instructions.md)
+---
 
-## License
+## 🚀 Getting Started
 
-Proprietary - All rights reserved
+1. **New to Buglens?** Start with the [Quick Start Guide](./QUICKSTART.md)
+2. **Building a feature?** Check the relevant [Technical Doc](./technical/README.md)
+3. **Understanding architecture?** Read [Architecture Overview](./Buglens%20Architecture%20UPDATED.md)
+4. **Writing tests?** Follow the [Testing Guide](./TESTING_GUIDE.md)
+
+---
+
+## 🤖 AI Agent Instructions
+
+For AI-assisted development, see the [Copilot Instructions](../.github/copilot-instructions.md).
+
+---
+
+## 📞 Support
+
+- **Technical Questions:** Check the technical docs first, then ask the team
+- **Bug Reports:** Create GitHub issues with reproduction steps
+- **Feature Requests:** Discuss in team channels before implementation
+
+---
+
+_This documentation index was last audited on December 2025._

@@ -246,7 +246,7 @@ describe("useAuthStore", () => {
         name: "New User",
         email: "newuser@example.com",
         password: "password123",
-        orgName: "New Org",
+        organizationName: "New Org",
       });
     });
 
