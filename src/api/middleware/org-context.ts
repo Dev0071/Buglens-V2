@@ -24,19 +24,49 @@ declare module "fastify" {
 /**
  * Middleware to extract and validate organization context
  * Sets org_id for row-level security
+ *
+ * Priority order:
+ * 1. JWT token (for authenticated API requests)
+ * 2. x-org-id header (for webhooks)
+ * 3. org_id path parameter
  */
 export async function orgContextMiddleware(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  const headerOrgId = request.headers["x-org-id"];
-  const params = request.params as Record<string, unknown> | undefined;
-  const pathOrgId =
-    params && typeof params.org_id === "string" ? params.org_id : undefined;
-  const candidateOrgId =
-    (typeof headerOrgId === "string" && headerOrgId.trim().length > 0
-      ? headerOrgId
-      : undefined) || pathOrgId;
+  let candidateOrgId: string | undefined;
+
+  // 1. Try to extract from JWT (authenticated requests)
+  const authHeader = request.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    try {
+      await request.jwtVerify();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const user = request.user as any; // Use any to avoid type conflicts with Fastify
+      if (user && typeof user === "object" && user.orgId) {
+        candidateOrgId = user.orgId;
+      }
+    } catch (error) {
+      // JWT verification failed - continue to check headers/params
+      // This allows unauthenticated routes to still work
+    }
+  }
+
+  // 2. Try x-org-id header (webhooks)
+  if (!candidateOrgId) {
+    const headerOrgId = request.headers["x-org-id"];
+    if (typeof headerOrgId === "string" && headerOrgId.trim().length > 0) {
+      candidateOrgId = headerOrgId;
+    }
+  }
+
+  // 3. Try path parameter
+  if (!candidateOrgId) {
+    const params = request.params as Record<string, unknown> | undefined;
+    if (params && typeof params.org_id === "string") {
+      candidateOrgId = params.org_id;
+    }
+  }
 
   // Health checks and unauthenticated routes may not provide org context
   if (!candidateOrgId) {

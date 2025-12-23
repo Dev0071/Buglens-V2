@@ -1,11 +1,19 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Suspense, lazy } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useSearchParams,
+  useNavigate,
+} from "react-router-dom";
+import { Suspense, lazy, useEffect } from "react";
 import { useAuthStore } from "@/store/auth";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import AuthLayout from "@/layouts/AuthLayout";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { apiClient } from "@/lib/api-client";
 
 // Lazy load pages for better performance
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
@@ -15,10 +23,72 @@ const EventsPage = lazy(() => import("@/pages/events/EventsPage"));
 const EventDetailPage = lazy(() => import("@/pages/events/EventDetailPage"));
 const RCADetailPage = lazy(() => import("@/pages/rca/RCADetailPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
-const IntegrationsPage = lazy(
-  () => import("@/pages/integrations/IntegrationsPage")
-);
 const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
+
+/**
+ * OAuth callback handler - processes token from URL after OAuth redirect
+ */
+function OAuthCallbackHandler() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = searchParams.get("token");
+    const provider = searchParams.get("provider");
+    const error = searchParams.get("error");
+
+    if (error) {
+      // Clear URL params and show error
+      navigate("/login?error=" + error, { replace: true });
+      return;
+    }
+
+    if (token && provider) {
+      // Set the token in the auth store
+      useAuthStore.setState({ accessToken: token, isLoading: true });
+
+      // Fetch user data with the token
+      apiClient
+        .get<{
+          user: {
+            id: string;
+            email: string;
+            name: string;
+            orgId: string;
+            orgName: string;
+            role: "owner" | "admin" | "member";
+            avatarUrl?: string;
+          };
+          organization: {
+            id: string;
+            name: string;
+            plan: "free" | "pro" | "enterprise";
+            createdAt: string;
+          };
+        }>("/auth/me")
+        .then((response) => {
+          useAuthStore.setState({
+            user: response.user,
+            organization: response.organization,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+          // Clear URL params
+          navigate("/", { replace: true });
+        })
+        .catch(() => {
+          useAuthStore.setState({
+            accessToken: null,
+            isLoading: false,
+            error: "Failed to verify OAuth login",
+          });
+          navigate("/login?error=oauth_verification_failed", { replace: true });
+        });
+    }
+  }, [searchParams, navigate]);
+
+  return null;
+}
 
 /**
  * Protected route wrapper - redirects to login if not authenticated
@@ -61,6 +131,8 @@ function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="buglens-theme">
       <BrowserRouter>
+        {/* Handle OAuth callback tokens */}
+        <OAuthCallbackHandler />
         <Suspense fallback={<LoadingSpinner fullScreen />}>
           <Routes>
             {/* Public routes */}
@@ -104,7 +176,11 @@ function App() {
                 element={<SettingsPage />}
               />
               <Route path="/settings/billing" element={<SettingsPage />} />
-              <Route path="/integrations" element={<IntegrationsPage />} />
+              {/* Redirect old /integrations route to settings */}
+              <Route
+                path="/integrations"
+                element={<Navigate to="/settings/integrations" replace />}
+              />
               <Route path="/analytics" element={<AnalyticsPage />} />
             </Route>
 

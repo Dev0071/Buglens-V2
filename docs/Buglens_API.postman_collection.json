@@ -1,0 +1,654 @@
+{
+	"info": {
+		"_postman_id": "buglens-api-v1",
+		"name": "Buglens API v1",
+		"description": "Complete API documentation for Buglens - AI-powered RCA copilot for production incidents.\n\n## Authentication\nMost endpoints require Bearer token authentication. Include the access token in the Authorization header:\n```\nAuthorization: Bearer <your_access_token>\n```\n\n## Organization Context\nAll authenticated requests automatically include the organization context from the JWT token's `orgId` claim. Multi-tenancy is enforced at the database level.\n\n## Rate Limits\nRate limits vary by plan:\n- Free: 100 requests/hour\n- Pro: 1000 requests/hour\n- Enterprise: Custom limits\n\n## Base URL\n- Development: `http://localhost:3000`\n- Production: `https://api.buglens.io`",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"description": "User authentication and session management",
+			"item": [
+				{
+					"name": "Signup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePassword123!\",\n  \"name\": \"John Doe\",\n  \"organizationName\": \"Acme Inc\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/signup",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "signup"]
+						},
+						"description": "Register a new user and create an organization.\n\n**Request Body:**\n- `email` (string, required): Valid email address\n- `password` (string, required): Minimum 8 characters\n- `name` (string, required): User's full name (1-100 chars)\n- `organizationName` (string, optional): Organization name (max 100 chars)\n\n**Response (201):**\n```json\n{\n  \"user\": {\n    \"id\": \"usr-123\",\n    \"email\": \"user@example.com\",\n    \"name\": \"John Doe\"\n  },\n  \"organization\": {\n    \"id\": \"org-456\",\n    \"name\": \"Acme Inc\",\n    \"slug\": \"acme-inc\"\n  },\n  \"accessToken\": \"eyJhbGc...\"\n}\n```\n\n**Errors:**\n- `400`: Validation error (invalid email, weak password)\n- `409`: Email already registered"
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"SecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						},
+						"description": "Login with email and password.\n\n**Request Body:**\n- `email` (string, required): Registered email\n- `password` (string, required): User password\n\n**Response (200):**\n```json\n{\n  \"user\": {\n    \"id\": \"usr-123\",\n    \"email\": \"user@example.com\",\n    \"name\": \"John Doe\",\n    \"role\": \"admin\"\n  },\n  \"organization\": {\n    \"id\": \"org-456\",\n    \"name\": \"Acme Inc\"\n  },\n  \"accessToken\": \"eyJhbGc...\"\n}\n```\n\n**Errors:**\n- `400`: Invalid email format\n- `401`: Invalid credentials\n- `404`: User not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "me"]
+						},
+						"description": "Get current authenticated user information.\n\n**Requires:** Bearer token\n\n**Response (200):**\n```json\n{\n  \"user\": {\n    \"id\": \"usr-123\",\n    \"email\": \"user@example.com\",\n    \"name\": \"John Doe\",\n    \"role\": \"admin\"\n  },\n  \"organization\": {\n    \"id\": \"org-456\",\n    \"name\": \"Acme Inc\",\n    \"plan\": \"pro\"\n  }\n}\n```\n\n**Errors:**\n- `401`: Invalid or expired token"
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/auth/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "logout"]
+						},
+						"description": "Logout and invalidate current session.\n\n**Requires:** Bearer token\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Logged out successfully\"\n}\n```"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Health & Monitoring",
+			"description": "Service health checks and monitoring endpoints",
+			"item": [
+				{
+					"name": "Health Check (Liveness)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/health",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "health"]
+						},
+						"description": "Liveness probe - basic health check for load balancers.\n\n**No auth required**\n\n**Response (200):**\n```json\n{\n  \"status\": \"healthy\",\n  \"timestamp\": \"2024-01-15T10:30:00Z\",\n  \"uptime\": 86400,\n  \"version\": \"0.1.0\",\n  \"checks\": {\n    \"database\": \"connected\",\n    \"redis\": \"connected\",\n    \"s3\": \"connected\"\n  }\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Readiness Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/ready",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "ready"]
+						},
+						"description": "Readiness probe - detailed dependency checks.\n\n**No auth required**\n\n**Response (200):**\n```json\n{\n  \"status\": \"ready\",\n  \"timestamp\": \"2024-01-15T10:30:00Z\",\n  \"checks\": {\n    \"database\": {\n      \"status\": \"ok\",\n      \"latencyMs\": 5\n    },\n    \"redis\": {\n      \"status\": \"ok\",\n      \"latencyMs\": 2\n    },\n    \"queues\": {\n      \"status\": \"ok\",\n      \"accessible\": true\n    },\n    \"s3\": {\n      \"status\": \"ok\",\n      \"latencyMs\": 50,\n      \"bucket\": \"buglens-cache\"\n    }\n  }\n}\n```\n\n**Errors:**\n- `503`: Service not ready (dependencies failing)"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Events",
+			"description": "Error event management and retrieval",
+			"item": [
+				{
+					"name": "List Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/events?page=1&pageSize=20&severity=high&status=completed&search=TypeError",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (min: 1)"
+								},
+								{
+									"key": "pageSize",
+									"value": "20",
+									"description": "Items per page (min: 1, max: 100)"
+								},
+								{
+									"key": "severity",
+									"value": "high",
+									"description": "Filter by severity: low, medium, high, critical"
+								},
+								{
+									"key": "status",
+									"value": "completed",
+									"description": "Filter by status: pending, processing, completed, failed"
+								},
+								{
+									"key": "search",
+									"value": "TypeError",
+									"description": "Search in message or event ID (max 200 chars)"
+								}
+							]
+						},
+						"description": "Get paginated list of error events for the organization.\n\n**Query Parameters:**\n- `page` (number, optional, default: 1): Page number\n- `pageSize` (number, optional, default: 20, max: 100): Items per page\n- `severity` (string, optional): Filter by severity\n- `status` (string, optional): Filter by processing status\n- `search` (string, optional): Search query\n\n**Response (200):**\n```json\n{\n  \"events\": [\n    {\n      \"id\": \"evt-123\",\n      \"sentry_event_id\": \"abc123\",\n      \"message\": \"TypeError: Cannot read property 'name' of undefined\",\n      \"platform\": \"javascript\",\n      \"severity\": \"high\",\n      \"environment\": \"production\",\n      \"status\": \"completed\",\n      \"created_at\": \"2024-01-15T10:30:00Z\",\n      \"rca_result_id\": \"rca-456\"\n    }\n  ],\n  \"total\": 150,\n  \"page\": 1,\n  \"pageSize\": 20,\n  \"totalPages\": 8\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Event Detail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/events/:eventId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", ":eventId"],
+							"variable": [
+								{
+									"key": "eventId",
+									"value": "evt-123"
+								}
+							]
+						},
+						"description": "Get detailed information about a specific event.\n\n**Path Parameters:**\n- `eventId` (string, required): Event UUID\n\n**Response (200):**\n```json\n{\n  \"id\": \"evt-123\",\n  \"sentry_event_id\": \"abc123\",\n  \"message\": \"TypeError: Cannot read property 'name' of undefined\",\n  \"platform\": \"javascript\",\n  \"environment\": \"production\",\n  \"release\": \"v1.2.3\",\n  \"severity\": \"high\",\n  \"status\": \"completed\",\n  \"stack_trace\": [\n    {\n      \"file\": \"src/user-service.ts\",\n      \"line\": 45,\n      \"column\": 12,\n      \"function\": \"getUser\",\n      \"classification\": \"user_code\"\n    }\n  ],\n  \"context\": {\n    \"user\": {\"id\": \"usr-789\"},\n    \"request\": {\"method\": \"GET\", \"url\": \"/api/users/123\"}\n  },\n  \"raw_payload\": {\"...full Sentry payload...\"},\n  \"created_at\": \"2024-01-15T10:30:00Z\",\n  \"rca_result_id\": \"rca-456\"\n}\n```\n\n**Errors:**\n- `404`: Event not found\n- `403`: Event belongs to different organization"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Recent Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/events/recent?limit=10",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", "recent"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Max events to return (min: 1, max: 20)"
+								}
+							]
+						},
+						"description": "Get most recent events for dashboard.\n\n**Query Parameters:**\n- `limit` (number, optional, default: 5, max: 20): Number of events\n\n**Response (200):**\n```json\n[\n  {\n    \"id\": \"evt-123\",\n    \"message\": \"TypeError: Cannot read property 'name' of undefined\",\n    \"severity\": \"high\",\n    \"status\": \"completed\",\n    \"createdAt\": \"2024-01-15T10:30:00Z\",\n    \"rcaId\": \"rca-456\"\n  }\n]\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Reanalyze Event",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/events/:eventId/reanalyze",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", ":eventId", "reanalyze"],
+							"variable": [
+								{
+									"key": "eventId",
+									"value": "evt-123"
+								}
+							]
+						},
+						"description": "Trigger re-analysis of an event (creates new RCA job).\n\n**Path Parameters:**\n- `eventId` (string, required): Event UUID\n\n**Response (202):**\n```json\n{\n  \"jobId\": \"job-789\",\n  \"status\": \"queued\",\n  \"message\": \"Re-analysis queued\"\n}\n```\n\n**Errors:**\n- `404`: Event not found\n- `429`: Rate limit exceeded"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Event RCA",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/events/:eventId/rca",
+							"host": ["{{base_url}}"],
+							"path": ["api", "events", ":eventId", "rca"],
+							"variable": [
+								{
+									"key": "eventId",
+									"value": "evt-123"
+								}
+							]
+						},
+						"description": "Get RCA result for a specific event.\n\n**Path Parameters:**\n- `eventId` (string, required): Event UUID\n\n**Response (200):**\n```json\n{\n  \"id\": \"rca-456\",\n  \"event_id\": \"evt-123\",\n  \"root_cause\": \"Missing null check before accessing user object property\",\n  \"suggested_fix\": \"Add null guard: if (!user) return null;\",\n  \"confidence\": 0.92,\n  \"causal_chain\": [\n    \"Database query returned null\",\n    \"Null user passed to formatter\",\n    \"Property access on null object\"\n  ],\n  \"evidence_refs\": [\"file:src/user-service.ts:45\"],\n  \"llm_model\": \"gpt-4o-mini\",\n  \"created_at\": \"2024-01-15T10:31:00Z\"\n}\n```\n\n**Errors:**\n- `404`: RCA not found or event not found"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RCA (Root Cause Analysis)",
+			"description": "RCA results and feedback management",
+			"item": [
+				{
+					"name": "Get RCA by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/rca/:rcaId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rca", ":rcaId"],
+							"variable": [
+								{
+									"key": "rcaId",
+									"value": "rca-456"
+								}
+							]
+						},
+						"description": "Get RCA result by RCA ID.\n\n**Path Parameters:**\n- `rcaId` (string, required): RCA UUID\n\n**Response (200):**\n```json\n{\n  \"id\": \"rca-456\",\n  \"job_id\": \"job-789\",\n  \"root_cause\": \"Missing null check before accessing user object property\",\n  \"suggested_fix\": \"Add null guard: if (!user) return null;\",\n  \"confidence\": 0.92,\n  \"causal_chain\": [\n    \"Database query returned null\",\n    \"Null user passed to formatter\",\n    \"Property access on null object\"\n  ],\n  \"evidence_refs\": [\"file:src/user-service.ts:45\"],\n  \"llm_model\": \"gpt-4o-mini\",\n  \"evidence_graph\": {\"...deterministic analysis results...\"},\n  \"actual_root_cause\": null,\n  \"feedback_timestamp\": null,\n  \"error_category\": \"null-access\",\n  \"created_at\": \"2024-01-15T10:31:00Z\"\n}\n```\n\n**Errors:**\n- `404`: RCA not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Submit RCA Feedback",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"actual_root_cause\": \"The actual issue was a race condition in the database connection pool, not a null check.\",\n  \"feedback_notes\": \"The suggested fix was close but missed the concurrency aspect.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rca/:rcaId/feedback",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rca", ":rcaId", "feedback"],
+							"variable": [
+								{
+									"key": "rcaId",
+									"value": "rca-456"
+								}
+							]
+						},
+						"description": "Submit feedback/correction for an RCA result.\n\n**Path Parameters:**\n- `rcaId` (string, required): RCA UUID\n\n**Request Body:**\n- `actual_root_cause` (string, required, 10-2000 chars): Correct root cause\n- `feedback_notes` (string, optional, max 2000 chars): Additional notes\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Feedback submitted successfully\",\n  \"correction_id\": \"cor-101\"\n}\n```\n\n**Errors:**\n- `404`: RCA not found\n- `400`: Invalid feedback format"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Dashboard",
+			"description": "Dashboard statistics and metrics",
+			"item": [
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/dashboard/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "dashboard", "stats"]
+						},
+						"description": "Get dashboard statistics for the organization.\n\n**Response (200):**\n```json\n{\n  \"totalEvents\": 1450,\n  \"eventsChange\": 12.5,\n  \"resolvedRCAs\": 1200,\n  \"resolvedChange\": 8.3,\n  \"avgResolutionTime\": 45,\n  \"resolutionTimeChange\": -15.2,\n  \"pendingAnalysis\": 35\n}\n```\n\n**Fields:**\n- `totalEvents`: Total events this month\n- `eventsChange`: Percentage change from last month\n- `resolvedRCAs`: Completed RCAs this month\n- `resolvedChange`: Percentage change from last month\n- `avgResolutionTime`: Average RCA completion time (seconds)\n- `resolutionTimeChange`: Percentage change from last month (negative = faster)\n- `pendingAnalysis`: Events awaiting analysis"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Integrations",
+			"description": "Integration management (Sentry, GitHub, Slack, Jira, Teams)",
+			"item": [
+				{
+					"name": "List Integrations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations"]
+						},
+						"description": "Get all integrations for the organization.\n\n**Response (200):**\n```json\n[\n  {\n    \"id\": \"int-123\",\n    \"type\": \"sentry\",\n    \"enabled\": true,\n    \"config\": {\n      \"dsn\": \"https://...@sentry.io/...\",\n      \"project\": \"my-app\"\n    },\n    \"status\": \"active\",\n    \"last_sync\": \"2024-01-15T10:00:00Z\",\n    \"created_at\": \"2024-01-01T00:00:00Z\"\n  },\n  {\n    \"id\": \"int-456\",\n    \"type\": \"github\",\n    \"enabled\": true,\n    \"config\": {\n      \"installation_id\": \"12345\",\n      \"repos\": [\"owner/repo\"]\n    },\n    \"status\": \"active\",\n    \"last_sync\": \"2024-01-15T10:30:00Z\",\n    \"created_at\": \"2024-01-02T00:00:00Z\"\n  }\n]\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Configure Sentry Integration",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"dsn\": \"https://...@sentry.io/...\",\n  \"project\": \"my-app\",\n  \"environment\": \"production\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/integrations/sentry/configure",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", "sentry", "configure"]
+						},
+						"description": "Configure Sentry integration (API key based, not OAuth).\n\n**Request Body:**\n- `dsn` (string, required): Sentry DSN\n- `project` (string, optional): Sentry project name\n- `environment` (string, optional): Environment filter\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"integration\": {\n    \"id\": \"int-123\",\n    \"type\": \"sentry\",\n    \"enabled\": true,\n    \"status\": \"active\"\n  }\n}\n```\n\n**Errors:**\n- `400`: Invalid DSN or configuration"
+					},
+					"response": []
+				},
+				{
+					"name": "Connect GitHub (OAuth Initiate)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations/github/connect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", "github", "connect"]
+						},
+						"description": "Initiate GitHub OAuth flow.\n\n**This endpoint redirects to GitHub OAuth authorization page.**\n\nUser will be redirected back to the callback URL after authorization.\n\nState parameter is automatically generated and validated for CSRF protection."
+					},
+					"response": []
+				},
+				{
+					"name": "Connect Slack (OAuth Initiate)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations/slack/connect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", "slack", "connect"]
+						},
+						"description": "Initiate Slack OAuth flow.\n\n**This endpoint redirects to Slack OAuth authorization page.**\n\nUser will be redirected back to the callback URL after authorization."
+					},
+					"response": []
+				},
+				{
+					"name": "Connect Jira (OAuth Initiate)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations/jira/connect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", "jira", "connect"]
+						},
+						"description": "Initiate Jira OAuth flow.\n\n**This endpoint redirects to Jira OAuth authorization page.**\n\nUser will be redirected back to the callback URL after authorization."
+					},
+					"response": []
+				},
+				{
+					"name": "Connect Teams (OAuth Initiate)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations/teams/connect",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", "teams", "connect"]
+						},
+						"description": "Initiate Microsoft Teams OAuth flow.\n\n**This endpoint redirects to Microsoft OAuth authorization page.**\n\nUser will be redirected back to the callback URL after authorization."
+					},
+					"response": []
+				},
+				{
+					"name": "Disconnect Integration",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/integrations/:integrationId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "integrations", ":integrationId"],
+							"variable": [
+								{
+									"key": "integrationId",
+									"value": "int-123"
+								}
+							]
+						},
+						"description": "Disconnect and remove an integration.\n\n**Path Parameters:**\n- `integrationId` (string, required): Integration UUID\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Integration disconnected\"\n}\n```\n\n**Errors:**\n- `404`: Integration not found"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Settings",
+			"description": "Organization settings and configuration",
+			"item": [
+				{
+					"name": "Get Organization Settings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/settings/organization",
+							"host": ["{{base_url}}"],
+							"path": ["api", "settings", "organization"]
+						},
+						"description": "Get organization settings and usage.\n\n**Response (200):**\n```json\n{\n  \"id\": \"org-456\",\n  \"name\": \"Acme Inc\",\n  \"slug\": \"acme-inc\",\n  \"plan\": \"pro\",\n  \"settings\": {\n    \"slack_channel\": \"#bugs\",\n    \"notification_level\": \"high\",\n    \"auto_analyze\": true,\n    \"daily_digest\": true,\n    \"weekly_report\": false\n  },\n  \"usage\": {\n    \"eventsThisMonth\": 1450,\n    \"rcasThisMonth\": 1200,\n    \"llmTokensThisMonth\": 2150000\n  },\n  \"limits\": {\n    \"eventsPerMonth\": 10000,\n    \"rcasPerMonth\": 5000,\n    \"llmTokensPerMonth\": 10000000\n  },\n  \"createdAt\": \"2024-01-01T00:00:00Z\",\n  \"updatedAt\": \"2024-01-15T10:00:00Z\"\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Organization Settings",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Acme Corporation\",\n  \"settings\": {\n    \"slack_channel\": \"#critical-bugs\",\n    \"notification_level\": \"critical\",\n    \"auto_analyze\": true,\n    \"daily_digest\": false,\n    \"weekly_report\": true\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/settings/organization",
+							"host": ["{{base_url}}"],
+							"path": ["api", "settings", "organization"]
+						},
+						"description": "Update organization settings.\n\n**Request Body (all fields optional):**\n- `name` (string, 1-100 chars): Organization name\n- `settings` (object):\n  - `slack_channel` (string, max 100 chars): Slack channel for notifications\n  - `notification_level` (enum): \"all\", \"high\", \"critical\", \"none\"\n  - `auto_analyze` (boolean): Auto-analyze new events\n  - `daily_digest` (boolean): Send daily summary\n  - `weekly_report` (boolean): Send weekly report\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"organization\": {\n    \"id\": \"org-456\",\n    \"name\": \"Acme Corporation\",\n    \"settings\": {\n      \"slack_channel\": \"#critical-bugs\",\n      \"notification_level\": \"critical\"\n    }\n  }\n}\n```\n\n**Errors:**\n- `400`: Invalid settings format"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Costs",
+			"description": "Cost tracking and analysis",
+			"item": [
+				{
+					"name": "Get Cost Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/costs/summary",
+							"host": ["{{base_url}}"],
+							"path": ["api", "costs", "summary"]
+						},
+						"description": "Get cost summary for the organization.\n\n**Response (200):**\n```json\n{\n  \"currentMonth\": {\n    \"totalCost\": 45.67,\n    \"llmCost\": 42.30,\n    \"tokenCount\": 2150000,\n    \"eventsProcessed\": 1450,\n    \"avgCostPerRCA\": 0.035\n  },\n  \"previousMonth\": {\n    \"totalCost\": 38.20,\n    \"llmCost\": 35.00,\n    \"tokenCount\": 1800000,\n    \"eventsProcessed\": 1200\n  },\n  \"costChange\": 19.5,\n  \"projectedMonthlyCost\": 52.00,\n  \"dailyMetrics\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"llmCost\": 3.50,\n      \"tokenCount\": 175000,\n      \"eventsProcessed\": 95,\n      \"rcasCompleted\": 88\n    }\n  ]\n}\n```"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Daily Costs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/costs/daily?startDate=2024-01-01&endDate=2024-01-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "costs", "daily"],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01",
+									"description": "Start date (YYYY-MM-DD)"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-31",
+									"description": "End date (YYYY-MM-DD)"
+								}
+							]
+						},
+						"description": "Get daily cost breakdown for a date range.\n\n**Query Parameters:**\n- `startDate` (string, optional): Start date (YYYY-MM-DD format)\n- `endDate` (string, optional): End date (YYYY-MM-DD format)\n\n**Response (200):**\n```json\n{\n  \"metrics\": [\n    {\n      \"date\": \"2024-01-15\",\n      \"llmCost\": 3.50,\n      \"tokenCount\": 175000,\n      \"eventsProcessed\": 95,\n      \"rcasCompleted\": 88\n    }\n  ]\n}\n```"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Webhooks",
+			"description": "Webhook endpoints for external services (Sentry, GitHub)",
+			"item": [
+				{
+					"name": "Sentry Webhook",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Sentry-Hook-Resource",
+								"value": "event_alert"
+							},
+							{
+								"key": "Sentry-Hook-Signature",
+								"value": "hmac-sha256-signature",
+								"description": "HMAC signature for webhook verification"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"action\": \"created\",\n  \"data\": {\n    \"event\": {\n      \"event_id\": \"abc123\",\n      \"message\": \"TypeError: Cannot read property 'name' of undefined\",\n      \"platform\": \"javascript\",\n      \"environment\": \"production\",\n      \"release\": \"v1.2.3\",\n      \"exception\": {\n        \"values\": [\n          {\n            \"type\": \"TypeError\",\n            \"value\": \"Cannot read property 'name' of undefined\",\n            \"stacktrace\": {\n              \"frames\": [\n                {\n                  \"filename\": \"src/user-service.ts\",\n                  \"lineno\": 45,\n                  \"colno\": 12,\n                  \"function\": \"getUser\",\n                  \"in_app\": true\n                }\n              ]\n            }\n          }\n        ]\n      }\n    }\n  },\n  \"installation\": {\n    \"uuid\": \"sentry-install-123\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/webhooks/sentry",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "webhooks", "sentry"]
+						},
+						"description": "Receive error events from Sentry.\n\n**Headers Required:**\n- `Sentry-Hook-Resource`: Event type (e.g., \"event_alert\")\n- `Sentry-Hook-Signature`: HMAC-SHA256 signature for verification\n\n**Security:**\n- Webhook signature is verified using SENTRY_WEBHOOK_SECRET\n- Invalid signatures are rejected (403)\n\n**Rate Limiting:**\n- 100 requests per hour per organization\n\n**Response (202):**\n```json\n{\n  \"success\": true,\n  \"eventId\": \"evt-123\",\n  \"jobId\": \"job-789\",\n  \"message\": \"Event queued for analysis\"\n}\n```\n\n**Errors:**\n- `400`: Invalid payload\n- `403`: Invalid signature\n- `429`: Rate limit exceeded"
+					},
+					"response": []
+				},
+				{
+					"name": "GitHub Webhook",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-GitHub-Event",
+								"value": "push"
+							},
+							{
+								"key": "X-Hub-Signature-256",
+								"value": "sha256=signature",
+								"description": "HMAC signature for webhook verification"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ref\": \"refs/heads/main\",\n  \"repository\": {\n    \"full_name\": \"owner/repo\"\n  },\n  \"commits\": [\n    {\n      \"id\": \"abc123\",\n      \"message\": \"Fix null check bug\",\n      \"timestamp\": \"2024-01-15T10:30:00Z\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/webhooks/github",
+							"host": ["{{base_url}}"],
+							"path": ["api", "v1", "webhooks", "github"]
+						},
+						"description": "Receive events from GitHub (push, pull_request, etc.).\n\n**Headers Required:**\n- `X-GitHub-Event`: Event type (push, pull_request, etc.)\n- `X-Hub-Signature-256`: HMAC-SHA256 signature for verification\n\n**Security:**\n- Webhook signature is verified using GITHUB_WEBHOOK_SECRET\n- Invalid signatures are rejected (403)\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Webhook processed\"\n}\n```\n\n**Errors:**\n- `400`: Invalid payload\n- `403`: Invalid signature"
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

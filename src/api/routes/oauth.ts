@@ -11,6 +11,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { logger } from "../../utils/logger.js";
 import { config } from "../../utils/config.js";
+import { query } from "../../db/client.js";
 import {
   generateOAuthState,
   validateOAuthState,
@@ -42,6 +43,44 @@ interface OAuthCallbackQuery {
 }
 
 // ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Get orgId from session cookie when Authorization header is not available
+ * This is needed for OAuth redirects where browser can't send the header
+ */
+async function getOrgIdFromSession(
+  request: FastifyRequest
+): Promise<string | null> {
+  // First try the standard way
+  const orgId = request.getOrgId?.();
+  if (orgId) {
+    return orgId;
+  }
+
+  // Try to get from refresh token cookie
+  const refreshToken = request.cookies?.refreshToken;
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    const result = await query<{ org_id: string }>(
+      `SELECT u.org_id
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.refresh_token = $1 AND s.expires_at > NOW()`,
+      [refreshToken]
+    );
+    return result.rows[0]?.org_id || null;
+  } catch (error) {
+    logger.error({ error }, "Failed to get orgId from session");
+    return null;
+  }
+}
+
+// ============================================
 // GitHub OAuth Routes
 // ============================================
 
@@ -54,7 +93,7 @@ async function githubConnectHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const orgId = request.getOrgId();
+  const orgId = await getOrgIdFromSession(request);
 
   if (!orgId) {
     reply.redirect("/login?error=auth_required");
@@ -63,11 +102,11 @@ async function githubConnectHandler(
 
   if (!config.GITHUB_APP_ID) {
     logger.error("GitHub OAuth not configured - missing GITHUB_APP_ID");
-    reply.redirect("/integrations?error=github_not_configured");
+    reply.redirect("/settings/integrations?error=github_not_configured");
     return;
   }
 
-  const state = generateOAuthState(orgId, "github", "/integrations");
+  const state = generateOAuthState(orgId, "github", "/settings/integrations");
   const authUrl = getGitHubAuthUrl(state);
 
   logger.info({ orgId }, "Initiating GitHub OAuth flow");
@@ -88,12 +127,12 @@ async function githubCallbackHandler(
   // Handle OAuth errors
   if (error) {
     logger.error({ error, error_description }, "GitHub OAuth error");
-    reply.redirect(`/integrations?error=${encodeURIComponent(error)}`);
+    reply.redirect(`/settings/integrations?error=${encodeURIComponent(error)}`);
     return;
   }
 
   if (!code || !state) {
-    reply.redirect("/integrations?error=missing_params");
+    reply.redirect("/settings/integrations?error=missing_params");
     return;
   }
 
@@ -101,7 +140,7 @@ async function githubCallbackHandler(
   const oauthState = validateOAuthState(state);
   if (!oauthState) {
     logger.error("Invalid or expired OAuth state");
-    reply.redirect("/integrations?error=invalid_state");
+    reply.redirect("/settings/integrations?error=invalid_state");
     return;
   }
 
@@ -136,10 +175,10 @@ async function githubCallbackHandler(
       "GitHub integration connected"
     );
 
-    reply.redirect("/integrations?success=github_connected");
+    reply.redirect("/settings/integrations?success=github_connected");
   } catch (err) {
     logger.error({ error: err }, "Failed to complete GitHub OAuth");
-    reply.redirect("/integrations?error=github_failed");
+    reply.redirect("/settings/integrations?error=github_failed");
   }
 }
 
@@ -156,7 +195,7 @@ async function slackConnectHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const orgId = request.getOrgId();
+  const orgId = await getOrgIdFromSession(request);
 
   if (!orgId) {
     reply.redirect("/login?error=auth_required");
@@ -165,11 +204,11 @@ async function slackConnectHandler(
 
   if (!config.SLACK_CLIENT_ID) {
     logger.error("Slack OAuth not configured - missing SLACK_CLIENT_ID");
-    reply.redirect("/integrations?error=slack_not_configured");
+    reply.redirect("/settings/integrations?error=slack_not_configured");
     return;
   }
 
-  const state = generateOAuthState(orgId, "slack", "/integrations");
+  const state = generateOAuthState(orgId, "slack", "/settings/integrations");
   const authUrl = getSlackAuthUrl(state);
 
   logger.info({ orgId }, "Initiating Slack OAuth flow");
@@ -189,19 +228,19 @@ async function slackCallbackHandler(
 
   if (error) {
     logger.error({ error, error_description }, "Slack OAuth error");
-    reply.redirect(`/integrations?error=${encodeURIComponent(error)}`);
+    reply.redirect(`/settings/integrations?error=${encodeURIComponent(error)}`);
     return;
   }
 
   if (!code || !state) {
-    reply.redirect("/integrations?error=missing_params");
+    reply.redirect("/settings/integrations?error=missing_params");
     return;
   }
 
   const oauthState = validateOAuthState(state);
   if (!oauthState) {
     logger.error("Invalid or expired OAuth state");
-    reply.redirect("/integrations?error=invalid_state");
+    reply.redirect("/settings/integrations?error=invalid_state");
     return;
   }
 
@@ -241,10 +280,10 @@ async function slackCallbackHandler(
       "Slack integration connected"
     );
 
-    reply.redirect("/integrations?success=slack_connected");
+    reply.redirect("/settings/integrations?success=slack_connected");
   } catch (err) {
     logger.error({ error: err }, "Failed to complete Slack OAuth");
-    reply.redirect("/integrations?error=slack_failed");
+    reply.redirect("/settings/integrations?error=slack_failed");
   }
 }
 
@@ -261,7 +300,7 @@ async function jiraConnectHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const orgId = request.getOrgId();
+  const orgId = await getOrgIdFromSession(request);
 
   if (!orgId) {
     reply.redirect("/login?error=auth_required");
@@ -270,11 +309,11 @@ async function jiraConnectHandler(
 
   if (!config.JIRA_CLIENT_ID) {
     logger.error("Jira OAuth not configured - missing JIRA_CLIENT_ID");
-    reply.redirect("/integrations?error=jira_not_configured");
+    reply.redirect("/settings/integrations?error=jira_not_configured");
     return;
   }
 
-  const state = generateOAuthState(orgId, "jira", "/integrations");
+  const state = generateOAuthState(orgId, "jira", "/settings/integrations");
   const authUrl = getJiraAuthUrl(state);
 
   logger.info({ orgId }, "Initiating Jira OAuth flow");
@@ -294,19 +333,19 @@ async function jiraCallbackHandler(
 
   if (error) {
     logger.error({ error, error_description }, "Jira OAuth error");
-    reply.redirect(`/integrations?error=${encodeURIComponent(error)}`);
+    reply.redirect(`/settings/integrations?error=${encodeURIComponent(error)}`);
     return;
   }
 
   if (!code || !state) {
-    reply.redirect("/integrations?error=missing_params");
+    reply.redirect("/settings/integrations?error=missing_params");
     return;
   }
 
   const oauthState = validateOAuthState(state);
   if (!oauthState) {
     logger.error("Invalid or expired OAuth state");
-    reply.redirect("/integrations?error=invalid_state");
+    reply.redirect("/settings/integrations?error=invalid_state");
     return;
   }
 
@@ -336,10 +375,10 @@ async function jiraCallbackHandler(
       "Jira integration connected"
     );
 
-    reply.redirect("/integrations?success=jira_connected");
+    reply.redirect("/settings/integrations?success=jira_connected");
   } catch (err) {
     logger.error({ error: err }, "Failed to complete Jira OAuth");
-    reply.redirect("/integrations?error=jira_failed");
+    reply.redirect("/settings/integrations?error=jira_failed");
   }
 }
 
@@ -356,7 +395,7 @@ async function teamsConnectHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const orgId = request.getOrgId();
+  const orgId = await getOrgIdFromSession(request);
 
   if (!orgId) {
     reply.redirect("/login?error=auth_required");
@@ -365,11 +404,11 @@ async function teamsConnectHandler(
 
   if (!config.TEAMS_CLIENT_ID) {
     logger.error("Teams OAuth not configured - missing TEAMS_CLIENT_ID");
-    reply.redirect("/integrations?error=teams_not_configured");
+    reply.redirect("/settings/integrations?error=teams_not_configured");
     return;
   }
 
-  const state = generateOAuthState(orgId, "teams", "/integrations");
+  const state = generateOAuthState(orgId, "teams", "/settings/integrations");
   const authUrl = getTeamsAuthUrl(state);
 
   logger.info({ orgId }, "Initiating Teams OAuth flow");
@@ -389,19 +428,19 @@ async function teamsCallbackHandler(
 
   if (error) {
     logger.error({ error, error_description }, "Teams OAuth error");
-    reply.redirect(`/integrations?error=${encodeURIComponent(error)}`);
+    reply.redirect(`/settings/integrations?error=${encodeURIComponent(error)}`);
     return;
   }
 
   if (!code || !state) {
-    reply.redirect("/integrations?error=missing_params");
+    reply.redirect("/settings/integrations?error=missing_params");
     return;
   }
 
   const oauthState = validateOAuthState(state);
   if (!oauthState) {
     logger.error("Invalid or expired OAuth state");
-    reply.redirect("/integrations?error=invalid_state");
+    reply.redirect("/settings/integrations?error=invalid_state");
     return;
   }
 
@@ -420,10 +459,10 @@ async function teamsCallbackHandler(
 
     logger.info({ orgId: oauthState.orgId }, "Teams integration connected");
 
-    reply.redirect("/integrations?success=teams_connected");
+    reply.redirect("/settings/integrations?success=teams_connected");
   } catch (err) {
     logger.error({ error: err }, "Failed to complete Teams OAuth");
-    reply.redirect("/integrations?error=teams_failed");
+    reply.redirect("/settings/integrations?error=teams_failed");
   }
 }
 

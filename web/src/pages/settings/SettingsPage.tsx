@@ -8,7 +8,7 @@
  * - "What's my API key?"
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BuildingOfficeIcon,
@@ -17,6 +17,10 @@ import {
   KeyIcon,
   CreditCardIcon,
   BellIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ArrowPathIcon,
+  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import {
@@ -279,7 +283,7 @@ function OrganizationSettings() {
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {settings?.plan === "enterprise"
                   ? "Unlimited events and team members"
-                  : `Up to ${settings?.limits.eventsPerDay.toLocaleString()} events/day`}
+                  : `Up to ${settings?.limits?.eventsPerDay?.toLocaleString() ?? "1,000"} events/day`}
               </p>
             </div>
             <button className="btn btn-secondary">Upgrade Plan</button>
@@ -294,7 +298,8 @@ function OrganizationSettings() {
                 156
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                of {settings?.limits.eventsPerDay.toLocaleString()} limit
+                of {settings?.limits?.eventsPerDay?.toLocaleString() ?? "1,000"}{" "}
+                limit
               </p>
             </div>
             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -561,9 +566,37 @@ function TeamSettings() {
 // ============================================================================
 
 function IntegrationsSettings() {
-  const { data: integrations, isLoading } = useIntegrations();
-  const connectIntegration = useConnectIntegration();
-  const disconnectIntegration = useDisconnectIntegration();
+  const { data: integrations, isLoading, refetch } = useIntegrations();
+  const connectMutation = useConnectIntegration();
+  const disconnectMutation = useDisconnectIntegration();
+  const [showSentryModal, setShowSentryModal] = useState(false);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  // Handle URL params for OAuth callbacks
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success");
+    const error = params.get("error");
+
+    if (success) {
+      const integrationName = success.replace("_connected", "").toUpperCase();
+      setNotification({
+        type: "success",
+        message: `${integrationName} integration connected successfully!`,
+      });
+      window.history.replaceState({}, "", "/settings/integrations");
+      refetch();
+    } else if (error) {
+      setNotification({
+        type: "error",
+        message: `Integration failed: ${error.replace(/_/g, " ")}`,
+      });
+      window.history.replaceState({}, "", "/settings/integrations");
+    }
+  }, [refetch]);
 
   if (isLoading) {
     return (
@@ -575,7 +608,223 @@ function IntegrationsSettings() {
     );
   }
 
-  const getIntegrationIcon = (type: string) => {
+  // Default integrations if none exist
+  const defaultIntegrations = [
+    { id: "sentry", type: "sentry", name: "Sentry", status: "disconnected" },
+    { id: "github", type: "github", name: "GitHub", status: "disconnected" },
+    { id: "slack", type: "slack", name: "Slack", status: "disconnected" },
+    { id: "jira", type: "jira", name: "Jira", status: "disconnected" },
+    {
+      id: "teams",
+      type: "teams",
+      name: "Microsoft Teams",
+      status: "disconnected",
+    },
+  ];
+
+  const displayIntegrations = integrations ?? defaultIntegrations;
+
+  const handleConnect = (type: string) => {
+    if (type === "sentry") {
+      setShowSentryModal(true);
+    } else {
+      // OAuth-based integrations redirect to the OAuth flow
+      window.location.href = `/api/integrations/${type}/connect`;
+    }
+  };
+
+  const handleDisconnect = async (id: string) => {
+    try {
+      await disconnectMutation.mutateAsync(id);
+      setNotification({ type: "success", message: "Integration disconnected" });
+      refetch();
+    } catch {
+      setNotification({
+        type: "error",
+        message: "Failed to disconnect integration",
+      });
+    }
+  };
+
+  const handleSentryConnect = async (config: {
+    projectSlug: string;
+    organizationSlug: string;
+    dsn?: string;
+  }) => {
+    try {
+      await connectMutation.mutateAsync({ type: "sentry", config });
+      setShowSentryModal(false);
+      setNotification({
+        type: "success",
+        message: "Sentry integration configured!",
+      });
+      refetch();
+    } catch {
+      setNotification({
+        type: "error",
+        message: "Failed to configure Sentry integration",
+      });
+    }
+  };
+
+  const getIntegrationDescription = (type: string) => {
+    const descriptions: Record<string, string> = {
+      sentry: "Receive error events and stack traces",
+      github: "Fetch source code for analysis",
+      slack: "Get RCA notifications in your channels",
+      jira: "Create and link issues automatically",
+      teams: "Get notifications in Microsoft Teams",
+    };
+    return descriptions[type] || "";
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Notification Banner */}
+      {notification && (
+        <div
+          className={`p-4 rounded-lg flex items-center gap-3 ${
+            notification.type === "success"
+              ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+              : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+          }`}
+        >
+          {notification.type === "success" ? (
+            <CheckCircleIcon className="w-5 h-5 text-green-600 dark:text-green-400" />
+          ) : (
+            <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400" />
+          )}
+          <p
+            className={
+              notification.type === "success"
+                ? "text-green-800 dark:text-green-200"
+                : "text-red-800 dark:text-red-200"
+            }
+          >
+            {notification.message}
+          </p>
+        </div>
+      )}
+
+      {/* Error Tracking */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Error Tracking
+        </h2>
+        <div className="space-y-4">
+          {displayIntegrations
+            .filter((i) => i.type === "sentry")
+            .map((integration) => (
+              <IntegrationCard
+                key={integration.id}
+                type={integration.type}
+                name={integration.name}
+                description={getIntegrationDescription(integration.type)}
+                status={integration.status}
+                onConnect={() => handleConnect(integration.type)}
+                onDisconnect={() => handleDisconnect(integration.id)}
+              />
+            ))}
+        </div>
+      </section>
+
+      {/* Source Control */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Source Control
+        </h2>
+        <div className="space-y-4">
+          {displayIntegrations
+            .filter((i) => i.type === "github")
+            .map((integration) => (
+              <IntegrationCard
+                key={integration.id}
+                type={integration.type}
+                name={integration.name}
+                description={getIntegrationDescription(integration.type)}
+                status={integration.status}
+                onConnect={() => handleConnect(integration.type)}
+                onDisconnect={() => handleDisconnect(integration.id)}
+              />
+            ))}
+        </div>
+      </section>
+
+      {/* Notifications */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Notifications
+        </h2>
+        <div className="space-y-4">
+          {displayIntegrations
+            .filter((i) => i.type === "slack" || i.type === "teams")
+            .map((integration) => (
+              <IntegrationCard
+                key={integration.id}
+                type={integration.type}
+                name={integration.name}
+                description={getIntegrationDescription(integration.type)}
+                status={integration.status}
+                onConnect={() => handleConnect(integration.type)}
+                onDisconnect={() => handleDisconnect(integration.id)}
+              />
+            ))}
+        </div>
+      </section>
+
+      {/* Issue Tracking */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Issue Tracking
+        </h2>
+        <div className="space-y-4">
+          {displayIntegrations
+            .filter((i) => i.type === "jira")
+            .map((integration) => (
+              <IntegrationCard
+                key={integration.id}
+                type={integration.type}
+                name={integration.name}
+                description={getIntegrationDescription(integration.type)}
+                status={integration.status}
+                onConnect={() => handleConnect(integration.type)}
+                onDisconnect={() => handleDisconnect(integration.id)}
+              />
+            ))}
+        </div>
+      </section>
+
+      {/* Sentry Configuration Modal */}
+      {showSentryModal && (
+        <SentryConfigModal
+          onClose={() => setShowSentryModal(false)}
+          onConnect={handleSentryConnect}
+          isLoading={connectMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+// Integration Card Component for Settings
+function IntegrationCard({
+  type,
+  name,
+  description,
+  status,
+  onConnect,
+  onDisconnect,
+}: {
+  type: string;
+  name: string;
+  description: string;
+  status: string;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}) {
+  const isConnected = status === "connected";
+
+  const getIcon = () => {
     switch (type) {
       case "sentry":
         return "🔴";
@@ -583,128 +832,192 @@ function IntegrationsSettings() {
         return "🐙";
       case "slack":
         return "💬";
+      case "jira":
+        return "🔷";
+      case "teams":
+        return "💜";
       default:
         return "🔌";
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Integration Cards */}
-      {["sentry", "github", "slack"].map((type) => {
-        const integration = integrations?.find((i) => i.type === type);
-        const isConnected = integration?.status === "connected";
-
-        return (
-          <div key={type} className="card">
-            <div className="card-body">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-2xl">
-                    {getIntegrationIcon(type)}
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white capitalize">
-                      {type}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {type === "sentry" &&
-                        "Receive error events and triggers for RCA generation"}
-                      {type === "github" &&
-                        "Fetch source code for accurate root cause analysis"}
-                      {type === "slack" &&
-                        "Get RCA notifications directly in your channels"}
-                    </p>
-                    {isConnected && integration?.configuredAt && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        Connected on{" "}
-                        {new Date(
-                          integration.configuredAt
-                        ).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={cn(
-                      "badge",
-                      isConnected ? "badge-success" : "badge-warning"
-                    )}
-                  >
-                    {isConnected ? "Connected" : "Not Connected"}
-                  </span>
-                  {isConnected ? (
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() =>
-                        disconnectIntegration.mutate(integration?.id || "")
-                      }
-                      disabled={disconnectIntegration.isPending}
-                    >
-                      Disconnect
-                    </button>
-                  ) : (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() =>
-                        connectIntegration.mutate({ type, config: {} })
-                      }
-                      disabled={connectIntegration.isPending}
-                    >
-                      Connect
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Configuration form when connected */}
-              {isConnected && type === "slack" && (
-                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-                    Notification Settings
-                  </h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                        Default Channel
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="#bugs"
-                        className="input max-w-xs"
-                        defaultValue="#bugs"
-                      />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 rounded"
-                          defaultChecked
-                        />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          Notify on RCA complete
-                        </span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 rounded"
-                          defaultChecked
-                        />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          Notify on analysis error
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
+    <div className="card">
+      <div className="card-body">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-2xl">
+              {getIcon()}
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {name}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {description}
+              </p>
             </div>
           </div>
-        );
-      })}
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "badge",
+                isConnected ? "badge-success" : "badge-warning"
+              )}
+            >
+              {isConnected ? "Connected" : "Not Connected"}
+            </span>
+            {isConnected ? (
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-secondary flex items-center gap-1"
+                  onClick={onConnect}
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                  Reconnect
+                </button>
+                <button
+                  className="btn btn-ghost text-red-600 dark:text-red-400"
+                  onClick={onDisconnect}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button className="btn btn-primary" onClick={onConnect}>
+                Connect
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Sentry Configuration Modal
+function SentryConfigModal({
+  onClose,
+  onConnect,
+  isLoading,
+}: {
+  onClose: () => void;
+  onConnect: (config: {
+    projectSlug: string;
+    organizationSlug: string;
+    dsn?: string;
+  }) => void;
+  isLoading: boolean;
+}) {
+  const [projectSlug, setProjectSlug] = useState("");
+  const [organizationSlug, setOrganizationSlug] = useState("");
+  const [dsn, setDsn] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const webhookUrl = `${window.location.origin}/api/v1/webhooks/sentry`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onConnect({ projectSlug, organizationSlug, dsn: dsn || undefined });
+  };
+
+  const copyToClipboard = async () => {
+    await navigator.clipboard.writeText(webhookUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full mx-4">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            Configure Sentry Integration
+          </h2>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Organization Slug
+              </label>
+              <input
+                type="text"
+                value={organizationSlug}
+                onChange={(e) => setOrganizationSlug(e.target.value)}
+                placeholder="my-organization"
+                className="input w-full"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Project Slug
+              </label>
+              <input
+                type="text"
+                value={projectSlug}
+                onChange={(e) => setProjectSlug(e.target.value)}
+                placeholder="my-project"
+                className="input w-full"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                DSN (Optional)
+              </label>
+              <input
+                type="text"
+                value={dsn}
+                onChange={(e) => setDsn(e.target.value)}
+                placeholder="https://xxx@sentry.io/xxx"
+                className="input w-full"
+              />
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Webhook URL (Add this to Sentry)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={webhookUrl}
+                  readOnly
+                  className="input w-full text-sm bg-white dark:bg-gray-800"
+                />
+                <button
+                  type="button"
+                  onClick={copyToClipboard}
+                  className="btn btn-secondary flex items-center gap-1"
+                >
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || !projectSlug || !organizationSlug}
+                className="btn btn-primary flex-1"
+              >
+                {isLoading ? "Connecting..." : "Connect Sentry"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

@@ -156,7 +156,10 @@ export async function exchangeGitHubCode(
     throw new Error(`GitHub token exchange failed: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as OAuthTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
 
   if (data.error) {
     throw new Error(
@@ -164,7 +167,7 @@ export async function exchangeGitHubCode(
     );
   }
 
-  return data as OAuthTokenResponse;
+  return data;
 }
 
 /**
@@ -205,7 +208,9 @@ export async function getGitHubRepos(
     throw new Error(`Failed to get GitHub repos: ${response.status}`);
   }
 
-  return response.json();
+  return response.json() as Promise<
+    Array<{ id: number; full_name: string; private: boolean }>
+  >;
 }
 
 // ============================================
@@ -283,7 +288,9 @@ export async function getSlackChannels(
     throw new Error(`Failed to get Slack channels: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as {
+    channels?: Array<{ id: string; name: string; is_private: boolean }>;
+  };
   return data.channels || [];
 }
 
@@ -315,7 +322,7 @@ export async function sendSlackTestMessage(
     }),
   });
 
-  const data = await response.json();
+  const data = (await response.json()) as { ok?: boolean };
   return data.ok === true;
 }
 
@@ -367,7 +374,10 @@ export async function exchangeTeamsCode(
     throw new Error(`Teams token exchange failed: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as OAuthTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
 
   if (data.error) {
     throw new Error(
@@ -375,7 +385,7 @@ export async function exchangeTeamsCode(
     );
   }
 
-  return data as OAuthTokenResponse;
+  return data;
 }
 
 // ============================================
@@ -427,7 +437,10 @@ export async function exchangeJiraCode(
     throw new Error(`Jira token exchange failed: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as OAuthTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
 
   if (data.error) {
     throw new Error(
@@ -435,7 +448,7 @@ export async function exchangeJiraCode(
     );
   }
 
-  return data as OAuthTokenResponse;
+  return data;
 }
 
 /**
@@ -458,7 +471,9 @@ export async function getJiraResources(
     throw new Error(`Failed to get Jira resources: ${response.status}`);
   }
 
-  return response.json();
+  return response.json() as Promise<
+    Array<{ id: string; name: string; url: string }>
+  >;
 }
 
 // ============================================

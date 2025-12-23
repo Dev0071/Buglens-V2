@@ -47,9 +47,15 @@ describe("Analytics Routes", () => {
   beforeAll(async () => {
     app = Fastify();
 
-    // Add org context decorator
-    app.decorateRequest("getOrgId", function () {
-      return this.headers["x-org-id"] || null;
+    // Add org context decorator with null as default value
+    app.decorateRequest("getOrgId", null);
+
+    // Add hook to set getOrgId function on each request
+    app.addHook("onRequest", async (request) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (request as any).getOrgId = function () {
+        return request.headers["x-org-id"] || null;
+      };
     });
 
     await app.register(analyticsRoutes, { prefix: "/api" });
@@ -343,9 +349,18 @@ describe("Analytics Routes", () => {
         rows: [
           {
             date: "2024-12-20",
-            events_processed: "10",
             llm_tokens_used: "5000",
             llm_cost_usd: "0.50",
+          },
+        ],
+      });
+
+      // Mock events daily data
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            date: "2024-12-20",
+            event_count: "10",
           },
         ],
       });
@@ -387,6 +402,7 @@ describe("Analytics Routes", () => {
 
     it("should handle 7d period returning 7 days", async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] }); // cost_metrics
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // events
       mockQuery.mockResolvedValueOnce({ rows: [] }); // RCA
 
       const response = await app.inject({
@@ -404,8 +420,9 @@ describe("Analytics Routes", () => {
 
     it("should fill gaps with zeros for dates without data", async () => {
       // Return empty results to test gap filling
-      mockQuery.mockResolvedValueOnce({ rows: [] });
-      mockQuery.mockResolvedValueOnce({ rows: [] });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // cost_metrics
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // events
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // RCA
 
       const response = await app.inject({
         method: "GET",
@@ -427,8 +444,9 @@ describe("Analytics Routes", () => {
     });
 
     it("should return entries ordered by date ascending", async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] });
-      mockQuery.mockResolvedValueOnce({ rows: [] });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // cost_metrics
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // events
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // RCA
 
       const response = await app.inject({
         method: "GET",
