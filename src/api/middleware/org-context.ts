@@ -17,7 +17,15 @@ declare module "fastify" {
     orgContext?: OrgContext;
     getOrgId(): string;
     getOrgPlan(): string;
+    getUserId(): string | undefined;
     rawBody?: Buffer;
+  }
+
+  interface FastifyInstance {
+    authenticate: (
+      request: FastifyRequest,
+      reply: FastifyReply
+    ) => Promise<void>;
   }
 }
 
@@ -126,4 +134,25 @@ export function setupOrgDecorators(server: FastifyInstance) {
   server.decorateRequest("getOrgPlan", function (this: FastifyRequest) {
     return this.orgContext?.orgPlan || "free";
   });
+
+  server.decorateRequest("getUserId", function (this: FastifyRequest) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = this.user as any;
+    return user?.userId;
+  });
+
+  // Add authenticate decorator - requires valid JWT
+  server.decorate(
+    "authenticate",
+    async function (request: FastifyRequest, reply: FastifyReply) {
+      try {
+        await request.jwtVerify();
+      } catch (error) {
+        reply.status(401).send({
+          error: "UNAUTHORIZED",
+          message: "Authentication required",
+        });
+      }
+    }
+  );
 }

@@ -13,7 +13,8 @@ import { rcaRoutes } from "./routes/rca.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { eventsRoutes } from "./routes/events.js";
 import { integrationsRoutes } from "./routes/integrations.js";
-import { oauthRoutes } from "./routes/oauth.js";
+// Note: oauth.ts routes removed - integrations.ts now handles all OAuth flows
+// with platform-credentials support for one-click provider connections
 import { settingsRoutes } from "./routes/settings.js";
 import { costsRoutes } from "./routes/costs.js";
 import { analyticsRoutes } from "./routes/analytics.js";
@@ -99,7 +100,6 @@ await server.register(rcaRoutes, { prefix: "/api" });
 await server.register(dashboardRoutes, { prefix: "/api" });
 await server.register(eventsRoutes, { prefix: "/api" });
 await server.register(integrationsRoutes, { prefix: "/api" });
-await server.register(oauthRoutes, { prefix: "/api" });
 await server.register(settingsRoutes, { prefix: "/api" });
 await server.register(costsRoutes, { prefix: "/api" });
 await server.register(analyticsRoutes, { prefix: "/api" });

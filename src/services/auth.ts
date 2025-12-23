@@ -626,6 +626,14 @@ export class AuthError extends Error {
       | "USER_NOT_FOUND"
       | "INVALID_TOKEN"
       | "UNAUTHORIZED"
+      // Account linking errors
+      | "PROVIDER_ALREADY_LINKED"
+      | "PROVIDER_LINKED_TO_OTHER"
+      | "EMAIL_BELONGS_TO_OTHER"
+      | "CANNOT_UNLINK_PRIMARY"
+      | "CANNOT_REMOVE_LAST_AUTH"
+      | "IDENTITY_NOT_FOUND"
+      | "ACCOUNTS_NOT_FOUND"
   ) {
     super(message);
     this.name = "AuthError";

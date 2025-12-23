@@ -26,11 +26,18 @@ vi.mock("../../src/utils/config.js", () => ({
   config: {
     NODE_ENV: "test",
     PORT: 3000,
+    // GitHub OAuth App credentials (for authentication)
+    GITHUB_OAUTH_CLIENT_ID: "test-github-client-id",
+    GITHUB_OAUTH_CLIENT_SECRET: "test-github-client-secret",
+    // GitHub App credentials (for installation)
     GITHUB_APP_ID: "test-github-app-id",
+    // Slack credentials
     SLACK_CLIENT_ID: "test-slack-client-id",
     SLACK_CLIENT_SECRET: "test-slack-secret",
+    // Jira credentials
     JIRA_CLIENT_ID: "test-jira-client-id",
     JIRA_CLIENT_SECRET: "test-jira-secret",
+    // Teams credentials
     TEAMS_CLIENT_ID: "test-teams-client-id",
     TEAMS_CLIENT_SECRET: "test-teams-secret",
     TEAMS_TENANT_ID: "common",
@@ -125,7 +132,7 @@ describe("OAuth Service", () => {
       const url = getGitHubAuthUrl(state);
 
       expect(url).toContain("https://github.com/login/oauth/authorize");
-      expect(url).toContain("client_id=test-github-app-id");
+      expect(url).toContain("client_id=test-github-client-id");
       expect(url).toContain("state=test-state-123");
       expect(url).toContain("scope=read%3Auser+repo");
     });
@@ -259,7 +266,10 @@ describe("OAuth Security", () => {
       getSlackAuthUrl("state"),
       getJiraAuthUrl("state"),
       getTeamsAuthUrl("state"),
-    ];
+    ].filter((url): url is string => url !== null);
+
+    // Verify at least some providers are configured
+    expect(urls.length).toBeGreaterThan(0);
 
     urls.forEach((url) => {
       // Should not contain secrets

@@ -16,6 +16,7 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { apiClient } from "@/lib/api-client";
 
 // Lazy load pages for better performance
+const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/pages/auth/SignupPage"));
 const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage"));
@@ -135,6 +136,9 @@ function App() {
         <OAuthCallbackHandler />
         <Suspense fallback={<LoadingSpinner fullScreen />}>
           <Routes>
+            {/* Landing page - public marketing page */}
+            <Route path="/landing" element={<LandingPage />} />
+
             {/* Public routes */}
             <Route element={<AuthLayout />}>
               <Route

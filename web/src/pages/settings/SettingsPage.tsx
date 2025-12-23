@@ -570,10 +570,62 @@ function IntegrationsSettings() {
   const connectMutation = useConnectIntegration();
   const disconnectMutation = useDisconnectIntegration();
   const [showSentryModal, setShowSentryModal] = useState(false);
+  const [availableProviders, setAvailableProviders] = useState<
+    Array<{
+      id: string;
+      name: string;
+      description: string;
+      available: boolean;
+      oauthRequired: boolean;
+      icon: string;
+    }>
+  >([]);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  // Fetch available providers from platform
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        const response = await fetch("/api/integrations/available");
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableProviders(data.allProviders || []);
+        }
+      } catch {
+        // Fallback to defaults if fetch fails
+        setAvailableProviders([
+          {
+            id: "github",
+            name: "GitHub",
+            description: "Connect GitHub repositories for code analysis",
+            available: true,
+            oauthRequired: true,
+            icon: "github",
+          },
+          {
+            id: "slack",
+            name: "Slack",
+            description: "Receive RCA notifications in Slack",
+            available: true,
+            oauthRequired: true,
+            icon: "slack",
+          },
+          {
+            id: "sentry",
+            name: "Sentry",
+            description: "Receive error events from Sentry",
+            available: true,
+            oauthRequired: false,
+            icon: "sentry",
+          },
+        ]);
+      }
+    };
+    fetchProviders();
+  }, []);
 
   // Handle URL params for OAuth callbacks
   useEffect(() => {
@@ -624,12 +676,45 @@ function IntegrationsSettings() {
 
   const displayIntegrations = integrations ?? defaultIntegrations;
 
-  const handleConnect = (type: string) => {
+  // Helper to check if a provider is available at platform level
+  const isProviderAvailable = (type: string) => {
+    const provider = availableProviders.find(
+      (p) => p.id === type || p.id === `${type}_app`
+    );
+    return provider?.available ?? true; // Default to true if not loaded yet
+  };
+
+  const handleConnect = async (type: string) => {
     if (type === "sentry") {
       setShowSentryModal(true);
     } else {
-      // OAuth-based integrations redirect to the OAuth flow
-      window.location.href = `/api/integrations/${type}/connect`;
+      // OAuth-based integrations - get auth URL from backend and redirect
+      try {
+        const response = await fetch(`/api/integrations/${type}/connect`, {
+          credentials: "include",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.authUrl) {
+            // Redirect to OAuth provider
+            window.location.href = data.authUrl;
+          } else {
+            // Direct connection (no OAuth needed)
+            window.location.href = `/api/integrations/${type}/connect`;
+          }
+        } else {
+          const error = await response.json();
+          setNotification({
+            type: "error",
+            message: error.message || "Failed to start OAuth flow",
+          });
+        }
+      } catch {
+        setNotification({
+          type: "error",
+          message: "Failed to connect integration",
+        });
+      }
     }
   };
 
@@ -721,6 +806,7 @@ function IntegrationsSettings() {
                 name={integration.name}
                 description={getIntegrationDescription(integration.type)}
                 status={integration.status}
+                available={isProviderAvailable(integration.type)}
                 onConnect={() => handleConnect(integration.type)}
                 onDisconnect={() => handleDisconnect(integration.id)}
               />
@@ -743,6 +829,7 @@ function IntegrationsSettings() {
                 name={integration.name}
                 description={getIntegrationDescription(integration.type)}
                 status={integration.status}
+                available={isProviderAvailable(integration.type)}
                 onConnect={() => handleConnect(integration.type)}
                 onDisconnect={() => handleDisconnect(integration.id)}
               />
@@ -765,6 +852,7 @@ function IntegrationsSettings() {
                 name={integration.name}
                 description={getIntegrationDescription(integration.type)}
                 status={integration.status}
+                available={isProviderAvailable(integration.type)}
                 onConnect={() => handleConnect(integration.type)}
                 onDisconnect={() => handleDisconnect(integration.id)}
               />
@@ -787,6 +875,7 @@ function IntegrationsSettings() {
                 name={integration.name}
                 description={getIntegrationDescription(integration.type)}
                 status={integration.status}
+                available={isProviderAvailable(integration.type)}
                 onConnect={() => handleConnect(integration.type)}
                 onDisconnect={() => handleDisconnect(integration.id)}
               />
@@ -812,6 +901,7 @@ function IntegrationCard({
   name,
   description,
   status,
+  available = true,
   onConnect,
   onDisconnect,
 }: {
@@ -819,6 +909,7 @@ function IntegrationCard({
   name: string;
   description: string;
   status: string;
+  available?: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
 }) {
@@ -829,6 +920,7 @@ function IntegrationCard({
       case "sentry":
         return "🔴";
       case "github":
+      case "github_app":
         return "🐙";
       case "slack":
         return "💬";
@@ -856,16 +948,29 @@ function IntegrationCard({
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {description}
               </p>
+              {!available && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Not configured on this platform. Contact support.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span
               className={cn(
                 "badge",
-                isConnected ? "badge-success" : "badge-warning"
+                isConnected
+                  ? "badge-success"
+                  : available
+                    ? "badge-warning"
+                    : "badge-gray"
               )}
             >
-              {isConnected ? "Connected" : "Not Connected"}
+              {isConnected
+                ? "Connected"
+                : available
+                  ? "Not Connected"
+                  : "Unavailable"}
             </span>
             {isConnected ? (
               <div className="flex gap-2">
@@ -883,9 +988,13 @@ function IntegrationCard({
                   Disconnect
                 </button>
               </div>
-            ) : (
+            ) : available ? (
               <button className="btn btn-primary" onClick={onConnect}>
                 Connect
+              </button>
+            ) : (
+              <button className="btn btn-secondary" disabled>
+                Unavailable
               </button>
             )}
           </div>
