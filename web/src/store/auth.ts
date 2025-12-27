@@ -57,7 +57,7 @@ const initialState: AuthState = {
   organization: null,
   accessToken: null,
   isAuthenticated: false,
-  isLoading: true, // Start as true to check session on mount
+  isLoading: false, // Start as false - will be set by rehydration callback if needed
   error: null,
 };
 
@@ -114,7 +114,12 @@ export const useAuthStore = create<AuthStore>()(
             user: User;
             organization: Organization;
             accessToken: string;
-          }>("/auth/signup", { name, email, password, organizationName: orgName });
+          }>("/auth/signup", {
+            name,
+            email,
+            password,
+            organizationName: orgName,
+          });
 
           set({
             user: response.user,
@@ -203,7 +208,7 @@ export const useAuthStore = create<AuthStore>()(
             isAuthenticated: true,
             isLoading: false,
           });
-        } catch {
+        } catch (error) {
           // Session invalid - clear auth state
           set({
             ...initialState,
@@ -229,13 +234,24 @@ export const useAuthStore = create<AuthStore>()(
         accessToken: state.accessToken,
         user: state.user,
         organization: state.organization,
+        // Persist isAuthenticated to prevent redirect flash on reload
+        isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {
         // After rehydration, check if session is still valid
         if (state?.accessToken) {
+          // If we have a token, set loading true while we validate
+          useAuthStore.setState({ isLoading: true });
+
+          // If we have a token, assume authenticated until proven otherwise
+          // This prevents redirect flash while refreshSession validates
+          if (state.user && state.organization) {
+            useAuthStore.setState({ isAuthenticated: true });
+          }
           state.refreshSession();
         } else {
-          state?.setLoading(false);
+          // No token = not authenticated, ensure loading is false
+          useAuthStore.setState({ isLoading: false, isAuthenticated: false });
         }
       },
     }

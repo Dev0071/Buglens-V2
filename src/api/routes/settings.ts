@@ -59,7 +59,38 @@ interface OrganizationSettings {
 // ============================================
 
 /**
- * Get plan limits
+ * Get plan limits (daily)
+ */
+function getDailyPlanLimits(plan: string): {
+  eventsPerDay: number;
+  llmTokensPerDay: number;
+  usersAllowed: number;
+} {
+  switch (plan) {
+    case "enterprise":
+      return {
+        eventsPerDay: 100000,
+        llmTokensPerDay: 10000000,
+        usersAllowed: 1000,
+      };
+    case "pro":
+      return {
+        eventsPerDay: 1000,
+        llmTokensPerDay: 500000,
+        usersAllowed: 10,
+      };
+    case "free":
+    default:
+      return {
+        eventsPerDay: 100,
+        llmTokensPerDay: 50000,
+        usersAllowed: 3,
+      };
+  }
+}
+
+/**
+ * Get plan limits (monthly)
  */
 function getPlanLimits(plan: string): {
   eventsPerMonth: number;
@@ -292,6 +323,220 @@ async function updateOrganizationSettingsHandler(
   }
 }
 
+/**
+ * DELETE /api/settings/organization
+ *
+ * Deletes the organization and all associated data
+ */
+async function deleteOrganizationHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const orgId = request.getOrgId();
+  const userId = request.getUserId();
+
+  if (!orgId || !userId) {
+    reply.status(401).send({
+      error: "Unauthorized",
+      message: "Organization context required",
+    });
+    return;
+  }
+
+  try {
+    // Verify user is org owner
+    const userResult = await query<{ role: string }>(
+      `SELECT role FROM users WHERE id = $1 AND org_id = $2`,
+      [userId, orgId]
+    );
+
+    if (userResult.rows.length === 0 || userResult.rows[0].role !== "owner") {
+      reply.status(403).send({
+        error: "Forbidden",
+        message: "Only organization owners can delete the organization",
+      });
+      return;
+    }
+
+    // Soft delete organization (set deleted_at timestamp)
+    await transaction(orgId, async (client) => {
+      await client.query(
+        `UPDATE organizations
+         SET deleted_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [orgId]
+      );
+
+      // Log the deletion
+      logger.info({ orgId, userId }, "Organization deleted");
+    });
+
+    reply.send({
+      success: true,
+      message: "Organization deleted successfully",
+    });
+  } catch (error) {
+    logger.error({ error, orgId }, "Failed to delete organization");
+    reply.status(500).send({
+      error: "Internal Server Error",
+      message: "Failed to delete organization",
+    });
+  }
+}
+
+/**
+ * GET /api/settings/billing/usage
+ *
+ * Returns billing usage and plan information
+ */
+async function getBillingUsageHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const orgId = request.getOrgId();
+
+  if (!orgId) {
+    reply.status(401).send({
+      error: "Unauthorized",
+      message: "Organization context required",
+    });
+    return;
+  }
+
+  try {
+    // Get organization plan
+    const orgResult = await query<{ plan: string }>(
+      `SELECT plan FROM organizations WHERE id = $1`,
+      [orgId]
+    );
+
+    if (orgResult.rows.length === 0) {
+      reply.status(404).send({
+        error: "Not Found",
+        message: "Organization not found",
+      });
+      return;
+    }
+
+    const plan = orgResult.rows[0].plan;
+    const limits = getDailyPlanLimits(plan);
+
+    // Get current day usage
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const eventsToday = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM events
+       WHERE org_id = $1 AND created_at >= $2`,
+      [orgId, todayStart.toISOString()]
+    );
+
+    const tokensToday = await query<{ sum: string | null }>(
+      `SELECT COALESCE(SUM(llm_tokens_used), 0) as sum
+       FROM cost_metrics
+       WHERE org_id = $1 AND date = $2`,
+      [orgId, todayStart.toISOString().split("T")[0]]
+    );
+
+    const teamMembers = await query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM users WHERE org_id = $1`,
+      [orgId]
+    );
+
+    reply.send({
+      plan,
+      limits,
+      usage: {
+        eventsToday: parseInt(eventsToday.rows[0]?.count || "0", 10),
+        llmTokensToday: parseInt(tokensToday.rows[0]?.sum || "0", 10),
+        teamMembers: parseInt(teamMembers.rows[0]?.count || "0", 10),
+      },
+    });
+  } catch (error) {
+    logger.error({ error, orgId }, "Failed to fetch billing usage");
+    reply.status(500).send({
+      error: "Internal Server Error",
+      message: "Failed to fetch billing usage",
+    });
+  }
+}
+
+/**
+ * POST /api/settings/billing/upgrade
+ *
+ * Upgrades organization plan
+ */
+async function upgradePlanHandler(
+  request: FastifyRequest<{ Body: { plan: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const orgId = request.getOrgId();
+  const userId = request.getUserId();
+  const { plan } = request.body;
+
+  if (!orgId || !userId) {
+    reply.status(401).send({
+      error: "Unauthorized",
+      message: "Organization context required",
+    });
+    return;
+  }
+
+  // Validate plan
+  if (!["free", "pro", "enterprise"].includes(plan)) {
+    reply.status(400).send({
+      error: "Bad Request",
+      message: "Invalid plan. Must be free, pro, or enterprise",
+    });
+    return;
+  }
+
+  try {
+    // Verify user is org owner/admin
+    const userResult = await query<{ role: string }>(
+      `SELECT role FROM users WHERE id = $1 AND org_id = $2`,
+      [userId, orgId]
+    );
+
+    if (
+      userResult.rows.length === 0 ||
+      !["owner", "admin"].includes(userResult.rows[0].role)
+    ) {
+      reply.status(403).send({
+        error: "Forbidden",
+        message: "Only organization owners/admins can upgrade the plan",
+      });
+      return;
+    }
+
+    // Update plan
+    await transaction(orgId, async (client) => {
+      await client.query(
+        `UPDATE organizations
+         SET plan = $1,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [plan, orgId]
+      );
+
+      logger.info({ orgId, userId, plan }, "Organization plan upgraded");
+    });
+
+    reply.send({
+      success: true,
+      message: `Plan upgraded to ${plan} successfully`,
+      plan,
+    });
+  } catch (error) {
+    logger.error({ error, orgId }, "Failed to upgrade plan");
+    reply.status(500).send({
+      error: "Internal Server Error",
+      message: "Failed to upgrade plan",
+    });
+  }
+}
+
 // ============================================
 // Route Registration
 // ============================================
@@ -327,5 +572,31 @@ export async function settingsRoutes(server: FastifyInstance): Promise<void> {
       },
     },
     updateOrganizationSettingsHandler
+  );
+
+  // DELETE /api/settings/organization
+  server.delete("/settings/organization", deleteOrganizationHandler);
+
+  // GET /api/settings/billing/usage
+  server.get("/settings/billing/usage", getBillingUsageHandler);
+
+  // POST /api/settings/billing/upgrade
+  server.post(
+    "/settings/billing/upgrade",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["plan"],
+          properties: {
+            plan: {
+              type: "string",
+              enum: ["free", "pro", "enterprise"],
+            },
+          },
+        },
+      },
+    },
+    upgradePlanHandler
   );
 }

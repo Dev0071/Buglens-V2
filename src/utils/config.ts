@@ -9,6 +9,7 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   PORT: z.coerce.number().default(3000),
+  FRONTEND_URL: z.string().default("http://localhost:3002"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 
   // CORS (comma-separated origins, e.g., "https://app.buglens.com,https://buglens.com")
@@ -59,8 +60,10 @@ const envSchema = z.object({
 
   // GitHub
   GITHUB_APP_ID: z.string().optional(),
+  GITHUB_APP_NAME: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY_SECRET_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
+
   // GitHub OAuth for login
   GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
   GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),

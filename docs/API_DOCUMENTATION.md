@@ -150,14 +150,26 @@ X-RateLimit-Reset: 1705320000
 | `/api/settings/organization` | GET    | Bearer | Get org settings and usage |
 | `/api/settings/organization` | PATCH  | Bearer | Update org settings        |
 
-### 8. Costs
+### 8. Team Management
+
+| Endpoint                       | Method | Auth   | Description               |
+| ------------------------------ | ------ | ------ | ------------------------- |
+| `/api/team/members`            | GET    | Bearer | List team members         |
+| `/api/team/members`            | POST   | Bearer | Invite new member         |
+| `/api/team/members/:id/role`   | PATCH  | Bearer | Update member role        |
+| `/api/team/members/:id`        | DELETE | Bearer | Remove team member        |
+| `/api/team/invites`            | GET    | Bearer | List pending invitations  |
+| `/api/team/invites/:id/resend` | POST   | Bearer | Resend invitation email   |
+| `/api/team/invites/:id`        | DELETE | Bearer | Cancel pending invitation |
+
+### 9. Costs
 
 | Endpoint             | Method | Auth   | Description                  |
 | -------------------- | ------ | ------ | ---------------------------- |
 | `/api/costs/summary` | GET    | Bearer | Cost summary and projections |
 | `/api/costs/daily`   | GET    | Bearer | Daily cost breakdown         |
 
-### 9. Webhooks (External Services)
+### 10. Webhooks (External Services)
 
 | Endpoint                  | Method | Auth | Description                 |
 | ------------------------- | ------ | ---- | --------------------------- |
@@ -349,6 +361,46 @@ Response includes:
 - Events processed
 - RCAs completed
 
+### Team Management
+
+Manage team members and their roles:
+
+```bash
+# List team members
+GET /api/team/members?page=1&pageSize=20&search=john
+
+# Invite new member (requires admin/owner role)
+POST /api/team/members
+{
+  "email": "newmember@example.com",
+  "role": "member",  // or "admin"
+  "name": "New Member"
+}
+
+# Update member role (requires owner role)
+PATCH /api/team/members/:memberId/role
+{
+  "role": "admin"  // or "member"
+}
+
+# Remove member (requires admin/owner role)
+DELETE /api/team/members/:memberId
+```
+
+**Role Hierarchy:**
+
+- `owner` - Full access, can transfer ownership, only one per org
+- `admin` - Can manage members, integrations, and settings
+- `member` - Read access, can view events and RCAs
+
+**Plan Limits:**
+
+| Plan       | Max Team Members |
+| ---------- | ---------------- |
+| Free       | 3                |
+| Pro        | 10               |
+| Enterprise | Unlimited        |
+
 ## 🐛 Troubleshooting
 
 ### Common Issues
@@ -389,6 +441,7 @@ Response includes:
 - ✅ Costs (summary, daily)
 - ✅ Webhooks (Sentry, GitHub)
 - ✅ Health checks (liveness, readiness)
+- ✅ Team Management (members, invites, roles)
 
 ## 🤝 Support
 

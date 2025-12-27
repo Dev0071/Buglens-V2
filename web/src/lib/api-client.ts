@@ -187,5 +187,25 @@ export const queryKeys = {
     organization: () => ["settings", "organization"] as const,
     user: () => ["settings", "user"] as const,
     notifications: () => ["settings", "notifications"] as const,
+    billing: () => ["settings", "billing"] as const,
+  },
+
+  // Team
+  team: {
+    members: () => ["team", "members"] as const,
+    invites: () => ["team", "invites"] as const,
+  },
+
+  // Profile
+  profile: {
+    details: () => ["profile", "details"] as const,
+    notifications: () => ["profile", "notifications"] as const,
+  },
+
+  // Analytics
+  analytics: {
+    summary: (period: string) => ["analytics", "summary", period] as const,
+    daily: (period: string) => ["analytics", "daily", period] as const,
+    rcaQuality: () => ["analytics", "rcaQuality"] as const,
   },
 };

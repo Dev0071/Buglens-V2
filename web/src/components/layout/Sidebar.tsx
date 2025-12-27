@@ -3,7 +3,6 @@ import {
   HomeIcon,
   ExclamationCircleIcon,
   Cog6ToothIcon,
-  PuzzlePieceIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   XMarkIcon,
@@ -22,7 +21,6 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: HomeIcon },
   { name: "Events", href: "/events", icon: ExclamationCircleIcon },
   { name: "Analytics", href: "/analytics", icon: ChartBarIcon },
-  { name: "Integrations", href: "/integrations", icon: PuzzlePieceIcon },
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
 ];
 

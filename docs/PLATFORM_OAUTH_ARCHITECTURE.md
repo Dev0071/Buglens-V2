@@ -863,7 +863,185 @@ ORDER BY org_id, type;
 
 ### Advanced Testing Scenarios
 
-#### Test 1: OAuth Error Handling
+#### Test 1: OAuth Error Handling & User Cancellation
+
+OAuth flows can fail in multiple ways - users can cancel, deny permissions, or network errors can occur. The system must handle all these gracefully.
+
+**Test 1.1: User Cancels GitHub Authorization**
+
+```bash
+# 1. Click "Sign in with GitHub"
+# 2. On GitHub's authorization page, click "Cancel"
+# 3. GitHub redirects with error parameter:
+#    http://localhost:3000/api/auth/github/callback?error=access_denied&error_description=The+user+has+denied+your+application+access
+# 4. Backend should:
+#    - Detect error=access_denied
+#    - Log the cancellation
+#    - Redirect to: /login?error=oauth_cancelled&provider=github
+# 5. Frontend should:
+#    - Parse error parameter
+#    - Show toast: "GitHub sign-in was cancelled"
+#    - Display login options again
+```
+
+**Expected Error Types:**
+
+- `access_denied` - User clicked "Cancel" or denied permissions
+- `invalid_state` - CSRF token mismatch (potential attack or session expired)
+- `invalid_client` - OAuth app credentials incorrect
+- `unauthorized_client` - OAuth app not approved by provider
+
+**Test 1.2: User Cancels Google Authorization**
+
+```bash
+# 1. Click "Sign in with Google"
+# 2. On Google's consent screen, click "Cancel"
+# 3. Google redirects with:
+#    http://localhost:3000/api/auth/google/callback?error=access_denied
+# 4. Backend redirects to: /login?error=oauth_cancelled&provider=google
+# 5. Frontend shows: "Google sign-in was cancelled. Please try again."
+```
+
+**Test 1.3: Invalid State Parameter (CSRF Protection)**
+
+```bash
+# Simulate CSRF attack or expired session
+curl "http://localhost:3000/api/auth/github/callback?code=abc123&state=tampered_state"
+
+# Expected response:
+# - HTTP 302 redirect to /login?error=invalid_state
+# - Frontend shows: "Session expired. Please try signing in again."
+```
+
+**Test 1.4: Expired Authorization Code**
+
+```bash
+# OAuth codes expire after ~10 minutes
+# Simulate delayed callback processing
+curl "http://localhost:3000/api/auth/google/callback?code=expired_code&state=valid_state"
+
+# Expected response:
+# - Token exchange fails with 400 Bad Request
+# - Backend redirects to: /login?error=oauth_failed&provider=google
+# - Frontend shows: "Sign-in failed. Please try again."
+```
+
+**Test 1.5: Network Errors During Token Exchange**
+
+```javascript
+// Mock network failure in tests
+// src/services/oauth.test.ts
+it("should handle network errors during token exchange", async () => {
+  // Mock fetch to throw network error
+  global.fetch = jest.fn(() => Promise.reject(new Error("Network error")));
+
+  const result = await exchangeGoogleCode("valid_code", "valid_verifier");
+
+  expect(result).toBeNull();
+  // Should log error and redirect user gracefully
+});
+```
+
+**Test 1.6: GitHub App Installation Cancellation**
+
+```bash
+# 1. Click "Connect GitHub Repos"
+# 2. On GitHub App installation page, click "Cancel"
+# 3. GitHub redirects to: /api/integrations/github/callback?setup_action=cancelled
+# 4. Backend should:
+#    - Detect setup_action=cancelled
+#    - Redirect to: /settings/integrations?error=installation_cancelled
+# 5. Frontend should:
+#    - Show toast: "GitHub App installation was cancelled"
+#    - Keep integration card in "Not Connected" state
+```
+
+**Frontend Error Handling Implementation:**
+
+The LoginPage must handle all error query parameters:
+
+```typescript
+// web/src/pages/auth/LoginPage.tsx
+const [searchParams] = useSearchParams();
+const error = searchParams.get("error");
+const provider = searchParams.get("provider");
+
+useEffect(() => {
+  if (error) {
+    const errorMessages: Record<string, string> = {
+      oauth_cancelled: `${provider || "OAuth"} sign-in was cancelled`,
+      invalid_state: "Session expired. Please try signing in again.",
+      oauth_failed: `${provider || "OAuth"} sign-in failed. Please try again.`,
+      oauth_verification_failed:
+        "Failed to verify your account. Please try again.",
+      access_denied: `Access was denied. Please check permissions and try again.`,
+    };
+
+    toast.error(errorMessages[error] || "An error occurred. Please try again.");
+  }
+}, [error, provider]);
+```
+
+**Backend Error Handling Pattern:**
+
+```typescript
+// src/api/routes/auth.ts
+// Handle OAuth errors consistently
+function handleOAuthError(
+  reply: FastifyReply,
+  error: string,
+  provider: string,
+  description?: string
+): void {
+  logger.error(`OAuth error for ${provider}:`, { error, description });
+
+  const errorMap: Record<string, string> = {
+    access_denied: "oauth_cancelled",
+    invalid_request: "oauth_failed",
+    unauthorized_client: "oauth_failed",
+    server_error: "oauth_failed",
+  };
+
+  const mappedError = errorMap[error] || "oauth_failed";
+
+  return reply.redirect(`/login?error=${mappedError}&provider=${provider}`);
+}
+
+// In callback handler
+app.get("/api/auth/github/callback", async (request, reply) => {
+  const { code, state, error, error_description } = request.query;
+
+  // Handle OAuth provider errors first
+  if (error) {
+    return handleOAuthError(reply, error, "github", error_description);
+  }
+
+  // Validate state (CSRF protection)
+  const savedState = request.cookies.oauth_state;
+  if (!state || state !== savedState) {
+    return handleOAuthError(reply, "invalid_state", "github");
+  }
+
+  // Clear state cookie (one-time use)
+  reply.clearCookie("oauth_state");
+
+  try {
+    // Exchange code for tokens
+    const tokens = await exchangeGitHubCode(code, verifier);
+
+    if (!tokens) {
+      return handleOAuthError(reply, "token_exchange_failed", "github");
+    }
+
+    // Success path...
+  } catch (err) {
+    logger.error("OAuth callback error:", err);
+    return handleOAuthError(reply, "oauth_failed", "github");
+  }
+});
+```
+
+**Test 1.7: Invalid State Parameter**
 
 ```bash
 # Test invalid state parameter
@@ -1039,3 +1217,410 @@ TEAMS_TENANT_ID=common
 - [API Reference: /api/integrations/\*](./API_INTEGRATIONS.md)
 - [Token Lifecycle Management](./TOKEN_LIFECYCLE.md)
 - [Security Model](./SECURITY.md)
+
+---
+
+## Integration Setup & Testing Guides
+
+### Slack Integration Setup
+
+Slack integration enables:
+
+- **Event Notifications**: Alerts when new errors are detected from Sentry
+- **RCA Notifications**: Alerts when Root Cause Analysis completes
+
+#### 1. Create a Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App** → **From scratch**
+3. Enter App Name: `Buglens` and select your workspace
+4. Navigate to **OAuth & Permissions**
+
+#### 2. Configure OAuth Scopes
+
+Add the following **Bot Token Scopes**:
+
+- `chat:write` - Post messages
+- `channels:read` - List channels
+- `incoming-webhook` - Post via webhook (optional)
+
+#### 3. Set Redirect URL
+
+In **OAuth & Permissions** → **Redirect URLs**, add:
+
+```
+https://your-domain.com/api/integrations/slack/callback
+```
+
+#### 4. Get Credentials
+
+From **Basic Information**, copy:
+
+- **Client ID** → `SLACK_CLIENT_ID`
+- **Client Secret** → `SLACK_CLIENT_SECRET`
+- **Signing Secret** → `SLACK_SIGNING_SECRET`
+
+Add to your `.env`:
+
+```bash
+SLACK_CLIENT_ID=your-client-id
+SLACK_CLIENT_SECRET=your-client-secret
+SLACK_SIGNING_SECRET=your-signing-secret
+```
+
+#### 5. Install to Workspace
+
+1. In Buglens, go to **Settings** → **Integrations**
+2. Click **Connect Slack**
+3. Authorize the app in your Slack workspace
+4. Select a channel for notifications
+
+#### Testing Slack Integration
+
+```bash
+# 1. Send a test notification via API
+curl -X POST http://localhost:3001/api/integrations/slack/test \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json"
+
+# Expected response:
+{
+  "success": true,
+  "message": "Test notification sent to Slack"
+}
+```
+
+**Verify in Slack:**
+
+- A test notification should appear in your configured channel
+- Message should include "Test Error: Connection Timeout"
+
+**Common Issues:**
+
+- `channel_not_found`: The bot is not added to the channel
+- `token_expired`: Re-authorize via Settings → Integrations
+- `not_in_channel`: Invite @Buglens to the channel first
+
+---
+
+### Microsoft Teams Integration Setup
+
+Teams integration enables:
+
+- **Event Notifications**: Alerts when new errors are detected
+- **RCA Notifications**: Alerts when Root Cause Analysis completes
+
+#### 1. Register Azure AD Application
+
+1. Go to [portal.azure.com](https://portal.azure.com)
+2. Navigate to **Azure Active Directory** → **App registrations**
+3. Click **New registration**
+4. Configure:
+   - Name: `Buglens`
+   - Supported account types: **Accounts in any organizational directory**
+   - Redirect URI: `Web` → `https://your-domain.com/api/integrations/teams/callback`
+
+#### 2. Configure API Permissions
+
+In **API permissions**, add Microsoft Graph permissions:
+
+- `User.Read` (delegated)
+- `Team.ReadBasic.All` (delegated)
+- `Channel.ReadBasic.All` (delegated)
+- `ChannelMessage.Send` (delegated)
+
+Click **Grant admin consent** if you have admin privileges.
+
+#### 3. Create Client Secret
+
+1. Go to **Certificates & secrets**
+2. Click **New client secret**
+3. Copy the **Value** (shown only once)
+
+#### 4. Get Credentials
+
+From the app **Overview**, copy:
+
+- **Application (client) ID** → `TEAMS_CLIENT_ID`
+- **Directory (tenant) ID** → `TEAMS_TENANT_ID` (or use `common` for multi-tenant)
+
+Add to your `.env`:
+
+```bash
+TEAMS_CLIENT_ID=your-client-id
+TEAMS_CLIENT_SECRET=your-client-secret
+TEAMS_TENANT_ID=common
+```
+
+#### 5. Connect in Buglens
+
+1. Go to **Settings** → **Integrations**
+2. Click **Connect Microsoft Teams**
+3. Sign in with your Microsoft account
+4. Grant permissions
+
+#### Testing Teams Integration
+
+```bash
+# 1. Send a test notification via API
+curl -X POST http://localhost:3001/api/integrations/teams/test \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json"
+
+# Expected response:
+{
+  "success": true,
+  "message": "Test notification sent to Microsoft Teams"
+}
+```
+
+**Common Issues:**
+
+- `AADSTS50011`: Redirect URI mismatch - check Azure AD configuration
+- `AADSTS65001`: Admin consent required - contact your IT admin
+- `InvalidAuthenticationToken`: Token expired - reconnect the integration
+
+---
+
+### Jira Integration Setup
+
+Jira integration enables:
+
+- **Automatic Ticket Creation**: Create Jira issues from events or RCA results
+- **Manual Ticket Creation**: Create tickets on-demand from the UI
+
+#### 1. Create Atlassian OAuth App
+
+1. Go to [developer.atlassian.com/console](https://developer.atlassian.com/console)
+2. Click **Create** → **OAuth 2.0 integration**
+3. Enter a name: `Buglens`
+4. Enable **OAuth 2.0 (3LO)**
+
+#### 2. Configure OAuth 2.0 Settings
+
+In **Authorization**:
+
+- **Callback URL**: `https://your-domain.com/api/integrations/jira/callback`
+
+#### 3. Add API Scopes
+
+In **Permissions**, add Jira API scopes:
+
+- `read:jira-work` - Read Jira issues
+- `write:jira-work` - Create/update issues
+- `read:jira-user` - Read user information
+- `offline_access` - Refresh tokens
+
+#### 4. Get Credentials
+
+From the app settings, copy:
+
+- **Client ID** → `JIRA_CLIENT_ID`
+- **Client Secret** → `JIRA_CLIENT_SECRET`
+
+Add to your `.env`:
+
+```bash
+JIRA_CLIENT_ID=your-client-id
+JIRA_CLIENT_SECRET=your-client-secret
+```
+
+#### 5. Connect in Buglens
+
+1. Go to **Settings** → **Integrations**
+2. Click **Connect Jira**
+3. Choose your Atlassian site (if multiple)
+4. Authorize Buglens
+
+#### Configuring Jira Defaults
+
+Set your default Jira project in organization settings:
+
+```bash
+# Update organization settings to set default project
+curl -X PATCH http://localhost:3001/api/settings \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jira_default_project": "BUG",
+    "jira_auto_create": true
+  }'
+```
+
+#### Testing Jira Integration
+
+```bash
+# 1. Get available Jira projects
+curl http://localhost:3001/api/integrations/jira/projects \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Expected response:
+{
+  "projects": [
+    { "id": "10001", "key": "BUG", "name": "Bug Tracking" },
+    { "id": "10002", "key": "DEV", "name": "Development" }
+  ]
+}
+
+# 2. Create a ticket from an RCA result
+curl -X POST http://localhost:3001/api/integrations/jira/tickets/rca \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rcaId": "your-rca-id",
+    "projectKey": "BUG",
+    "issueType": "Bug"
+  }'
+
+# Expected response:
+{
+  "success": true,
+  "ticket": {
+    "id": "12345",
+    "key": "BUG-123",
+    "self": "https://your-site.atlassian.net/rest/api/3/issue/12345"
+  }
+}
+```
+
+**Ticket Content:**
+Created tickets include:
+
+- Error summary as title
+- Root cause analysis details
+- Suggested fix (if available)
+- Code location and snippet
+- Link back to Buglens for full analysis
+
+**Common Issues:**
+
+- `No Jira project configured`: Set a default project in org settings
+- `401 Unauthorized`: Token expired - reconnect via Settings
+- `404 Project not found`: Verify the project key exists
+
+---
+
+### Notification Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     NOTIFICATION & TICKET FLOW                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   ┌──────────────┐                                                      │
+│   │   Sentry     │                                                      │
+│   │   Webhook    │                                                      │
+│   └──────┬───────┘                                                      │
+│          │                                                               │
+│          ▼                                                               │
+│   ┌──────────────────────────────────────────────────────────────┐      │
+│   │                    BUGLENS BACKEND                            │      │
+│   │                                                               │      │
+│   │   ┌────────────┐    ┌────────────┐    ┌────────────┐        │      │
+│   │   │  Webhook   │───►│ Deterministic│───►│    LLM     │        │      │
+│   │   │  Handler   │    │  Analyzer    │    │  Reasoning │        │      │
+│   │   └──────┬─────┘    └────────────┘    └──────┬─────┘        │      │
+│   │          │                                    │               │      │
+│   │          │ Event Created                     │ RCA Complete   │      │
+│   │          ▼                                    ▼               │      │
+│   │   ┌────────────────────────────────────────────────┐        │      │
+│   │   │           NOTIFICATION SERVICE                  │        │      │
+│   │   │                                                 │        │      │
+│   │   │  ┌─────────────────┐  ┌─────────────────┐     │        │      │
+│   │   │  │  Check Prefs    │  │  Format Message │     │        │      │
+│   │   │  │  - Severity     │  │  - Slack Blocks │     │        │      │
+│   │   │  │  - Level        │  │  - Teams Cards  │     │        │      │
+│   │   │  └────────┬────────┘  └────────┬────────┘     │        │      │
+│   │   │           │                    │              │        │      │
+│   │   └───────────┼────────────────────┼──────────────┘        │      │
+│   │               │                    │                        │      │
+│   └───────────────┼────────────────────┼────────────────────────┘      │
+│                   │                    │                                │
+│                   ▼                    ▼                                │
+│   ┌───────────────────┐    ┌───────────────────┐                       │
+│   │       SLACK       │    │   MICROSOFT       │                       │
+│   │                   │    │     TEAMS         │                       │
+│   │  ┌─────────────┐  │    │  ┌─────────────┐  │                       │
+│   │  │  #errors    │  │    │  │  Teams      │  │                       │
+│   │  │  channel    │  │    │  │  Channel    │  │                       │
+│   │  └─────────────┘  │    │  └─────────────┘  │                       │
+│   └───────────────────┘    └───────────────────┘                       │
+│                                                                          │
+│                   │ (If auto-create enabled)                            │
+│                   ▼                                                      │
+│   ┌───────────────────────────────────────────┐                         │
+│   │               JIRA                         │                         │
+│   │                                            │                         │
+│   │   ┌──────────────────────────────────┐    │                         │
+│   │   │  BUG-123: TypeError in app.js   │    │                         │
+│   │   │                                   │    │                         │
+│   │   │  Root Cause: Missing null check  │    │                         │
+│   │   │  Suggested Fix: Add guard        │    │                         │
+│   │   │                                   │    │                         │
+│   │   │  [View in Buglens]               │    │                         │
+│   │   └──────────────────────────────────┘    │                         │
+│   └───────────────────────────────────────────┘                         │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Integration API Reference
+
+#### Slack Endpoints
+
+| Method   | Endpoint                           | Description            |
+| -------- | ---------------------------------- | ---------------------- |
+| `POST`   | `/api/integrations/slack/connect`  | Initiate Slack OAuth   |
+| `GET`    | `/api/integrations/slack/callback` | OAuth callback         |
+| `POST`   | `/api/integrations/slack/test`     | Send test notification |
+| `DELETE` | `/api/integrations/slack`          | Disconnect Slack       |
+
+#### Teams Endpoints
+
+| Method   | Endpoint                           | Description            |
+| -------- | ---------------------------------- | ---------------------- |
+| `POST`   | `/api/integrations/teams/connect`  | Initiate Teams OAuth   |
+| `GET`    | `/api/integrations/teams/callback` | OAuth callback         |
+| `POST`   | `/api/integrations/teams/test`     | Send test notification |
+| `DELETE` | `/api/integrations/teams`          | Disconnect Teams       |
+
+#### Jira Endpoints
+
+| Method   | Endpoint                                           | Description              |
+| -------- | -------------------------------------------------- | ------------------------ |
+| `POST`   | `/api/integrations/jira/connect`                   | Initiate Jira OAuth      |
+| `GET`    | `/api/integrations/jira/callback`                  | OAuth callback           |
+| `GET`    | `/api/integrations/jira/projects`                  | List available projects  |
+| `GET`    | `/api/integrations/jira/projects/:key/issue-types` | Get issue types          |
+| `POST`   | `/api/integrations/jira/tickets/event`             | Create ticket from event |
+| `POST`   | `/api/integrations/jira/tickets/rca`               | Create ticket from RCA   |
+| `DELETE` | `/api/integrations/jira`                           | Disconnect Jira          |
+
+---
+
+### Notification Preferences
+
+Users can configure notification preferences per organization:
+
+| Setting                | Values                            | Default | Description              |
+| ---------------------- | --------------------------------- | ------- | ------------------------ |
+| `notification_level`   | `all`, `high`, `critical`, `none` | `all`   | Filter by severity       |
+| `email_notifications`  | `boolean`                         | `true`  | Enable email alerts      |
+| `slack_notifications`  | `boolean`                         | `true`  | Enable Slack alerts      |
+| `jira_auto_create`     | `boolean`                         | `false` | Auto-create tickets      |
+| `jira_default_project` | `string`                          | `null`  | Default Jira project key |
+
+Update via API:
+
+```bash
+curl -X PATCH http://localhost:3001/api/profile/notifications \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "notificationLevel": "high",
+    "slackNotifications": true,
+    "emailNotifications": false
+  }'
+```

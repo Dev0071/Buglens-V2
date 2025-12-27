@@ -9,9 +9,8 @@
  * - Sentry configuration flow
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { server } from "../../src/api/app.js";
-import type { FastifyInstance } from "fastify";
 
 describe("Integrations OAuth Routes", () => {
   beforeAll(async () => {

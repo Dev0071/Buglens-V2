@@ -6,6 +6,14 @@ import { transaction } from "../../db/client.js";
 import { LLMService } from "../../services/llm-service.js";
 import { buildEvidenceGraph } from "../../services/evidence-graph-builder.js";
 import { EvidenceCollectorService } from "../../services/evidence-collector.js";
+import {
+  notificationService,
+  type RCANotificationData,
+} from "../../services/notification-service.js";
+import {
+  jiraTicketService,
+  type RCATicketData,
+} from "../../services/jira-ticket-service.js";
 import type { EvidenceBundle } from "../../types/evidence.js";
 import type { EvidenceGraph } from "../../types/evidence-graph.js";
 
@@ -355,6 +363,15 @@ async function processLLMJob(job: Job<LLMReasoningJobData>): Promise<void> {
     // Step 7: Mark job as complete
     await markRCAComplete(orgId, jobId, rcaId);
 
+    // Step 8: Send notifications (Slack, Teams) and create Jira ticket if enabled
+    await sendRCANotifications(
+      orgId,
+      rcaId,
+      eventId,
+      rcaResult,
+      evidenceBundle
+    );
+
     const durationMs = Date.now() - startTime;
     logger.info(
       {
@@ -574,6 +591,149 @@ async function markLLMFailed(
       [status, truncatedReason, jobId, orgId]
     );
   });
+}
+
+// ============================================
+// Notification & Ticket Creation
+// ============================================
+
+interface RCAResultForNotification {
+  title: string;
+  summary: string;
+  root_cause: string;
+  suggested_fix?: { description?: string };
+  confidence: number;
+}
+
+/**
+ * Send RCA notifications to Slack/Teams and optionally create Jira ticket
+ */
+async function sendRCANotifications(
+  orgId: string,
+  rcaId: string,
+  eventId: string,
+  rcaResult: RCAResultForNotification,
+  evidenceBundle: EvidenceBundle
+): Promise<void> {
+  try {
+    // Determine severity from confidence and error type
+    const severity = determineSeverity(rcaResult.confidence, evidenceBundle);
+
+    // Get event title for notification
+    const eventTitle =
+      evidenceBundle.error?.type && evidenceBundle.error?.value
+        ? `${evidenceBundle.error.type}: ${evidenceBundle.error.value}`
+        : evidenceBundle.error?.message || "Unknown Error";
+
+    // Prepare notification data
+    const notificationData: RCANotificationData = {
+      rcaId,
+      eventId,
+      eventTitle: truncateString(eventTitle, 100),
+      rootCause: rcaResult.root_cause,
+      confidence: rcaResult.confidence,
+      severity,
+      suggestedFix: rcaResult.suggested_fix?.description,
+      affectedFile: evidenceBundle.error?.stack_trace?.[0]?.file,
+      affectedLine: evidenceBundle.error?.stack_trace?.[0]?.line ?? undefined,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Send notifications to Slack and Teams
+    const notificationResult = await notificationService.sendRCANotification(
+      orgId,
+      notificationData
+    );
+
+    if (notificationResult.slack?.success) {
+      logger.debug({ orgId, rcaId }, "Slack RCA notification sent");
+    }
+    if (notificationResult.teams?.success) {
+      logger.debug({ orgId, rcaId }, "Teams RCA notification sent");
+    }
+
+    // Check if auto-create Jira ticket is enabled
+    const shouldCreateTicket = await jiraTicketService.shouldAutoCreateTicket(
+      orgId,
+      severity,
+      rcaResult.confidence
+    );
+
+    if (shouldCreateTicket) {
+      // Extract related file paths from code context
+      const relatedFiles =
+        evidenceBundle.code?.related?.map((c) => c.file_path) || [];
+      if (evidenceBundle.code?.primary?.file_path) {
+        relatedFiles.unshift(evidenceBundle.code.primary.file_path);
+      }
+
+      const ticketData: RCATicketData = {
+        rcaId,
+        eventId,
+        eventTitle: truncateString(eventTitle, 200),
+        eventMessage: evidenceBundle.error?.message || "",
+        rootCause: rcaResult.root_cause,
+        confidence: rcaResult.confidence,
+        severity,
+        suggestedFix: rcaResult.suggested_fix?.description,
+        affectedFile: evidenceBundle.error?.stack_trace?.[0]?.file,
+        affectedLine: evidenceBundle.error?.stack_trace?.[0]?.line ?? undefined,
+        relatedFiles,
+        codeSnippet: evidenceBundle.code?.primary?.snippet?.substring(0, 500),
+        analysisDetails: rcaResult.summary,
+        timestamp: new Date().toISOString(),
+      };
+
+      const ticketResult = await jiraTicketService.createRCATicket(
+        orgId,
+        ticketData
+      );
+
+      if (ticketResult.success && ticketResult.ticket) {
+        logger.info(
+          { orgId, rcaId, ticketKey: ticketResult.ticket.key },
+          "Jira ticket created for RCA"
+        );
+      }
+    }
+  } catch (error) {
+    // Don't fail the job if notifications fail
+    logger.warn(
+      { error, orgId, rcaId },
+      "Failed to send RCA notifications - job completed but notifications failed"
+    );
+  }
+}
+
+/**
+ * Determine severity based on confidence and error characteristics
+ */
+function determineSeverity(
+  confidence: number,
+  evidenceBundle: EvidenceBundle
+): "critical" | "high" | "medium" | "low" {
+  // High confidence issues with stack trace in user code are more severe
+  const hasUserCode = evidenceBundle.error?.stack_trace?.some((f) => f.in_app);
+  const findingsCount = evidenceBundle.deterministic_findings?.length ?? 0;
+
+  if (confidence >= 0.9 && hasUserCode && findingsCount > 0) {
+    return "critical";
+  }
+  if (confidence >= 0.75 && hasUserCode) {
+    return "high";
+  }
+  if (confidence >= 0.5) {
+    return "medium";
+  }
+  return "low";
+}
+
+/**
+ * Truncate string to max length
+ */
+function truncateString(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+  return str.substring(0, maxLength - 3) + "...";
 }
 
 // ============================================

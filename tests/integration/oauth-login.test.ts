@@ -4,9 +4,12 @@
  * Tests the GitHub and Google OAuth login flows
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { server } from "../../src/api/app.js";
-import type { FastifyInstance } from "fastify";
+import { config } from "../../src/utils/config.js";
+
+const isGitHubConfigured = !!config.GITHUB_OAUTH_CLIENT_ID;
+const isGoogleConfigured = !!config.GOOGLE_OAUTH_CLIENT_ID;
 
 describe("OAuth Login Routes", () => {
   beforeAll(async () => {
@@ -18,19 +21,35 @@ describe("OAuth Login Routes", () => {
   });
 
   describe("GET /api/auth/github", () => {
-    it("should return 503 when GitHub OAuth is not configured", async () => {
-      const response = await server.inject({
-        method: "GET",
-        url: "/api/auth/github",
-      });
+    it.skipIf(isGitHubConfigured)(
+      "should return 503 when GitHub OAuth is not configured",
+      async () => {
+        const response = await server.inject({
+          method: "GET",
+          url: "/api/auth/github",
+        });
 
-      // When GITHUB_OAUTH_CLIENT_ID is not set, should return 503
-      expect(response.statusCode).toBe(503);
-      expect(JSON.parse(response.payload)).toMatchObject({
-        error: "OAUTH_NOT_CONFIGURED",
-        message: expect.stringContaining("GitHub login is not configured"),
-      });
-    });
+        // When GITHUB_OAUTH_CLIENT_ID is not set, should return 503
+        expect(response.statusCode).toBe(503);
+        expect(JSON.parse(response.payload)).toMatchObject({
+          error: "OAUTH_NOT_CONFIGURED",
+          message: expect.stringContaining("GitHub login is not configured"),
+        });
+      }
+    );
+
+    it.skipIf(!isGitHubConfigured)(
+      "should redirect to GitHub OAuth when configured",
+      async () => {
+        const response = await server.inject({
+          method: "GET",
+          url: "/api/auth/github",
+        });
+
+        expect(response.statusCode).toBe(302);
+        expect(response.headers.location).toContain("github.com");
+      }
+    );
   });
 
   describe("GET /api/auth/github/callback", () => {
@@ -62,19 +81,35 @@ describe("OAuth Login Routes", () => {
   });
 
   describe("GET /api/auth/google", () => {
-    it("should return 503 when Google OAuth is not configured", async () => {
-      const response = await server.inject({
-        method: "GET",
-        url: "/api/auth/google",
-      });
+    it.skipIf(isGoogleConfigured)(
+      "should return 503 when Google OAuth is not configured",
+      async () => {
+        const response = await server.inject({
+          method: "GET",
+          url: "/api/auth/google",
+        });
 
-      // When GOOGLE_OAUTH_CLIENT_ID is not set, should return 503
-      expect(response.statusCode).toBe(503);
-      expect(JSON.parse(response.payload)).toMatchObject({
-        error: "OAUTH_NOT_CONFIGURED",
-        message: expect.stringContaining("Google login is not configured"),
-      });
-    });
+        // When GOOGLE_OAUTH_CLIENT_ID is not set, should return 503
+        expect(response.statusCode).toBe(503);
+        expect(JSON.parse(response.payload)).toMatchObject({
+          error: "OAUTH_NOT_CONFIGURED",
+          message: expect.stringContaining("Google login is not configured"),
+        });
+      }
+    );
+
+    it.skipIf(!isGoogleConfigured)(
+      "should redirect to Google OAuth when configured",
+      async () => {
+        const response = await server.inject({
+          method: "GET",
+          url: "/api/auth/google",
+        });
+
+        expect(response.statusCode).toBe(302);
+        expect(response.headers.location).toContain("accounts.google.com");
+      }
+    );
   });
 
   describe("GET /api/auth/google/callback", () => {

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { logger } from "../../utils/logger.js";
+import { config } from "../../utils/config.js";
 import { query, transaction } from "../../db/client.js";
 import { platformCredentials } from "../../services/platform-credentials.js";
 import {
@@ -21,17 +22,21 @@ import {
   getGitHubUser,
   getGitHubRepos,
   getAvailableIntegrationProviders,
-  isIntegrationProviderAvailable,
 } from "../../services/oauth.js";
-import {
-  getOrganizationIntegrations,
-  disconnectIntegration as disconnectIntegrationToken,
-} from "../../services/integration-tokens.js";
 import {
   checkOrganizationTokenHealth,
   refreshIntegrationTokens,
 } from "../../services/token-lifecycle.js";
 import { triggerSingleTokenRefresh } from "../../workers/queues/token-refresh.js";
+import {
+  notificationService,
+  type EventNotificationData,
+} from "../../services/notification-service.js";
+import {
+  jiraTicketService,
+  type EventTicketData,
+  type RCATicketData,
+} from "../../services/jira-ticket-service.js";
 
 // ============================================
 // Request/Response Schemas
@@ -180,27 +185,34 @@ async function listIntegrationsHandler(
     const result = await query<{
       id: string;
       type: string;
-      config: Record<string, unknown>;
+      status: string;
+      config: Record<string, unknown> | null;
       is_active: boolean;
       last_verified_at: Date | null;
       created_at: Date;
     }>(
-      `SELECT id, type, config, is_active, last_verified_at, created_at
+      `SELECT id, type, status, config, is_active, last_verified_at, created_at
        FROM integrations
-       WHERE org_id = $1`,
+       WHERE org_id = $1 AND is_active = true`,
       [orgId]
     );
 
     // Build integration map from DB results
     const configuredIntegrations = new Map<string, Integration>();
     for (const row of result.rows) {
-      configuredIntegrations.set(row.type, {
+      // Normalize github_app to github for frontend compatibility
+      const normalizedType = row.type === "github_app" ? "github" : row.type;
+
+      // Use is_active to determine status
+      const status = row.is_active ? "connected" : "disconnected";
+
+      configuredIntegrations.set(normalizedType, {
         id: row.id,
-        type: row.type as "sentry" | "github" | "slack",
-        name: getIntegrationName(row.type),
-        status: getIntegrationStatus(row.is_active, row.last_verified_at),
+        type: normalizedType as "sentry" | "github" | "slack",
+        name: getIntegrationName(normalizedType),
+        status: status as "connected" | "disconnected" | "error",
         configuredAt: row.created_at.toISOString(),
-        metadata: extractSafeMetadata(row.type, row.config),
+        metadata: extractSafeMetadata(row.type, row.config || {}),
       });
     }
 
@@ -462,11 +474,12 @@ async function disconnectIntegrationHandler(
 
     const integrationType = existing.rows[0].type;
 
-    // Soft delete - mark as inactive
+    // Soft delete - mark as inactive and update status
     await transaction(orgId, async (client) => {
       await client.query(
         `UPDATE integrations
          SET is_active = false,
+             status = 'disconnected',
              updated_at = NOW()
          WHERE id = $1 AND org_id = $2`,
         [id, orgId]
@@ -584,7 +597,7 @@ export async function integrationsRoutes(
 
   // GET /api/integrations/available
   // Get available integration providers (configured at platform level)
-  server.get("/integrations/available", async (request, reply) => {
+  server.get("/integrations/available", async (_request, reply) => {
     const providers = getAvailableIntegrationProviders();
 
     const integrationProviders = [
@@ -717,7 +730,12 @@ export async function integrationsRoutes(
    * Handle GitHub OAuth callback
    */
   server.get("/integrations/github/callback", async (request, reply) => {
-    const { code, state, installation_id, setup_action } = request.query as {
+    const {
+      code,
+      state,
+      installation_id,
+      setup_action: _setup_action,
+    } = request.query as {
       code?: string;
       state?: string;
       installation_id?: string;
@@ -728,7 +746,9 @@ export async function integrationsRoutes(
     if (installation_id) {
       const oauthState = validateOAuthState(state || "");
       if (!oauthState) {
-        return reply.redirect("/settings/integrations?error=invalid_state");
+        return reply.redirect(
+          `${config.FRONTEND_URL}/settings/integrations?error=invalid_state`
+        );
       }
 
       // Store the installation ID for later API access
@@ -740,17 +760,23 @@ export async function integrationsRoutes(
         "all"
       );
 
-      return reply.redirect("/settings/integrations?success=github_connected");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?success=github_connected`
+      );
     }
 
     // Handle OAuth App callback
     if (!code || !state) {
-      return reply.redirect("/settings/integrations?error=no_code");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=no_code`
+      );
     }
 
     const oauthState = validateOAuthState(state);
     if (!oauthState) {
-      return reply.redirect("/settings/integrations?error=invalid_state");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=invalid_state`
+      );
     }
 
     try {
@@ -764,10 +790,14 @@ export async function integrationsRoutes(
         repos: repos.map((r) => ({ id: r.id, full_name: r.full_name })),
       });
 
-      return reply.redirect("/settings/integrations?success=github_connected");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?success=github_connected`
+      );
     } catch (error) {
       logger.error({ error }, "GitHub OAuth callback failed");
-      return reply.redirect("/settings/integrations?error=oauth_failed");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=oauth_failed`
+      );
     }
   });
 
@@ -820,25 +850,35 @@ export async function integrationsRoutes(
 
     if (oauthError) {
       logger.warn({ error: oauthError }, "Slack OAuth denied");
-      return reply.redirect(`/settings/integrations?error=${oauthError}`);
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=${oauthError}`
+      );
     }
 
     if (!code || !state) {
-      return reply.redirect("/settings/integrations?error=no_code");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=no_code`
+      );
     }
 
     const oauthState = validateOAuthState(state);
     if (!oauthState) {
-      return reply.redirect("/settings/integrations?error=invalid_state");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=invalid_state`
+      );
     }
 
     try {
       const slackResponse = await exchangeSlackCode(code);
       await processSlackInstallation(slackResponse, oauthState.orgId);
-      return reply.redirect("/settings/integrations?success=slack_connected");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?success=slack_connected`
+      );
     } catch (error) {
       logger.error({ error }, "Slack OAuth callback failed");
-      return reply.redirect("/settings/integrations?error=oauth_failed");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=oauth_failed`
+      );
     }
   });
 
@@ -882,12 +922,16 @@ export async function integrationsRoutes(
     const { code, state } = request.query as { code?: string; state?: string };
 
     if (!code || !state) {
-      return reply.redirect("/settings/integrations?error=no_code");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=no_code`
+      );
     }
 
     const oauthState = validateOAuthState(state);
     if (!oauthState) {
-      return reply.redirect("/settings/integrations?error=invalid_state");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=invalid_state`
+      );
     }
 
     try {
@@ -896,10 +940,14 @@ export async function integrationsRoutes(
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
-      return reply.redirect("/settings/integrations?success=jira_connected");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?success=jira_connected`
+      );
     } catch (error) {
       logger.error({ error }, "Jira OAuth callback failed");
-      return reply.redirect("/settings/integrations?error=oauth_failed");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=oauth_failed`
+      );
     }
   });
 
@@ -945,12 +993,16 @@ export async function integrationsRoutes(
     const { code, state } = request.query as { code?: string; state?: string };
 
     if (!code || !state) {
-      return reply.redirect("/settings/integrations?error=no_code");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=no_code`
+      );
     }
 
     const oauthState = validateOAuthState(state);
     if (!oauthState) {
-      return reply.redirect("/settings/integrations?error=invalid_state");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=invalid_state`
+      );
     }
 
     try {
@@ -959,10 +1011,14 @@ export async function integrationsRoutes(
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
-      return reply.redirect("/settings/integrations?success=teams_connected");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?success=teams_connected`
+      );
     } catch (error) {
       logger.error({ error }, "Teams OAuth callback failed");
-      return reply.redirect("/settings/integrations?error=oauth_failed");
+      return reply.redirect(
+        `${config.FRONTEND_URL}/settings/integrations?error=oauth_failed`
+      );
     }
   });
 
@@ -1127,6 +1183,423 @@ export async function integrationsRoutes(
         return reply.status(500).send({
           error: "REFRESH_FAILED",
           message: "Failed to refresh integration tokens",
+        });
+      }
+    }
+  );
+
+  // ============================================
+  // Jira Ticket Creation Routes
+  // ============================================
+
+  /**
+   * GET /api/integrations/jira/projects
+   * Get available Jira projects for the organization
+   */
+  server.get(
+    "/integrations/jira/projects",
+    { preHandler: [server.authenticate] },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        const projects = await jiraTicketService.getProjects(orgId);
+        return reply.send({ projects });
+      } catch (error) {
+        logger.error({ error, orgId }, "Failed to get Jira projects");
+        return reply.status(500).send({
+          error: "JIRA_ERROR",
+          message: "Failed to get Jira projects",
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/integrations/jira/projects/:projectKey/issue-types
+   * Get available issue types for a Jira project
+   */
+  server.get(
+    "/integrations/jira/projects/:projectKey/issue-types",
+    { preHandler: [server.authenticate] },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+      const { projectKey } = request.params as { projectKey: string };
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        const issueTypes = await jiraTicketService.getIssueTypes(
+          orgId,
+          projectKey
+        );
+        return reply.send({ issueTypes });
+      } catch (error) {
+        logger.error({ error, orgId, projectKey }, "Failed to get issue types");
+        return reply.status(500).send({
+          error: "JIRA_ERROR",
+          message: "Failed to get Jira issue types",
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/integrations/jira/tickets/event
+   * Create a Jira ticket from an event
+   */
+  server.post(
+    "/integrations/jira/tickets/event",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        body: {
+          type: "object",
+          properties: {
+            eventId: { type: "string" },
+            projectKey: { type: "string" },
+            issueType: { type: "string" },
+          },
+          required: ["eventId"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+      const { eventId, projectKey, issueType } = request.body as {
+        eventId: string;
+        projectKey?: string;
+        issueType?: string;
+      };
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        // Load event data
+        const eventResult = await query<{
+          id: string;
+          message: string;
+          stack_trace: unknown;
+          environment: string | null;
+          raw_payload: Record<string, unknown>;
+          created_at: Date;
+        }>(
+          `SELECT id, message, stack_trace, environment, raw_payload, created_at
+           FROM events WHERE id = $1 AND org_id = $2`,
+          [eventId, orgId]
+        );
+
+        if (eventResult.rows.length === 0) {
+          return reply.status(404).send({
+            error: "NOT_FOUND",
+            message: "Event not found",
+          });
+        }
+
+        const event = eventResult.rows[0];
+        const rawPayload = event.raw_payload as {
+          exception?: { values?: Array<{ type?: string; value?: string }> };
+          project?: { name?: string };
+        };
+
+        const ticketData: EventTicketData = {
+          eventId: event.id,
+          eventTitle:
+            rawPayload.exception?.values?.[0]?.type ||
+            event.message.substring(0, 100),
+          eventMessage: event.message,
+          severity: "error",
+          errorType: rawPayload.exception?.values?.[0]?.type,
+          stackTrace:
+            typeof event.stack_trace === "string"
+              ? event.stack_trace
+              : JSON.stringify(event.stack_trace, null, 2),
+          timestamp: event.created_at.toISOString(),
+          projectName: rawPayload.project?.name,
+          environment: event.environment || undefined,
+        };
+
+        const result = await jiraTicketService.createEventTicket(
+          orgId,
+          ticketData,
+          { projectKey, issueType }
+        );
+
+        if (!result.success) {
+          return reply.status(400).send({
+            error: "TICKET_CREATION_FAILED",
+            message: result.error,
+          });
+        }
+
+        return reply.status(201).send({
+          success: true,
+          ticket: result.ticket,
+        });
+      } catch (error) {
+        logger.error(
+          { error, orgId, eventId },
+          "Failed to create event ticket"
+        );
+        return reply.status(500).send({
+          error: "JIRA_ERROR",
+          message: "Failed to create Jira ticket",
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/integrations/jira/tickets/rca
+   * Create a Jira ticket from an RCA result
+   */
+  server.post(
+    "/integrations/jira/tickets/rca",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        body: {
+          type: "object",
+          properties: {
+            rcaId: { type: "string" },
+            projectKey: { type: "string" },
+            issueType: { type: "string" },
+          },
+          required: ["rcaId"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+      const { rcaId, projectKey, issueType } = request.body as {
+        rcaId: string;
+        projectKey?: string;
+        issueType?: string;
+      };
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        // Load RCA data
+        const rcaResult = await query<{
+          id: string;
+          event_id: string;
+          title: string;
+          summary: string;
+          root_cause: string;
+          suggested_fix: { description?: string } | null;
+          confidence: number;
+          evidence: Record<string, unknown>;
+          created_at: Date;
+        }>(
+          `SELECT id, event_id, title, summary, root_cause, suggested_fix,
+                  confidence, evidence, created_at
+           FROM rca_results WHERE id = $1 AND org_id = $2`,
+          [rcaId, orgId]
+        );
+
+        if (rcaResult.rows.length === 0) {
+          return reply.status(404).send({
+            error: "NOT_FOUND",
+            message: "RCA result not found",
+          });
+        }
+
+        const rca = rcaResult.rows[0];
+        const evidence = rca.evidence as {
+          error?: {
+            message?: string;
+            stack_trace?: Array<{ file: string; line: number }>;
+          };
+        };
+
+        // Determine severity from confidence
+        let severity: "critical" | "high" | "medium" | "low" = "medium";
+        if (rca.confidence >= 0.9) severity = "critical";
+        else if (rca.confidence >= 0.75) severity = "high";
+        else if (rca.confidence < 0.5) severity = "low";
+
+        const ticketData: RCATicketData = {
+          rcaId: rca.id,
+          eventId: rca.event_id,
+          eventTitle: rca.title,
+          eventMessage: evidence.error?.message || rca.summary,
+          rootCause: rca.root_cause,
+          confidence: rca.confidence,
+          severity,
+          suggestedFix: rca.suggested_fix?.description,
+          affectedFile: evidence.error?.stack_trace?.[0]?.file,
+          affectedLine: evidence.error?.stack_trace?.[0]?.line,
+          analysisDetails: rca.summary,
+          timestamp: rca.created_at.toISOString(),
+        };
+
+        const result = await jiraTicketService.createRCATicket(
+          orgId,
+          ticketData,
+          { projectKey, issueType }
+        );
+
+        if (!result.success) {
+          return reply.status(400).send({
+            error: "TICKET_CREATION_FAILED",
+            message: result.error,
+          });
+        }
+
+        return reply.status(201).send({
+          success: true,
+          ticket: result.ticket,
+        });
+      } catch (error) {
+        logger.error({ error, orgId, rcaId }, "Failed to create RCA ticket");
+        return reply.status(500).send({
+          error: "JIRA_ERROR",
+          message: "Failed to create Jira ticket",
+        });
+      }
+    }
+  );
+
+  // ============================================
+  // Notification Test Routes
+  // ============================================
+
+  /**
+   * POST /api/integrations/slack/test
+   * Send a test notification to Slack
+   */
+  server.post(
+    "/integrations/slack/test",
+    { preHandler: [server.authenticate] },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        const testData: EventNotificationData = {
+          eventId: "test-" + Date.now(),
+          eventTitle: "Test Error: Connection Timeout",
+          eventMessage:
+            "This is a test notification from Buglens to verify your Slack integration is working correctly.",
+          severity: "warning",
+          errorType: "TestError",
+          timestamp: new Date().toISOString(),
+          projectName: "Test Project",
+          environment: "test",
+        };
+
+        const result = await notificationService.sendSlackEventNotification(
+          orgId,
+          testData
+        );
+
+        if (!result.success) {
+          return reply.status(400).send({
+            error: "NOTIFICATION_FAILED",
+            message: result.error || "Failed to send test notification",
+          });
+        }
+
+        return reply.send({
+          success: true,
+          message: "Test notification sent to Slack",
+        });
+      } catch (error) {
+        logger.error(
+          { error, orgId },
+          "Failed to send Slack test notification"
+        );
+        return reply.status(500).send({
+          error: "NOTIFICATION_ERROR",
+          message: "Failed to send test notification",
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/integrations/teams/test
+   * Send a test notification to Microsoft Teams
+   */
+  server.post(
+    "/integrations/teams/test",
+    { preHandler: [server.authenticate] },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        const testData: EventNotificationData = {
+          eventId: "test-" + Date.now(),
+          eventTitle: "Test Error: Connection Timeout",
+          eventMessage:
+            "This is a test notification from Buglens to verify your Microsoft Teams integration is working correctly.",
+          severity: "warning",
+          errorType: "TestError",
+          timestamp: new Date().toISOString(),
+          projectName: "Test Project",
+          environment: "test",
+        };
+
+        const result = await notificationService.sendTeamsEventNotification(
+          orgId,
+          testData
+        );
+
+        if (!result.success) {
+          return reply.status(400).send({
+            error: "NOTIFICATION_FAILED",
+            message: result.error || "Failed to send test notification",
+          });
+        }
+
+        return reply.send({
+          success: true,
+          message: "Test notification sent to Microsoft Teams",
+        });
+      } catch (error) {
+        logger.error(
+          { error, orgId },
+          "Failed to send Teams test notification"
+        );
+        return reply.status(500).send({
+          error: "NOTIFICATION_ERROR",
+          message: "Failed to send test notification",
         });
       }
     }

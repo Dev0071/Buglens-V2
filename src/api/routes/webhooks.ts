@@ -6,6 +6,10 @@ import { sentryWebhookSchema, SentryEventPayload } from "../../types/sentry.js";
 import { transaction } from "../../db/client.js";
 import { createRateLimitMiddleware } from "../middleware/rate-limit.js";
 import { enqueueDeterministicJob } from "../../workers/queues/deterministic.js";
+import {
+  notificationService,
+  type EventNotificationData,
+} from "../../services/notification-service.js";
 
 type WebhookRequestWithRaw = FastifyRequest & { rawBody?: Buffer };
 
@@ -129,6 +133,89 @@ const extractEventFromPayload = (
   // Otherwise it's a direct event payload
   return payload as SentryEventPayload;
 };
+
+/**
+ * Send event notifications to Slack/Teams
+ * This is async and non-blocking - failures don't affect webhook processing
+ */
+async function sendEventNotifications(
+  orgId: string,
+  eventId: string,
+  event: SentryEventPayload,
+  log: typeof logger
+): Promise<void> {
+  try {
+    // Determine severity from Sentry level or exception type
+    const severity = mapSentryLevelToSeverity(event.level);
+
+    // Build notification data
+    const errorType = event.exception?.values?.[0]?.type || "Error";
+    const errorValue =
+      event.exception?.values?.[0]?.value || event.message || "Unknown error";
+
+    const notificationData: EventNotificationData = {
+      eventId,
+      eventTitle: `${errorType}: ${truncateString(errorValue, 100)}`,
+      eventMessage: truncateString(event.message || errorValue, 500),
+      severity,
+      errorType,
+      timestamp: new Date(
+        typeof event.timestamp === "number"
+          ? event.timestamp * 1000
+          : event.timestamp
+      ).toISOString(),
+      projectName:
+        (event.project as { name?: string; slug?: string } | undefined)?.name ||
+        (event.project as { name?: string; slug?: string } | undefined)?.slug,
+      environment: event.environment,
+    };
+
+    const result = await notificationService.sendEventNotification(
+      orgId,
+      notificationData
+    );
+
+    if (result.slack?.success || result.teams?.success) {
+      log.debug(
+        {
+          eventId,
+          slackSuccess: result.slack?.success,
+          teamsSuccess: result.teams?.success,
+        },
+        "Event notifications sent"
+      );
+    }
+  } catch (error) {
+    log.warn({ error, eventId }, "Failed to send event notifications");
+  }
+}
+
+/**
+ * Map Sentry level to our severity
+ */
+function mapSentryLevelToSeverity(
+  level?: string
+): "error" | "warning" | "info" {
+  switch (level?.toLowerCase()) {
+    case "fatal":
+    case "error":
+      return "error";
+    case "warning":
+      return "warning";
+    case "info":
+    case "debug":
+    default:
+      return "info";
+  }
+}
+
+/**
+ * Truncate string to max length
+ */
+function truncateString(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+  return str.substring(0, maxLength - 3) + "...";
+}
 
 export const webhooksRoutes: FastifyPluginAsync = async (server) => {
   // Webhook endpoint with org_id in path for multi-tenancy
@@ -429,6 +516,19 @@ export const webhooksRoutes: FastifyPluginAsync = async (server) => {
               jobId: txnResult.jobId,
               eventId: txnResult.eventId,
               orgId: org_id,
+            });
+
+            // Send event notifications to Slack/Teams (non-blocking)
+            sendEventNotifications(
+              org_id,
+              txnResult.eventId,
+              event,
+              request.log
+            ).catch((err) => {
+              request.log.warn(
+                { error: err, eventId: txnResult.eventId },
+                "Failed to send event notifications"
+              );
             });
           }
         } catch (error) {

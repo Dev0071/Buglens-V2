@@ -30,7 +30,9 @@ interface ToastContextValue {
   removeToast: (id: string) => void;
 }
 
-const ToastContext = createContext<ToastContextValue | undefined>(undefined);
+export const ToastContext = createContext<ToastContextValue | undefined>(
+  undefined
+);
 
 /**
  * Toast provider component that manages toast notifications
