@@ -19,8 +19,20 @@ const eventsQuerySchema = z.object({
     .optional()
     .transform((v) => (v ? parseInt(v, 10) : 20))
     .pipe(z.number().min(1).max(100)),
-  severity: z.enum(["low", "medium", "high", "critical"]).optional(),
-  status: z.enum(["pending", "processing", "completed", "failed"]).optional(),
+  severity: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(",") : undefined))
+    .pipe(z.array(z.enum(["low", "medium", "high", "critical"])).optional()),
+  status: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(",") : undefined))
+    .pipe(
+      z
+        .array(z.enum(["pending", "processing", "completed", "failed"]))
+        .optional()
+    ),
   search: z.string().max(200).optional(),
   environment: z.string().max(50).optional(),
 });
@@ -213,8 +225,9 @@ async function listEventsHandler(
 
     // Status filter (requires join with rca_jobs)
     let statusCondition = "";
-    if (status) {
-      const dbStatuses = {
+    if (status && status.length > 0) {
+      // Map frontend status to database status values
+      const dbStatuses: Record<string, string[]> = {
         pending: ["pending"],
         processing: [
           "fetching_code",
@@ -225,14 +238,11 @@ async function listEventsHandler(
         completed: ["done"],
         failed: ["failed"],
       };
-      const statusValues = dbStatuses[status];
-      if (statusValues.length === 1) {
-        statusCondition = `AND j.status = $${paramIndex}`;
-        params.push(statusValues[0]);
-        paramIndex++;
-      } else {
+      // Flatten all status values for the filter
+      const allStatusValues = status.flatMap((s) => dbStatuses[s] || []);
+      if (allStatusValues.length > 0) {
         statusCondition = `AND j.status = ANY($${paramIndex})`;
-        params.push(statusValues);
+        params.push(allStatusValues);
         paramIndex++;
       }
     }
@@ -298,8 +308,8 @@ async function listEventsHandler(
     });
 
     // Filter by severity in memory (since it's calculated)
-    if (severity) {
-      events = events.filter((e) => e.severity === severity);
+    if (severity && severity.length > 0) {
+      events = events.filter((e) => severity.includes(e.severity));
     }
 
     const response: EventsResponse = {
@@ -672,14 +682,10 @@ export async function eventsRoutes(server: FastifyInstance): Promise<void> {
           properties: {
             page: { type: "string" },
             pageSize: { type: "string" },
-            severity: {
-              type: "string",
-              enum: ["low", "medium", "high", "critical"],
-            },
-            status: {
-              type: "string",
-              enum: ["pending", "processing", "completed", "failed"],
-            },
+            // Note: severity and status are comma-separated strings that get validated by Zod
+            // Don't use enum here as it prevents comma-separated values like "pending,processing"
+            severity: { type: "string" },
+            status: { type: "string" },
             search: { type: "string" },
             environment: { type: "string" },
           },

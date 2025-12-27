@@ -348,6 +348,114 @@ export class AuthService {
   }
 
   /**
+   * Login or signup with OAuth provider (GitHub, Google)
+   */
+  async loginWithOAuth(input: {
+    provider: "github" | "google";
+    providerId: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  }): Promise<{
+    user: AuthUser;
+    organization: AuthOrganization;
+    refreshToken: string;
+  }> {
+    const { provider, providerId, email, name, avatarUrl } = input;
+
+    // Check if user exists with this email
+    const existingUser = await query<
+      UserRecord & { org_name: string; org_plan: string; org_created_at: Date }
+    >(
+      `SELECT u.*, o.name as org_name, o.plan as org_plan, o.created_at as org_created_at
+       FROM users u
+       JOIN organizations o ON u.org_id = o.id
+       WHERE u.email = $1`,
+      [email.toLowerCase()]
+    );
+
+    if (existingUser.rows.length > 0) {
+      // User exists - update OAuth provider info and log them in
+      const user = existingUser.rows[0];
+
+      // Update auth provider and last login
+      await query(
+        `UPDATE users
+         SET auth_provider = $1,
+             last_login_at = NOW(),
+             name = COALESCE(NULLIF($2, ''), name)
+         WHERE id = $3`,
+        [provider, name, user.id]
+      );
+
+      // Create session
+      const { refreshToken } = await this.createSession(user.id, null, null);
+
+      const org: OrganizationRecord = {
+        id: user.org_id,
+        name: user.org_name,
+        slug: "",
+        plan: user.org_plan,
+        created_at: user.org_created_at,
+      };
+
+      logger.info({ userId: user.id, provider }, "OAuth user logged in");
+
+      return {
+        user: { ...this.formatUser(user, org), avatarUrl },
+        organization: this.formatOrganization(org),
+        refreshToken,
+      };
+    }
+
+    // New user - create account and organization
+    const orgName = name
+      ? `${name}'s Organization`
+      : `${email.split("@")[0]}'s Org`;
+    const orgSlug = generateSlug(orgName) + "-" + Date.now().toString(36);
+
+    const result = await transaction(async (client) => {
+      // Create organization
+      const orgResult = await client.query<OrganizationRecord>(
+        `INSERT INTO organizations (name, slug, plan)
+         VALUES ($1, $2, 'free')
+         RETURNING *`,
+        [orgName, orgSlug]
+      );
+      const org = orgResult.rows[0];
+
+      // Create user (no password for OAuth users)
+      const userResult = await client.query<UserRecord>(
+        `INSERT INTO users (org_id, email, name, role, auth_provider, email_verified)
+         VALUES ($1, $2, $3, 'owner', $4, true)
+         RETURNING *`,
+        [org.id, email.toLowerCase(), name, provider]
+      );
+      const user = userResult.rows[0];
+
+      return { user, org };
+    });
+
+    // Create session
+    const { refreshToken } = await this.createSession(
+      result.user.id,
+      null,
+      null
+    );
+
+    logger.info(
+      { userId: result.user.id, orgId: result.org.id, provider },
+      "New OAuth user registered"
+    );
+
+    return {
+      user: { ...this.formatUser(result.user, result.org), avatarUrl },
+      organization: this.formatOrganization(result.org),
+      refreshToken,
+    };
+  }
+
+  /**
    * Get current user from access token
    */
   async getCurrentUser(userId: string): Promise<{
@@ -518,6 +626,14 @@ export class AuthError extends Error {
       | "USER_NOT_FOUND"
       | "INVALID_TOKEN"
       | "UNAUTHORIZED"
+      // Account linking errors
+      | "PROVIDER_ALREADY_LINKED"
+      | "PROVIDER_LINKED_TO_OTHER"
+      | "EMAIL_BELONGS_TO_OTHER"
+      | "CANNOT_UNLINK_PRIMARY"
+      | "CANNOT_REMOVE_LAST_AUTH"
+      | "IDENTITY_NOT_FOUND"
+      | "ACCOUNTS_NOT_FOUND"
   ) {
     super(message);
     this.name = "AuthError";

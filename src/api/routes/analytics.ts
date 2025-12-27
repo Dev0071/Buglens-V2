@@ -123,12 +123,10 @@ async function getAnalyticsSummaryHandler(
     const currentMetrics = await query<{
       total_tokens: string | null;
       total_cost: string | null;
-      total_events: string | null;
     }>(
       `SELECT
          COALESCE(SUM(llm_tokens_used), 0) as total_tokens,
-         COALESCE(SUM(llm_cost_usd), 0) as total_cost,
-         COALESCE(SUM(events_processed), 0) as total_events
+         COALESCE(SUM(llm_cost_usd), 0) as total_cost
        FROM cost_metrics
        WHERE org_id = $1 AND date >= $2`,
       [orgId, startDateStr]
@@ -284,19 +282,32 @@ async function getDailyAnalyticsHandler(
     // Get daily metrics from cost_metrics table
     const dailyMetrics = await query<{
       date: string;
-      events_processed: string;
       llm_tokens_used: string;
       llm_cost_usd: string;
     }>(
       `SELECT
          date::text,
-         COALESCE(events_processed, 0) as events_processed,
          COALESCE(llm_tokens_used, 0) as llm_tokens_used,
          COALESCE(llm_cost_usd, 0) as llm_cost_usd
        FROM cost_metrics
        WHERE org_id = $1 AND date >= $2
        ORDER BY date ASC`,
       [orgId, startDateStr]
+    );
+
+    // Get daily event counts
+    const dailyEvents = await query<{
+      date: string;
+      event_count: string;
+    }>(
+      `SELECT
+         DATE(created_at)::text as date,
+         COUNT(*) as event_count
+       FROM events
+       WHERE org_id = $1 AND created_at >= $2
+       GROUP BY DATE(created_at)
+       ORDER BY date ASC`,
+      [orgId, startDate.toISOString()]
     );
 
     // Get daily RCA counts with average confidence
@@ -316,7 +327,12 @@ async function getDailyAnalyticsHandler(
       [orgId, startDate.toISOString()]
     );
 
-    // Create a map of RCA data by date
+    // Create maps for easy lookup
+    const eventsByDate = new Map<string, number>();
+    for (const row of dailyEvents.rows) {
+      eventsByDate.set(row.date, parseInt(row.event_count, 10));
+    }
+
     const rcaByDate = new Map<string, { count: number; confidence: number }>();
     for (const row of dailyRcas.rows) {
       rcaByDate.set(row.date, {
@@ -336,10 +352,11 @@ async function getDailyAnalyticsHandler(
 
       const metrics = metricsMap.get(dateStr);
       const rca = rcaByDate.get(dateStr);
+      const events = eventsByDate.get(dateStr) || 0;
 
       response.push({
         date: dateStr,
-        events: parseInt(metrics?.events_processed || "0", 10),
+        events,
         rcas: rca?.count || 0,
         tokens: parseInt(metrics?.llm_tokens_used || "0", 10),
         cost: parseFloat(metrics?.llm_cost_usd || "0"),

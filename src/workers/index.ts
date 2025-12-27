@@ -1,6 +1,10 @@
 import { startDeterministicAnalyzerWorker } from "./deterministic-analyzer.worker.js";
 import { startEvidenceWorker } from "./queues/evidence.js";
 import { startLLMWorker } from "./queues/llm-reasoning.js";
+import {
+  startTokenRefreshWorker,
+  initializeTokenScheduler,
+} from "./queues/token-refresh.js";
 import { logger } from "../utils/logger.js";
 
 const WORKER_STARTUP_BANNER = `
@@ -36,8 +40,16 @@ async function bootstrap() {
     "Worker online: llm-reasoning"
   );
 
+  // Start token refresh worker and scheduler
+  const tokenRefreshWorker = startTokenRefreshWorker();
+  await initializeTokenScheduler();
   logger.info(
-    { workersStarted: 3 },
+    { worker: "token-refresh", concurrency: 1 },
+    "Worker online: token-refresh"
+  );
+
+  logger.info(
+    { workersStarted: 4 },
     "All workers online and ready to process jobs"
   );
 
@@ -48,6 +60,7 @@ async function bootstrap() {
       deterministicWorker.close(),
       evidenceWorker.close(),
       llmWorker.close(),
+      tokenRefreshWorker.close(),
     ]);
     logger.info("All workers stopped gracefully");
     process.exit(0);

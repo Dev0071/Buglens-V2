@@ -39,7 +39,7 @@ export function useDashboardStats() {
         await mockDelay(300);
         return mockDashboardStats;
       }
-      return apiClient.get<DashboardStats>("/api/dashboard/stats");
+      return apiClient.get<DashboardStats>("/dashboard/stats");
     },
     staleTime: 30 * 1000, // 30 seconds
     refetchInterval: 60 * 1000, // Refresh every minute
@@ -57,7 +57,9 @@ export function useRecentEvents(limit = 5) {
         await mockDelay(400);
         return mockRecentEvents.slice(0, limit);
       }
-      return apiClient.get<RecentEvent[]>(`/api/events/recent?limit=${limit}`);
+      return apiClient.get<RecentEvent[]>(
+        `/dashboard/recent-events?limit=${limit}`
+      );
     },
     staleTime: 15 * 1000,
     refetchInterval: 30 * 1000,
@@ -115,7 +117,7 @@ export function useEventsList(params: EventsQueryParams = {}) {
         ...(search && { search }),
       });
 
-      return apiClient.get<EventsResponse>(`/api/events?${queryParams}`);
+      return apiClient.get<EventsResponse>(`/events?${queryParams}`);
     },
     placeholderData: (previousData) => previousData,
   });
@@ -135,7 +137,7 @@ export function useEventDetail(eventId: string | undefined) {
         return mockEventDetail(eventId);
       }
 
-      return apiClient.get<EventDetail>(`/api/events/${eventId}`);
+      return apiClient.get<EventDetail>(`/events/${eventId}`);
     },
     enabled: !!eventId,
   });
@@ -155,7 +157,7 @@ export function useRCAResult(rcaId: string | undefined) {
         return mockRCAResults[rcaId] ?? null;
       }
 
-      return apiClient.get<RCAResult>(`/api/rca/${rcaId}`);
+      return apiClient.get<RCAResult>(`/rca/${rcaId}`);
     },
     enabled: !!rcaId,
   });
@@ -179,7 +181,7 @@ export function useRCAByEventId(eventId: string | undefined) {
         return rca ?? null;
       }
 
-      return apiClient.get<RCAResult>(`/api/events/${eventId}/rca`);
+      return apiClient.get<RCAResult>(`/events/${eventId}/rca`);
     },
     enabled: !!eventId,
   });
@@ -196,7 +198,7 @@ export function useIntegrations() {
         await mockDelay(300);
         return mockIntegrations;
       }
-      return apiClient.get<Integration[]>("/api/integrations");
+      return apiClient.get<Integration[]>("/integrations");
     },
     staleTime: 60 * 1000,
   });
@@ -234,7 +236,7 @@ export function useCostSummary() {
           projectedMonthlyCost: 52.0,
         };
       }
-      return apiClient.get<CostSummary>("/api/costs/summary");
+      return apiClient.get<CostSummary>("/costs/summary");
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -272,7 +274,7 @@ export function useOrganizationSettings() {
           },
         };
       }
-      return apiClient.get<OrganizationSettings>("/api/settings/organization");
+      return apiClient.get<OrganizationSettings>("/settings/organization");
     },
   });
 }
@@ -290,7 +292,7 @@ export function useSubmitRCAFeedback() {
         // Mock success
         return { success: true, feedbackId: `fb-${Date.now()}` };
       }
-      return apiClient.post("/api/rca/feedback", feedback);
+      return apiClient.post("/rca/feedback", feedback);
     },
     onSuccess: (_data, variables) => {
       // Invalidate the RCA query to refresh
@@ -313,7 +315,7 @@ export function useReanalyzeEvent() {
         await mockDelay(800);
         return { jobId: `job-${Date.now()}`, status: "processing" };
       }
-      return apiClient.post(`/api/events/${eventId}/reanalyze`, {});
+      return apiClient.post(`/events/${eventId}/reanalyze`, {});
     },
     onSuccess: (_data, eventId) => {
       // Invalidate queries to refresh data
@@ -339,7 +341,7 @@ export function useUpdateSettings() {
         await mockDelay(500);
         return { success: true };
       }
-      return apiClient.patch("/api/settings/organization", settings);
+      return apiClient.patch("/settings/organization", settings);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -367,7 +369,7 @@ export function useConnectIntegration() {
         await mockDelay(1000);
         return { success: true, integrationId: `int-${type}` };
       }
-      return apiClient.post(`/api/integrations/${type}/connect`, config);
+      return apiClient.post(`/integrations/${type}/connect`, config);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -389,7 +391,7 @@ export function useDisconnectIntegration() {
         await mockDelay(500);
         return { success: true };
       }
-      return apiClient.delete(`/api/integrations/${integrationId}`);
+      return apiClient.delete(`/integrations/${integrationId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -464,7 +466,7 @@ export function useAnalyticsSummary(period: "7d" | "30d" | "90d" = "30d") {
         };
       }
       return apiClient.get<AnalyticsSummary>(
-        `/api/analytics/summary?period=${period}`
+        `/analytics/summary?period=${period}`
       );
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -499,7 +501,7 @@ export function useDailyAnalytics(period: "7d" | "30d" | "90d" = "30d") {
         return data;
       }
       return apiClient.get<DailyAnalytics[]>(
-        `/api/analytics/daily?period=${period}`
+        `/analytics/daily?period=${period}`
       );
     },
     staleTime: 5 * 60 * 1000,

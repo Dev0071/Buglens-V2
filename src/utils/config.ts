@@ -61,6 +61,13 @@ const envSchema = z.object({
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY_SECRET_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
+  // GitHub OAuth for login
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+
+  // Google OAuth for login
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 
   // Jira (Atlassian OAuth 2.0)
   JIRA_CLIENT_ID: z.string().optional(),

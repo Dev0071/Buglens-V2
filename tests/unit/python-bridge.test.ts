@@ -60,7 +60,9 @@ import { logger } from "../../src/utils/logger.js";
 describe("PythonBridge", () => {
   let bridge: PythonBridge;
   const mockSpawn = spawn as ReturnType<typeof vi.fn>;
-  const mockLogger = logger as { [key: string]: ReturnType<typeof vi.fn> };
+  const mockLogger = logger as unknown as {
+    [key: string]: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -156,7 +158,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain(
+      expect((error as Error).message).toContain(
         "Python module analyzers.js_analyzer timed out"
       );
       expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
@@ -180,7 +182,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("timed out");
+      expect((error as Error).message).toContain("timed out");
     });
   });
 
@@ -198,7 +200,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("exceeded size limit");
+      expect((error as Error).message).toContain("exceeded size limit");
       expect(mockChild.kill).toHaveBeenCalledWith("SIGKILL");
     });
 
@@ -214,7 +216,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain(
+      expect((error as Error).message).toContain(
         "stderr from module analyzers.js_analyzer exceeded size limit"
       );
     });
@@ -223,7 +225,7 @@ describe("PythonBridge", () => {
       const executePromise = bridge.execute({});
 
       // Send exactly 10MB minus 1 byte (just allocating it, not using)
-      const _chunk = Buffer.alloc(10 * 1024 * 1024 - 1, "x");
+      Buffer.alloc(10 * 1024 * 1024 - 1, "x");
       setImmediate(() => {
         // Send valid JSON at the end
         mockStdout.emit("data", Buffer.from('{"result": "ok"}'));
@@ -253,7 +255,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain(
+      expect((error as Error).message).toContain(
         "Python module analyzers.js_analyzer failed: ImportError: No module named xyz"
       );
 
@@ -277,7 +279,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("unknown error");
+      expect((error as Error).message).toContain("unknown error");
     });
 
     it("should reject on spawn error", async () => {
@@ -291,7 +293,7 @@ describe("PythonBridge", () => {
 
       const error = await executePromise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("spawn ENOENT");
+      expect((error as Error).message).toContain("spawn ENOENT");
     });
 
     it("should reject on invalid JSON output", async () => {

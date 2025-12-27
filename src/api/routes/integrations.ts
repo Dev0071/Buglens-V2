@@ -2,6 +2,36 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { logger } from "../../utils/logger.js";
 import { query, transaction } from "../../db/client.js";
+import { platformCredentials } from "../../services/platform-credentials.js";
+import {
+  generateOAuthState,
+  validateOAuthState,
+  getGitHubAuthUrl,
+  getSlackAuthUrl,
+  getJiraAuthUrl,
+  getTeamsAuthUrl,
+  getGitHubAppInstallUrl,
+  exchangeGitHubCode,
+  exchangeSlackCode,
+  exchangeJiraCode,
+  exchangeTeamsCode,
+  saveIntegration,
+  processSlackInstallation,
+  processGitHubAppInstallation,
+  getGitHubUser,
+  getGitHubRepos,
+  getAvailableIntegrationProviders,
+  isIntegrationProviderAvailable,
+} from "../../services/oauth.js";
+import {
+  getOrganizationIntegrations,
+  disconnectIntegration as disconnectIntegrationToken,
+} from "../../services/integration-tokens.js";
+import {
+  checkOrganizationTokenHealth,
+  refreshIntegrationTokens,
+} from "../../services/token-lifecycle.js";
+import { triggerSingleTokenRefresh } from "../../workers/queues/token-refresh.js";
 
 // ============================================
 // Request/Response Schemas
@@ -552,6 +582,61 @@ export async function integrationsRoutes(
   // GET /api/integrations
   server.get("/integrations", listIntegrationsHandler);
 
+  // GET /api/integrations/available
+  // Get available integration providers (configured at platform level)
+  server.get("/integrations/available", async (request, reply) => {
+    const providers = getAvailableIntegrationProviders();
+
+    const integrationProviders = [
+      {
+        id: "github_app",
+        name: "GitHub",
+        description: "Connect GitHub repositories for code analysis",
+        available:
+          providers.includes("github_app") || providers.includes("github"),
+        oauthRequired: true,
+        icon: "github",
+      },
+      {
+        id: "slack",
+        name: "Slack",
+        description: "Receive RCA notifications in Slack",
+        available: providers.includes("slack"),
+        oauthRequired: true,
+        icon: "slack",
+      },
+      {
+        id: "sentry",
+        name: "Sentry",
+        description: "Receive error events from Sentry",
+        available: true, // Always available (webhook-based)
+        oauthRequired: false,
+        icon: "sentry",
+      },
+      {
+        id: "jira",
+        name: "Jira",
+        description: "Create Jira tickets from RCA findings",
+        available: providers.includes("jira"),
+        oauthRequired: true,
+        icon: "jira",
+      },
+      {
+        id: "teams",
+        name: "Microsoft Teams",
+        description: "Receive RCA notifications in Teams",
+        available: providers.includes("teams"),
+        oauthRequired: true,
+        icon: "teams",
+      },
+    ];
+
+    return reply.send({
+      providers: integrationProviders.filter((p) => p.available),
+      allProviders: integrationProviders,
+    });
+  });
+
   // GET /api/integrations/:id
   server.get(
     "/integrations/:id",
@@ -569,7 +654,323 @@ export async function integrationsRoutes(
     getIntegrationHandler
   );
 
-  // POST /api/integrations/:type/connect
+  // ============================================
+  // OAuth-Based Integration Connect Flows
+  // ============================================
+
+  /**
+   * GET /api/integrations/github/connect
+   * Initiate GitHub OAuth flow for repository access
+   */
+  server.get("/integrations/github/connect", async (request, reply) => {
+    const orgId = request.getOrgId();
+    if (!orgId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    // Prefer GitHub App over OAuth App
+    if (platformCredentials.isConfigured("github_app")) {
+      const state = generateOAuthState(
+        orgId,
+        "github_app",
+        "/settings/integrations",
+        { action: "install" }
+      );
+      const url = getGitHubAppInstallUrl(state);
+      if (!url) {
+        return reply.status(503).send({
+          error: "INTEGRATION_NOT_CONFIGURED",
+          message:
+            "GitHub integration is not configured. Please contact support.",
+        });
+      }
+      return reply.send({ authUrl: url, method: "github_app" });
+    }
+
+    // Fallback to OAuth App
+    if (platformCredentials.isConfigured("github")) {
+      const state = generateOAuthState(
+        orgId,
+        "github",
+        "/settings/integrations",
+        { action: "install" }
+      );
+      const url = getGitHubAuthUrl(state);
+      if (!url) {
+        return reply.status(503).send({
+          error: "INTEGRATION_NOT_CONFIGURED",
+          message:
+            "GitHub integration is not configured. Please contact support.",
+        });
+      }
+      return reply.send({ authUrl: url, method: "oauth" });
+    }
+
+    return reply.status(503).send({
+      error: "INTEGRATION_NOT_CONFIGURED",
+      message: "GitHub integration is not configured. Please contact support.",
+    });
+  });
+
+  /**
+   * GET /api/integrations/github/callback
+   * Handle GitHub OAuth callback
+   */
+  server.get("/integrations/github/callback", async (request, reply) => {
+    const { code, state, installation_id, setup_action } = request.query as {
+      code?: string;
+      state?: string;
+      installation_id?: string;
+      setup_action?: string;
+    };
+
+    // Handle GitHub App installation callback
+    if (installation_id) {
+      const oauthState = validateOAuthState(state || "");
+      if (!oauthState) {
+        return reply.redirect("/settings/integrations?error=invalid_state");
+      }
+
+      // Store the installation ID for later API access
+      await processGitHubAppInstallation(
+        parseInt(installation_id, 10),
+        oauthState.orgId,
+        { login: "unknown", id: 0, type: "Organization" }, // Will be filled by webhook
+        {},
+        "all"
+      );
+
+      return reply.redirect("/settings/integrations?success=github_connected");
+    }
+
+    // Handle OAuth App callback
+    if (!code || !state) {
+      return reply.redirect("/settings/integrations?error=no_code");
+    }
+
+    const oauthState = validateOAuthState(state);
+    if (!oauthState) {
+      return reply.redirect("/settings/integrations?error=invalid_state");
+    }
+
+    try {
+      const tokens = await exchangeGitHubCode(code);
+      const user = await getGitHubUser(tokens.access_token);
+      const repos = await getGitHubRepos(tokens.access_token);
+
+      await saveIntegration(oauthState.orgId, "github", {
+        login: user.login,
+        access_token: tokens.access_token, // Will be encrypted
+        repos: repos.map((r) => ({ id: r.id, full_name: r.full_name })),
+      });
+
+      return reply.redirect("/settings/integrations?success=github_connected");
+    } catch (error) {
+      logger.error({ error }, "GitHub OAuth callback failed");
+      return reply.redirect("/settings/integrations?error=oauth_failed");
+    }
+  });
+
+  /**
+   * GET /api/integrations/slack/connect
+   * Initiate Slack OAuth flow
+   */
+  server.get("/integrations/slack/connect", async (request, reply) => {
+    const orgId = request.getOrgId();
+    if (!orgId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    if (!platformCredentials.isConfigured("slack")) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "Slack integration is not configured. Please contact support.",
+      });
+    }
+
+    const state = generateOAuthState(orgId, "slack", "/settings/integrations", {
+      action: "install",
+    });
+    const url = getSlackAuthUrl(state);
+
+    if (!url) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "Slack integration is not configured. Please contact support.",
+      });
+    }
+
+    return reply.send({ authUrl: url });
+  });
+
+  /**
+   * GET /api/integrations/slack/callback
+   * Handle Slack OAuth callback
+   */
+  server.get("/integrations/slack/callback", async (request, reply) => {
+    const {
+      code,
+      state,
+      error: oauthError,
+    } = request.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+
+    if (oauthError) {
+      logger.warn({ error: oauthError }, "Slack OAuth denied");
+      return reply.redirect(`/settings/integrations?error=${oauthError}`);
+    }
+
+    if (!code || !state) {
+      return reply.redirect("/settings/integrations?error=no_code");
+    }
+
+    const oauthState = validateOAuthState(state);
+    if (!oauthState) {
+      return reply.redirect("/settings/integrations?error=invalid_state");
+    }
+
+    try {
+      const slackResponse = await exchangeSlackCode(code);
+      await processSlackInstallation(slackResponse, oauthState.orgId);
+      return reply.redirect("/settings/integrations?success=slack_connected");
+    } catch (error) {
+      logger.error({ error }, "Slack OAuth callback failed");
+      return reply.redirect("/settings/integrations?error=oauth_failed");
+    }
+  });
+
+  /**
+   * GET /api/integrations/jira/connect
+   * Initiate Jira OAuth flow
+   */
+  server.get("/integrations/jira/connect", async (request, reply) => {
+    const orgId = request.getOrgId();
+    if (!orgId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    if (!platformCredentials.isConfigured("jira")) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "Jira integration is not configured. Please contact support.",
+      });
+    }
+
+    const state = generateOAuthState(orgId, "jira", "/settings/integrations", {
+      action: "install",
+    });
+    const url = getJiraAuthUrl(state);
+
+    if (!url) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "Jira integration is not configured. Please contact support.",
+      });
+    }
+
+    return reply.send({ authUrl: url });
+  });
+
+  /**
+   * GET /api/integrations/jira/callback
+   * Handle Jira OAuth callback
+   */
+  server.get("/integrations/jira/callback", async (request, reply) => {
+    const { code, state } = request.query as { code?: string; state?: string };
+
+    if (!code || !state) {
+      return reply.redirect("/settings/integrations?error=no_code");
+    }
+
+    const oauthState = validateOAuthState(state);
+    if (!oauthState) {
+      return reply.redirect("/settings/integrations?error=invalid_state");
+    }
+
+    try {
+      const tokens = await exchangeJiraCode(code);
+      await saveIntegration(oauthState.orgId, "jira", {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      });
+      return reply.redirect("/settings/integrations?success=jira_connected");
+    } catch (error) {
+      logger.error({ error }, "Jira OAuth callback failed");
+      return reply.redirect("/settings/integrations?error=oauth_failed");
+    }
+  });
+
+  /**
+   * GET /api/integrations/teams/connect
+   * Initiate Microsoft Teams OAuth flow
+   */
+  server.get("/integrations/teams/connect", async (request, reply) => {
+    const orgId = request.getOrgId();
+    if (!orgId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    if (!platformCredentials.isConfigured("teams")) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message:
+          "Microsoft Teams integration is not configured. Please contact support.",
+      });
+    }
+
+    const state = generateOAuthState(orgId, "teams", "/settings/integrations", {
+      action: "install",
+    });
+    const url = getTeamsAuthUrl(state);
+
+    if (!url) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message:
+          "Microsoft Teams integration is not configured. Please contact support.",
+      });
+    }
+
+    return reply.send({ authUrl: url });
+  });
+
+  /**
+   * GET /api/integrations/teams/callback
+   * Handle Microsoft Teams OAuth callback
+   */
+  server.get("/integrations/teams/callback", async (request, reply) => {
+    const { code, state } = request.query as { code?: string; state?: string };
+
+    if (!code || !state) {
+      return reply.redirect("/settings/integrations?error=no_code");
+    }
+
+    const oauthState = validateOAuthState(state);
+    if (!oauthState) {
+      return reply.redirect("/settings/integrations?error=invalid_state");
+    }
+
+    try {
+      const tokens = await exchangeTeamsCode(code);
+      await saveIntegration(oauthState.orgId, "teams", {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      });
+      return reply.redirect("/settings/integrations?success=teams_connected");
+    } catch (error) {
+      logger.error({ error }, "Teams OAuth callback failed");
+      return reply.redirect("/settings/integrations?error=oauth_failed");
+    }
+  });
+
+  // ============================================
+  // Legacy Routes (for backward compatibility)
+  // ============================================
+
+  // POST /api/integrations/:type/connect (legacy)
   server.post(
     "/integrations/:type/connect",
     {
@@ -618,5 +1019,116 @@ export async function integrationsRoutes(
       },
     },
     verifyIntegrationHandler
+  );
+
+  // ============================================
+  // Token Lifecycle Management Routes
+  // ============================================
+
+  /**
+   * GET /api/integrations/health
+   * Check health of all integration tokens for the organization
+   */
+  server.get("/integrations/health", async (request, reply) => {
+    const orgId = request.getOrgId();
+
+    if (!orgId) {
+      return reply.status(401).send({
+        error: "Unauthorized",
+        message: "Organization context required",
+      });
+    }
+
+    try {
+      const healthResults = await checkOrganizationTokenHealth(orgId);
+
+      const summary = {
+        total: healthResults.length,
+        healthy: healthResults.filter((r) => r.status === "healthy").length,
+        expiring: healthResults.filter((r) => r.status === "expiring").length,
+        expired: healthResults.filter((r) => r.status === "expired").length,
+        error: healthResults.filter(
+          (r) => r.status === "error" || r.status === "refresh_failed"
+        ).length,
+      };
+
+      return reply.send({
+        success: true,
+        summary,
+        integrations: healthResults.map((r) => ({
+          id: r.integrationId,
+          type: r.type,
+          status: r.status,
+          message: r.message,
+          expiresAt: r.expiresAt?.toISOString(),
+        })),
+      });
+    } catch (error) {
+      logger.error({ error }, "Failed to check token health");
+      return reply.status(500).send({
+        error: "HEALTH_CHECK_FAILED",
+        message: "Failed to check integration health",
+      });
+    }
+  });
+
+  /**
+   * POST /api/integrations/:id/refresh
+   * Manually trigger token refresh for an integration
+   */
+  server.post(
+    "/integrations/:id/refresh",
+    {
+      schema: {
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const orgId = request.getOrgId();
+      const { id } = request.params as { id: string };
+
+      if (!orgId) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "Organization context required",
+        });
+      }
+
+      try {
+        // Try immediate refresh
+        const result = await refreshIntegrationTokens(orgId, id);
+
+        if (result.success) {
+          return reply.send({
+            success: true,
+            message: result.message,
+            newExpiresAt: result.newExpiresAt?.toISOString(),
+          });
+        } else {
+          // Queue for retry if immediate refresh failed
+          await triggerSingleTokenRefresh(orgId, id);
+          return reply.status(202).send({
+            success: false,
+            message: result.message,
+            queued: true,
+          });
+        }
+      } catch (error) {
+        logger.error(
+          { error, orgId, integrationId: id },
+          "Token refresh failed"
+        );
+        return reply.status(500).send({
+          error: "REFRESH_FAILED",
+          message: "Failed to refresh integration tokens",
+        });
+      }
+    }
   );
 }

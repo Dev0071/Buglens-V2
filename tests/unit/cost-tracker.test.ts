@@ -34,7 +34,9 @@ import { logger } from "../../src/utils/logger.js";
 describe("CostTracker", () => {
   let costTracker: CostTracker;
   const mockQuery = query as ReturnType<typeof vi.fn>;
-  const mockLogger = logger as { [key: string]: ReturnType<typeof vi.fn> };
+  const mockLogger = logger as unknown as {
+    [key: string]: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
