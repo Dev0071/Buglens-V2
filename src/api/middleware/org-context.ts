@@ -92,6 +92,7 @@ export async function orgContextMiddleware(
 
   try {
     const orgId = candidateOrgId;
+    console.log(`Setting org context for orgId: ${orgId}`);
 
     // Verify organization exists
     const result = await pool.query(

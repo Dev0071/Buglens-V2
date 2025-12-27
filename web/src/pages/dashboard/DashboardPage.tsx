@@ -1,4 +1,4 @@
-import { useDashboardStats, useRecentEvents } from "@/lib/hooks";
+import { useDashboardStats, useRecentEvents, useRCAQuality } from "@/lib/hooks";
 import {
   formatNumber,
   formatRelativeTime,
@@ -611,12 +611,44 @@ function RecentDeployImpact() {
  * RCA Quality Pulse - builds confidence in the system
  */
 function RCAQualityPulse() {
-  const qualityData = {
-    accurate: 82,
-    partial: 12,
-    wrong: 6,
-    totalFeedback: 47,
-  };
+  const { data: qualityData, isLoading, error } = useRCAQuality();
+
+  if (isLoading) {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            RCA Quality (7 days)
+          </h2>
+        </div>
+        <div className="card-body">
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !qualityData) {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            RCA Quality (7 days)
+          </h2>
+        </div>
+        <div className="card-body">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Unable to load quality data
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const { percentages, totalRCAs } = qualityData;
 
   return (
     <div className="card">
@@ -625,7 +657,7 @@ function RCAQualityPulse() {
           RCA Quality (7 days)
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Based on {qualityData.totalFeedback} user reviews
+          Based on {totalRCAs} RCAs analyzed
         </p>
       </div>
       <div className="card-body space-y-4">
@@ -633,18 +665,18 @@ function RCAQualityPulse() {
         <div className="h-4 flex rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800">
           <div
             className="bg-green-500 transition-all"
-            style={{ width: `${qualityData.accurate}%` }}
-            title={`Accurate: ${qualityData.accurate}%`}
+            style={{ width: `${percentages.highConfidence}%` }}
+            title={`High Confidence: ${percentages.highConfidence.toFixed(1)}%`}
           />
           <div
             className="bg-amber-500 transition-all"
-            style={{ width: `${qualityData.partial}%` }}
-            title={`Partial: ${qualityData.partial}%`}
+            style={{ width: `${percentages.mediumConfidence}%` }}
+            title={`Medium Confidence: ${percentages.mediumConfidence.toFixed(1)}%`}
           />
           <div
             className="bg-red-500 transition-all"
-            style={{ width: `${qualityData.wrong}%` }}
-            title={`Wrong: ${qualityData.wrong}%`}
+            style={{ width: `${percentages.lowConfidence}%` }}
+            title={`Low Confidence: ${percentages.lowConfidence.toFixed(1)}%`}
           />
         </div>
 
@@ -652,29 +684,29 @@ function RCAQualityPulse() {
         <div className="flex justify-between text-xs">
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 bg-green-500 rounded" />
-            Accurate {qualityData.accurate}%
+            High {percentages.highConfidence.toFixed(0)}%
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 bg-amber-500 rounded" />
-            Partial {qualityData.partial}%
+            Medium {percentages.mediumConfidence.toFixed(0)}%
           </span>
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 bg-red-500 rounded" />
-            Wrong {qualityData.wrong}%
+            Low {percentages.lowConfidence.toFixed(0)}%
           </span>
         </div>
 
         {/* Action if quality is low */}
-        {qualityData.wrong > 10 && (
+        {percentages.lowConfidence > 10 && (
           <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm">
             <p className="font-medium text-red-700 dark:text-red-300">
-              High wrong rate detected
+              High low-confidence rate detected
             </p>
             <Link
-              to="/events?feedback=wrong"
+              to="/events?confidence=low"
               className="text-red-600 dark:text-red-400 hover:underline"
             >
-              Review incorrect RCAs →
+              Review low confidence RCAs →
             </Link>
           </div>
         )}

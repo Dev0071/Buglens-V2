@@ -517,6 +517,169 @@
 			]
 		},
 		{
+			"name": "Team Management",
+			"description": "Team member management, invitations, and role assignments",
+			"item": [
+				{
+					"name": "List Team Members",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/team/members?page=1&pageSize=20&search=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "members"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (min: 1)"
+								},
+								{
+									"key": "pageSize",
+									"value": "20",
+									"description": "Items per page (min: 1, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search by name or email"
+								}
+							]
+						},
+						"description": "Get paginated list of team members for the organization.\n\n**Requires:** Bearer token\n\n**Query Parameters:**\n- `page` (number, optional, default: 1): Page number\n- `pageSize` (number, optional, default: 20, max: 100): Items per page\n- `search` (string, optional): Search by name or email\n\n**Response (200):**\n```json\n{\n  \"members\": [\n    {\n      \"id\": \"usr-123\",\n      \"email\": \"admin@example.com\",\n      \"name\": \"Admin User\",\n      \"role\": \"owner\",\n      \"status\": \"active\",\n      \"avatarUrl\": null,\n      \"joinedAt\": \"2024-01-01T00:00:00Z\",\n      \"lastActive\": \"2024-01-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"usr-456\",\n      \"email\": \"member@example.com\",\n      \"name\": \"Team Member\",\n      \"role\": \"member\",\n      \"status\": \"active\",\n      \"avatarUrl\": \"https://...\",\n      \"joinedAt\": \"2024-01-05T00:00:00Z\",\n      \"lastActive\": \"2024-01-14T14:20:00Z\"\n    }\n  ],\n  \"total\": 5,\n  \"page\": 1,\n  \"pageSize\": 20,\n  \"totalPages\": 1\n}\n```\n\n**Errors:**\n- `401`: Unauthorized"
+					},
+					"response": []
+				},
+				{
+					"name": "Invite Team Member",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newmember@example.com\",\n  \"role\": \"member\",\n  \"name\": \"New Member\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/team/members",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "members"]
+						},
+						"description": "Invite a new member to the organization.\n\n**Requires:** Bearer token, Admin or Owner role\n\n**Request Body:**\n- `email` (string, required): Valid email address\n- `role` (enum, required): \"admin\" or \"member\"\n- `name` (string, optional): Member's name\n\n**Plan Limits:**\n- Free: 3 members max\n- Pro: 10 members max\n- Enterprise: Unlimited\n\n**Response (201):**\n```json\n{\n  \"success\": true,\n  \"member\": {\n    \"id\": \"usr-789\",\n    \"email\": \"newmember@example.com\",\n    \"name\": \"New Member\",\n    \"role\": \"member\",\n    \"status\": \"pending\"\n  },\n  \"message\": \"Invitation sent successfully\"\n}\n```\n\n**Errors:**\n- `400`: Invalid email or role\n- `401`: Unauthorized\n- `403`: Insufficient permissions (not admin/owner) or plan limit reached\n- `409`: Member already exists"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Member Role",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/team/members/:memberId/role",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "members", ":memberId", "role"],
+							"variable": [
+								{
+									"key": "memberId",
+									"value": "usr-456"
+								}
+							]
+						},
+						"description": "Update a team member's role.\n\n**Requires:** Bearer token, Owner role\n\n**Path Parameters:**\n- `memberId` (string, required): Member UUID\n\n**Request Body:**\n- `role` (enum, required): \"admin\" or \"member\"\n\n**Restrictions:**\n- Only owners can change roles\n- Cannot change own role\n- Cannot change owner role\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"member\": {\n    \"id\": \"usr-456\",\n    \"email\": \"member@example.com\",\n    \"name\": \"Team Member\",\n    \"role\": \"admin\"\n  },\n  \"message\": \"Role updated successfully\"\n}\n```\n\n**Errors:**\n- `400`: Invalid role\n- `401`: Unauthorized\n- `403`: Insufficient permissions (not owner)\n- `404`: Member not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Remove Team Member",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/team/members/:memberId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "members", ":memberId"],
+							"variable": [
+								{
+									"key": "memberId",
+									"value": "usr-456"
+								}
+							]
+						},
+						"description": "Remove a member from the organization (soft delete).\n\n**Requires:** Bearer token, Admin or Owner role\n\n**Path Parameters:**\n- `memberId` (string, required): Member UUID\n\n**Restrictions:**\n- Cannot remove yourself\n- Cannot remove the owner\n- Members can only be removed by admin/owner\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Member removed successfully\"\n}\n```\n\n**Errors:**\n- `400`: Cannot remove yourself or owner\n- `401`: Unauthorized\n- `403`: Insufficient permissions\n- `404`: Member not found"
+					},
+					"response": []
+				},
+				{
+					"name": "List Pending Invites",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/team/invites",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "invites"]
+						},
+						"description": "Get list of pending invitations.\n\n**Requires:** Bearer token, Admin or Owner role\n\n**Response (200):**\n```json\n{\n  \"invites\": [\n    {\n      \"id\": \"inv-123\",\n      \"email\": \"pending@example.com\",\n      \"role\": \"member\",\n      \"invitedBy\": \"admin@example.com\",\n      \"invitedAt\": \"2024-01-15T10:30:00Z\",\n      \"expiresAt\": \"2024-01-22T10:30:00Z\"\n    }\n  ],\n  \"total\": 1\n}\n```\n\n**Errors:**\n- `401`: Unauthorized\n- `403`: Insufficient permissions"
+					},
+					"response": []
+				},
+				{
+					"name": "Resend Invitation",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/team/invites/:inviteId/resend",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "invites", ":inviteId", "resend"],
+							"variable": [
+								{
+									"key": "inviteId",
+									"value": "inv-123"
+								}
+							]
+						},
+						"description": "Resend an invitation email.\n\n**Requires:** Bearer token, Admin or Owner role\n\n**Path Parameters:**\n- `inviteId` (string, required): Invitation UUID\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Invitation resent successfully\"\n}\n```\n\n**Errors:**\n- `401`: Unauthorized\n- `403`: Insufficient permissions\n- `404`: Invitation not found"
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Invitation",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/team/invites/:inviteId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "team", "invites", ":inviteId"],
+							"variable": [
+								{
+									"key": "inviteId",
+									"value": "inv-123"
+								}
+							]
+						},
+						"description": "Cancel a pending invitation.\n\n**Requires:** Bearer token, Admin or Owner role\n\n**Path Parameters:**\n- `inviteId` (string, required): Invitation UUID\n\n**Response (200):**\n```json\n{\n  \"success\": true,\n  \"message\": \"Invitation cancelled\"\n}\n```\n\n**Errors:**\n- `401`: Unauthorized\n- `403`: Insufficient permissions\n- `404`: Invitation not found"
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "Costs",
 			"description": "Cost tracking and analysis",
 			"item": [

@@ -109,6 +109,12 @@ async function githubConnectHandler(
   const state = generateOAuthState(orgId, "github", "/settings/integrations");
   const authUrl = getGitHubAuthUrl(state);
 
+  if (!authUrl) {
+    logger.error("Failed to generate GitHub auth URL");
+    reply.redirect("/settings/integrations?error=github_config_error");
+    return;
+  }
+
   logger.info({ orgId }, "Initiating GitHub OAuth flow");
   reply.redirect(authUrl);
 }
@@ -210,6 +216,12 @@ async function slackConnectHandler(
 
   const state = generateOAuthState(orgId, "slack", "/settings/integrations");
   const authUrl = getSlackAuthUrl(state);
+
+  if (!authUrl) {
+    logger.error("Failed to generate Slack auth URL");
+    reply.redirect("/settings/integrations?error=slack_config_error");
+    return;
+  }
 
   logger.info({ orgId }, "Initiating Slack OAuth flow");
   reply.redirect(authUrl);
@@ -316,6 +328,12 @@ async function jiraConnectHandler(
   const state = generateOAuthState(orgId, "jira", "/settings/integrations");
   const authUrl = getJiraAuthUrl(state);
 
+  if (!authUrl) {
+    logger.error("Failed to generate Jira auth URL");
+    reply.redirect("/settings/integrations?error=jira_config_error");
+    return;
+  }
+
   logger.info({ orgId }, "Initiating Jira OAuth flow");
   reply.redirect(authUrl);
 }
@@ -410,6 +428,12 @@ async function teamsConnectHandler(
 
   const state = generateOAuthState(orgId, "teams", "/settings/integrations");
   const authUrl = getTeamsAuthUrl(state);
+
+  if (!authUrl) {
+    logger.error("Failed to generate Teams auth URL");
+    reply.redirect("/settings/integrations?error=teams_config_error");
+    return;
+  }
 
   logger.info({ orgId }, "Initiating Teams OAuth flow");
   reply.redirect(authUrl);

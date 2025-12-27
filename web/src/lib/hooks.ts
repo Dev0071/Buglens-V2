@@ -433,6 +433,56 @@ export interface DailyAnalytics {
   avgConfidence: number;
 }
 
+export interface RCAQualityData {
+  period: string;
+  totalRCAs: number;
+  qualityBreakdown: {
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  };
+  percentages: {
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  };
+  avgConfidence: number;
+  avgProcessingTime: number;
+}
+
+/**
+ * Fetch RCA quality metrics for the last 7 days
+ */
+export function useRCAQuality() {
+  return useQuery({
+    queryKey: queryKeys.analytics.rcaQuality(),
+    queryFn: async (): Promise<RCAQualityData> => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return {
+          period: "7d",
+          totalRCAs: 47,
+          qualityBreakdown: {
+            highConfidence: 39,
+            mediumConfidence: 6,
+            lowConfidence: 2,
+          },
+          percentages: {
+            highConfidence: 82,
+            mediumConfidence: 12,
+            lowConfidence: 6,
+          },
+          avgConfidence: 0.82,
+          avgProcessingTime: 23.5,
+        };
+      }
+      return apiClient.get<RCAQualityData>("/analytics/rca-quality");
+    },
+    staleTime: 60 * 1000, // 1 minute
+    refetchInterval: 5 * 60 * 1000, // Refresh every 5 minutes
+  });
+}
+
 /**
  * Fetch analytics summary for a given time period
  */
@@ -505,5 +555,435 @@ export function useDailyAnalytics(period: "7d" | "30d" | "90d" = "30d") {
       );
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ============================================================================
+// Billing Hooks
+// ============================================================================
+
+export interface BillingUsage {
+  plan: "free" | "pro" | "enterprise";
+  limits: {
+    eventsPerDay: number;
+    llmTokensPerDay: number;
+    usersAllowed: number;
+  };
+  usage: {
+    eventsToday: number;
+    llmTokensToday: number;
+    teamMembers: number;
+  };
+}
+
+/**
+ * Fetch billing usage and plan information
+ */
+export function useBillingUsage() {
+  return useQuery({
+    queryKey: queryKeys.settings.billing(),
+    queryFn: async (): Promise<BillingUsage> => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return {
+          plan: "pro",
+          limits: {
+            eventsPerDay: 1000,
+            llmTokensPerDay: 500000,
+            usersAllowed: 10,
+          },
+          usage: {
+            eventsToday: 234,
+            llmTokensToday: 125000,
+            teamMembers: 3,
+          },
+        };
+      }
+      return apiClient.get<BillingUsage>("/settings/billing/usage");
+    },
+    staleTime: 60 * 1000, // 1 minute
+  });
+}
+
+/**
+ * Upgrade organization plan (mutation)
+ */
+export function useUpgradePlan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (plan: "free" | "pro" | "enterprise") => {
+      if (isMockMode()) {
+        await mockDelay(800);
+        return { success: true, plan };
+      }
+      return apiClient.post("/settings/billing/upgrade", { plan });
+    },
+    onSuccess: () => {
+      // Invalidate billing and organization queries
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.billing(),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.organization(),
+      });
+    },
+  });
+}
+
+/**
+ * Delete organization (mutation)
+ */
+export function useDeleteOrganization() {
+  return useMutation({
+    mutationFn: async () => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return { success: true };
+      }
+      return apiClient.delete("/settings/organization");
+    },
+  });
+}
+
+// ============================================================================
+// Team Management Hooks
+// ============================================================================
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "owner" | "admin" | "member";
+  isActive: boolean;
+  avatarUrl: string | null;
+  githubUsername: string | null;
+  slackUserId: string | null;
+  createdAt: string;
+  lastActiveAt: string | null;
+}
+
+export interface TeamMembersResponse {
+  members: TeamMember[];
+  total: number;
+}
+
+/**
+ * Fetch team members for the organization
+ */
+export function useTeamMembers() {
+  return useQuery({
+    queryKey: queryKeys.team.members(),
+    queryFn: async (): Promise<TeamMembersResponse> => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return {
+          members: [
+            {
+              id: "user-1",
+              email: "owner@company.com",
+              name: "Sarah Chen",
+              role: "owner",
+              isActive: true,
+              avatarUrl: null,
+              githubUsername: "sarahchen",
+              slackUserId: "U12345",
+              createdAt: new Date(
+                Date.now() - 90 * 24 * 60 * 60 * 1000
+              ).toISOString(),
+              lastActiveAt: new Date().toISOString(),
+            },
+            {
+              id: "user-2",
+              email: "admin@company.com",
+              name: "Mike Johnson",
+              role: "admin",
+              isActive: true,
+              avatarUrl: null,
+              githubUsername: "mikej",
+              slackUserId: "U12346",
+              createdAt: new Date(
+                Date.now() - 60 * 24 * 60 * 60 * 1000
+              ).toISOString(),
+              lastActiveAt: new Date(
+                Date.now() - 2 * 60 * 60 * 1000
+              ).toISOString(),
+            },
+            {
+              id: "user-3",
+              email: "member@company.com",
+              name: "Emily Davis",
+              role: "member",
+              isActive: true,
+              avatarUrl: null,
+              githubUsername: null,
+              slackUserId: null,
+              createdAt: new Date(
+                Date.now() - 30 * 24 * 60 * 60 * 1000
+              ).toISOString(),
+              lastActiveAt: new Date(
+                Date.now() - 24 * 60 * 60 * 1000
+              ).toISOString(),
+            },
+          ],
+          total: 3,
+        };
+      }
+      return apiClient.get<TeamMembersResponse>("/team/members");
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Invite a new team member (mutation)
+ */
+export function useInviteMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      email: string;
+      role: "admin" | "member";
+      name?: string;
+    }) => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return {
+          message: "Member invited successfully",
+          member: {
+            id: `user-${Date.now()}`,
+            email: data.email,
+            name: data.name || null,
+            role: data.role,
+            isActive: true,
+            avatarUrl: null,
+            githubUsername: null,
+            slackUserId: null,
+            createdAt: new Date().toISOString(),
+            lastActiveAt: null,
+          },
+        };
+      }
+      return apiClient.post("/team/members", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.team.members() });
+    },
+  });
+}
+
+/**
+ * Update team member role (mutation)
+ */
+export function useUpdateMemberRole() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      memberId: string;
+      role: "admin" | "member";
+    }) => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return { message: "Role updated successfully" };
+      }
+      return apiClient.patch(`/team/members/${data.memberId}/role`, {
+        role: data.role,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.team.members() });
+    },
+  });
+}
+
+/**
+ * Remove team member (mutation)
+ */
+export function useRemoveMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (memberId: string) => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return { message: "Member removed successfully" };
+      }
+      return apiClient.delete(`/team/members/${memberId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.team.members() });
+    },
+  });
+}
+
+// ============================================================================
+// Profile Hooks
+// ============================================================================
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: string;
+  emailVerified: boolean;
+  authProvider: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface NotificationPreferences {
+  emailNotifications: boolean;
+  slackNotifications: boolean;
+  dailyDigest: boolean;
+  weeklyReport: boolean;
+  notificationLevel: "all" | "high" | "critical" | "none";
+}
+
+/**
+ * Fetch user profile
+ */
+export function useProfile() {
+  return useQuery({
+    queryKey: queryKeys.profile.details(),
+    queryFn: async (): Promise<{ profile: UserProfile }> => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return {
+          profile: {
+            id: "user-1",
+            email: "user@example.com",
+            name: "John Doe",
+            avatarUrl: null,
+            role: "owner",
+            emailVerified: true,
+            authProvider: "email",
+            createdAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString(),
+          },
+        };
+      }
+      return apiClient.get<{ profile: UserProfile }>("/profile");
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Update user profile (mutation)
+ */
+export function useUpdateProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { name?: string; avatarUrl?: string | null }) => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return {
+          success: true,
+          profile: {
+            id: "user-1",
+            email: "user@example.com",
+            name: data.name || "John Doe",
+            avatarUrl: data.avatarUrl || null,
+            role: "owner",
+          },
+          message: "Profile updated successfully",
+        };
+      }
+      return apiClient.patch("/profile", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile.details() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.me() });
+    },
+  });
+}
+
+/**
+ * Change user password (mutation)
+ */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (data: {
+      currentPassword: string;
+      newPassword: string;
+    }) => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return { success: true, message: "Password changed successfully" };
+      }
+      return apiClient.post("/profile/change-password", data);
+    },
+  });
+}
+
+/**
+ * Fetch notification preferences
+ */
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: queryKeys.profile.notifications(),
+    queryFn: async (): Promise<{ preferences: NotificationPreferences }> => {
+      if (isMockMode()) {
+        await mockDelay(300);
+        return {
+          preferences: {
+            emailNotifications: true,
+            slackNotifications: true,
+            dailyDigest: false,
+            weeklyReport: false,
+            notificationLevel: "high",
+          },
+        };
+      }
+      return apiClient.get<{ preferences: NotificationPreferences }>(
+        "/profile/notifications"
+      );
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Update notification preferences (mutation)
+ */
+export function useUpdateNotificationPreferences() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: Partial<NotificationPreferences>) => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return {
+          success: true,
+          preferences: data,
+          message: "Notification preferences updated",
+        };
+      }
+      return apiClient.patch("/profile/notifications", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.profile.notifications(),
+      });
+    },
+  });
+}
+
+/**
+ * Delete user account (mutation)
+ */
+export function useDeleteAccount() {
+  return useMutation({
+    mutationFn: async () => {
+      if (isMockMode()) {
+        await mockDelay(500);
+        return { success: true, message: "Account deleted successfully" };
+      }
+      return apiClient.delete("/profile");
+    },
   });
 }

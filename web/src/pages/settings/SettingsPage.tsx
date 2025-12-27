@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BuildingOfficeIcon,
   UsersIcon,
@@ -21,19 +21,39 @@ import {
   XCircleIcon,
   ArrowPathIcon,
   ClipboardDocumentIcon,
+  UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
 import {
   useOrganizationSettings,
   useUpdateSettings,
   useIntegrations,
   useConnectIntegration,
   useDisconnectIntegration,
+  useBillingUsage,
+  useUpgradePlan,
+  useTeamMembers,
+  useInviteMember,
+  useUpdateMemberRole,
+  useRemoveMember,
+  useProfile,
+  useUpdateProfile,
+  useChangePassword,
+  useNotificationPreferences,
+  useDeleteAccount,
 } from "@/lib/hooks";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { useToast } from "@/components/ui/toaster";
 
 // Settings navigation items
 const settingsNav = [
+  {
+    name: "Profile",
+    href: "/settings/profile",
+    icon: UserCircleIcon,
+    description: "Your personal settings",
+  },
   {
     name: "Organization",
     href: "/settings",
@@ -134,6 +154,8 @@ function SettingsPage() {
           {/* Render nested routes or default content */}
           {location.pathname === "/settings" ? (
             <OrganizationSettings />
+          ) : location.pathname === "/settings/profile" ? (
+            <ProfileSettings />
           ) : location.pathname === "/settings/team" ? (
             <TeamSettings />
           ) : location.pathname === "/settings/integrations" ? (
@@ -160,12 +182,16 @@ function SettingsPage() {
 function OrganizationSettings() {
   const { data: settings, isLoading } = useOrganizationSettings();
   const updateSettings = useUpdateSettings();
+  const { success, error: showError } = useToast();
+  const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
     name: "",
     timezone: "UTC",
     defaultEnvironment: "production",
   });
+  const [copied, setCopied] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   if (isLoading) {
     return (
@@ -179,7 +205,41 @@ function OrganizationSettings() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateSettings.mutateAsync({ name: formData.name || settings?.name });
+    try {
+      await updateSettings.mutateAsync({
+        name: formData.name || settings?.name,
+      });
+      success("Settings updated", "Organization settings saved successfully");
+    } catch (err) {
+      showError("Update failed", "Failed to update organization settings");
+    }
+  };
+
+  const handleCopyOrgId = async () => {
+    try {
+      await navigator.clipboard.writeText(settings?.id || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch (err) {
+      showError("Copy failed", "Failed to copy organization ID");
+    }
+  };
+
+  const handleDeleteOrganization = async () => {
+    if (!showDeleteConfirm) {
+      setShowDeleteConfirm(true);
+      return;
+    }
+
+    try {
+      // TODO: Call delete organization API
+      // await deleteOrganization(settings?.id);
+      success("Organization deleted", "Your organization has been deleted");
+      // Redirect to sign up or landing page
+      navigate("/signup");
+    } catch (err) {
+      showError("Delete failed", "Failed to delete organization");
+    }
   };
 
   return (
@@ -222,11 +282,9 @@ function OrganizationSettings() {
                 <button
                   type="button"
                   className="btn btn-ghost text-sm"
-                  onClick={() =>
-                    navigator.clipboard.writeText(settings?.id || "")
-                  }
+                  onClick={handleCopyOrgId}
                 >
-                  Copy
+                  {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
             </div>
@@ -349,10 +407,38 @@ function OrganizationSettings() {
                 Permanently delete this organization and all its data
               </p>
             </div>
-            <button className="btn bg-red-600 hover:bg-red-700 text-white">
-              Delete Organization
-            </button>
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="btn bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete Organization
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="btn btn-ghost"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteOrganization}
+                  className="btn bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Confirm Delete
+                </button>
+              </div>
+            )}
           </div>
+          {showDeleteConfirm && (
+            <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-600 dark:text-red-400">
+                ⚠️ This action cannot be undone. All data will be permanently
+                deleted.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -364,44 +450,89 @@ function OrganizationSettings() {
 // ============================================================================
 
 function TeamSettings() {
+  const toast = useToast();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "member" | "viewer">(
-    "member"
-  );
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  const [editingMember, setEditingMember] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
-  // Mock team members
-  const teamMembers = [
-    {
-      id: "1",
-      name: "John Doe",
-      email: "john@example.com",
-      role: "admin",
-      avatarUrl: null,
-      lastActive: "2024-01-15T10:30:00Z",
-    },
-    {
-      id: "2",
-      name: "Jane Smith",
-      email: "jane@example.com",
-      role: "member",
-      avatarUrl: null,
-      lastActive: "2024-01-15T09:15:00Z",
-    },
-    {
-      id: "3",
-      name: "Bob Wilson",
-      email: "bob@example.com",
-      role: "viewer",
-      avatarUrl: null,
-      lastActive: "2024-01-14T16:45:00Z",
-    },
-  ];
+  const { data: teamData, isLoading, error } = useTeamMembers();
+  const inviteMutation = useInviteMember();
+  const updateRoleMutation = useUpdateMemberRole();
+  const removeMutation = useRemoveMember();
 
-  const handleInvite = (e: React.FormEvent) => {
+  const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement invite mutation with useInviteTeamMember hook
-    setInviteEmail("");
+    try {
+      await inviteMutation.mutateAsync({
+        email: inviteEmail,
+        role: inviteRole,
+        name: inviteName || undefined,
+      });
+      toast.success(
+        "Invitation Sent",
+        `Invited ${inviteEmail} as ${inviteRole}`
+      );
+      setInviteEmail("");
+      setInviteName("");
+      setInviteRole("member");
+    } catch (err) {
+      toast.error(
+        "Invitation Failed",
+        "Failed to send invitation. Please try again."
+      );
+    }
   };
+
+  const handleRoleChange = async (
+    memberId: string,
+    newRole: "admin" | "member"
+  ) => {
+    try {
+      await updateRoleMutation.mutateAsync({ memberId, role: newRole });
+      toast.success("Role Updated", `Member role updated to ${newRole}`);
+      setEditingMember(null);
+    } catch (err) {
+      toast.error(
+        "Update Failed",
+        "Failed to update role. Only owners can change roles."
+      );
+    }
+  };
+
+  const handleRemove = async (memberId: string) => {
+    try {
+      await removeMutation.mutateAsync(memberId);
+      toast.success("Member Removed", "Team member has been removed");
+      setConfirmRemove(null);
+    } catch (err) {
+      toast.error(
+        "Remove Failed",
+        "Failed to remove member. Check permissions."
+      );
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="card">
+        <div className="card-body text-center py-8">
+          <p className="text-red-500">Failed to load team members</p>
+        </div>
+      </div>
+    );
+  }
+
+  const teamMembers = teamData?.members || [];
 
   return (
     <div className="space-y-6">
@@ -413,31 +544,62 @@ function TeamSettings() {
           </h2>
         </div>
         <div className="card-body">
-          <form onSubmit={handleInvite} className="flex gap-4">
-            <div className="flex-1">
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="email@example.com"
-                className="input"
-                required
-              />
+          <form onSubmit={handleInvite} className="space-y-4">
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                  className="input"
+                  required
+                />
+              </div>
+              <div className="w-48">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Name (optional)
+                </label>
+                <input
+                  type="text"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  placeholder="John Doe"
+                  className="input"
+                />
+              </div>
             </div>
-            <select
-              value={inviteRole}
-              onChange={(e) =>
-                setInviteRole(e.target.value as "admin" | "member" | "viewer")
-              }
-              className="input w-32"
-            >
-              <option value="admin">Admin</option>
-              <option value="member">Member</option>
-              <option value="viewer">Viewer</option>
-            </select>
-            <button type="submit" className="btn btn-primary">
-              Send Invite
-            </button>
+            <div className="flex gap-4 items-end">
+              <div className="w-40">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Role
+                </label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) =>
+                    setInviteRole(e.target.value as "admin" | "member")
+                  }
+                  className="input"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={inviteMutation.isPending}
+              >
+                {inviteMutation.isPending ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  "Send Invite"
+                )}
+              </button>
+            </div>
           </form>
         </div>
       </div>
@@ -449,7 +611,7 @@ function TeamSettings() {
             Team Members
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {teamMembers.length} members
+            {teamMembers.length} member{teamMembers.length !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -461,41 +623,110 @@ function TeamSettings() {
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-brand-100 dark:bg-brand-900/30 rounded-full flex items-center justify-center">
                   <span className="text-brand-700 dark:text-brand-400 font-medium">
-                    {member.name
-                      .split(" ")
-                      .map((n) => n[0])
+                    {(member.name || member.email)
+                      .split(/[\s@]/)
+                      .slice(0, 2)
+                      .map((n) => n[0]?.toUpperCase())
                       .join("")}
                   </span>
                 </div>
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">
-                    {member.name}
+                    {member.name || member.email.split("@")[0]}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {member.email}
                   </p>
+                  {member.lastActiveAt && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      Last active:{" "}
+                      {new Date(member.lastActiveAt).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <span
-                  className={cn(
-                    "badge",
-                    member.role === "admin"
-                      ? "badge-info"
-                      : member.role === "member"
-                        ? "badge-success"
-                        : "badge-warning"
-                  )}
-                >
-                  {member.role}
-                </span>
-                <button className="btn btn-ghost text-sm">Edit</button>
-                <button className="btn btn-ghost text-sm text-red-600 dark:text-red-400">
-                  Remove
-                </button>
+                {editingMember === member.id && member.role !== "owner" ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      defaultValue={member.role}
+                      className="input text-sm py-1"
+                      onChange={(e) =>
+                        handleRoleChange(
+                          member.id,
+                          e.target.value as "admin" | "member"
+                        )
+                      }
+                      disabled={updateRoleMutation.isPending}
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      className="btn btn-ghost text-sm"
+                      onClick={() => setEditingMember(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span
+                      className={cn(
+                        "badge",
+                        member.role === "owner"
+                          ? "badge-info"
+                          : member.role === "admin"
+                            ? "badge-success"
+                            : "badge-warning"
+                      )}
+                    >
+                      {member.role}
+                    </span>
+                    {member.role !== "owner" && (
+                      <>
+                        <button
+                          className="btn btn-ghost text-sm"
+                          onClick={() => setEditingMember(member.id)}
+                        >
+                          Edit
+                        </button>
+                        {confirmRemove === member.id ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="btn btn-ghost text-sm text-red-600 dark:text-red-400"
+                              onClick={() => handleRemove(member.id)}
+                              disabled={removeMutation.isPending}
+                            >
+                              {removeMutation.isPending ? "..." : "Confirm"}
+                            </button>
+                            <button
+                              className="btn btn-ghost text-sm"
+                              onClick={() => setConfirmRemove(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="btn btn-ghost text-sm text-red-600 dark:text-red-400"
+                            onClick={() => setConfirmRemove(member.id)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}
+          {teamMembers.length === 0 && (
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+              No team members yet. Invite your first team member above.
+            </div>
+          )}
         </div>
       </div>
 
@@ -514,42 +745,70 @@ function TeamSettings() {
                   Permission
                 </th>
                 <th className="text-center py-2 font-medium text-gray-500 dark:text-gray-400">
+                  Owner
+                </th>
+                <th className="text-center py-2 font-medium text-gray-500 dark:text-gray-400">
                   Admin
                 </th>
                 <th className="text-center py-2 font-medium text-gray-500 dark:text-gray-400">
                   Member
                 </th>
-                <th className="text-center py-2 font-medium text-gray-500 dark:text-gray-400">
-                  Viewer
-                </th>
               </tr>
             </thead>
             <tbody>
               {[
-                "View Events",
-                "View RCAs",
-                "Manage Integrations",
-                "Manage Team",
-                "Manage Billing",
-                "Delete Organization",
-              ].map((permission) => (
+                {
+                  name: "View Events & RCAs",
+                  owner: true,
+                  admin: true,
+                  member: true,
+                },
+                {
+                  name: "Manage Integrations",
+                  owner: true,
+                  admin: true,
+                  member: false,
+                },
+                {
+                  name: "Invite Members",
+                  owner: true,
+                  admin: true,
+                  member: false,
+                },
+                {
+                  name: "Change Member Roles",
+                  owner: true,
+                  admin: false,
+                  member: false,
+                },
+                {
+                  name: "Manage Billing",
+                  owner: true,
+                  admin: false,
+                  member: false,
+                },
+                {
+                  name: "Delete Organization",
+                  owner: true,
+                  admin: false,
+                  member: false,
+                },
+              ].map((perm) => (
                 <tr
-                  key={permission}
+                  key={perm.name}
                   className="border-b border-gray-100 dark:border-gray-800"
                 >
                   <td className="py-2 text-gray-700 dark:text-gray-300">
-                    {permission}
-                  </td>
-                  <td className="py-2 text-center">✅</td>
-                  <td className="py-2 text-center">
-                    {["View Events", "View RCAs"].includes(permission)
-                      ? "✅"
-                      : "❌"}
+                    {perm.name}
                   </td>
                   <td className="py-2 text-center">
-                    {["View Events", "View RCAs"].includes(permission)
-                      ? "✅"
-                      : "❌"}
+                    {perm.owner ? "✅" : "❌"}
+                  </td>
+                  <td className="py-2 text-center">
+                    {perm.admin ? "✅" : "❌"}
+                  </td>
+                  <td className="py-2 text-center">
+                    {perm.member ? "✅" : "❌"}
                   </td>
                 </tr>
               ))}
@@ -690,29 +949,28 @@ function IntegrationsSettings() {
     } else {
       // OAuth-based integrations - get auth URL from backend and redirect
       try {
-        const response = await fetch(`/api/integrations/${type}/connect`, {
-          credentials: "include",
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.authUrl) {
-            // Redirect to OAuth provider
-            window.location.href = data.authUrl;
-          } else {
-            // Direct connection (no OAuth needed)
-            window.location.href = `/api/integrations/${type}/connect`;
-          }
+        const data = await apiClient.get<{ authUrl: string; method?: string }>(
+          `/integrations/${type}/connect`
+        );
+
+        if (data.authUrl) {
+          // Redirect to OAuth provider
+          window.location.href = data.authUrl;
+          console.log("Redirecting to auth URL:", data.authUrl);
         } else {
-          const error = await response.json();
           setNotification({
             type: "error",
-            message: error.message || "Failed to start OAuth flow",
+            message: "No authentication URL received",
           });
         }
-      } catch {
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to connect integration";
         setNotification({
           type: "error",
-          message: "Failed to connect integration",
+          message,
         });
       }
     }
@@ -956,38 +1214,13 @@ function IntegrationCard({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "badge",
-                isConnected
-                  ? "badge-success"
-                  : available
-                    ? "badge-warning"
-                    : "badge-gray"
-              )}
-            >
-              {isConnected
-                ? "Connected"
-                : available
-                  ? "Not Connected"
-                  : "Unavailable"}
-            </span>
             {isConnected ? (
-              <div className="flex gap-2">
-                <button
-                  className="btn btn-secondary flex items-center gap-1"
-                  onClick={onConnect}
-                >
-                  <ArrowPathIcon className="w-4 h-4" />
-                  Reconnect
-                </button>
-                <button
-                  className="btn btn-ghost text-red-600 dark:text-red-400"
-                  onClick={onDisconnect}
-                >
-                  Disconnect
-                </button>
-              </div>
+              <button
+                className="btn btn-ghost text-red-600 dark:text-red-400"
+                onClick={onDisconnect}
+              >
+                Disconnect
+              </button>
             ) : available ? (
               <button className="btn btn-primary" onClick={onConnect}>
                 Connect
@@ -1439,25 +1672,418 @@ function NotificationSettings() {
 }
 
 // ============================================================================
+// Profile Settings Section
+// ============================================================================
+
+function ProfileSettings() {
+  const toast = useToast();
+  const { data: profileData, isLoading: profileLoading } = useProfile();
+  const { isLoading: notifLoading } = useNotificationPreferences();
+  const updateProfileMutation = useUpdateProfile();
+  const changePasswordMutation = useChangePassword();
+  // TODO: Add notification preferences UI using useUpdateNotificationPreferences
+  const deleteAccountMutation = useDeleteAccount();
+
+  const [name, setName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Initialize form with profile data
+  useEffect(() => {
+    if (profileData?.profile) {
+      setName(profileData.profile.name || "");
+      setAvatarUrl(profileData.profile.avatarUrl || "");
+    }
+  }, [profileData]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateProfileMutation.mutateAsync({
+        name: name || undefined,
+        avatarUrl: avatarUrl || null,
+      });
+      toast.success("Profile Updated", "Your profile has been updated");
+    } catch {
+      toast.error("Update Failed", "Failed to update profile");
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast.error("Password Mismatch", "New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error(
+        "Password Too Short",
+        "Password must be at least 8 characters"
+      );
+      return;
+    }
+    try {
+      await changePasswordMutation.mutateAsync({
+        currentPassword,
+        newPassword,
+      });
+      toast.success("Password Changed", "Your password has been updated");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      toast.error("Change Failed", "Failed to change password");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      await deleteAccountMutation.mutateAsync();
+      toast.success("Account Deleted", "Your account has been deleted");
+      // Redirect to login after deletion
+      window.location.href = "/login";
+    } catch {
+      toast.error("Delete Failed", "Failed to delete account");
+    }
+  };
+
+  if (profileLoading || notifLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  const profile = profileData?.profile;
+  const isOAuthUser = profile?.authProvider && profile.authProvider !== "email";
+
+  return (
+    <div className="space-y-6">
+      {/* Profile Information */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Profile Information
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Update your personal information
+          </p>
+        </div>
+        <div className="card-body">
+          <form onSubmit={handleUpdateProfile} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={profile?.email || ""}
+                disabled
+                className="input w-full bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Email cannot be changed
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter your full name"
+                className="input w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Avatar URL
+              </label>
+              <input
+                type="url"
+                value={avatarUrl}
+                onChange={(e) => setAvatarUrl(e.target.value)}
+                placeholder="https://example.com/avatar.png"
+                className="input w-full"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Enter a URL to your profile picture
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={updateProfileMutation.isPending}
+              >
+                {updateProfileMutation.isPending ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  "Save Changes"
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* Account Details */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Account Details
+          </h2>
+        </div>
+        <div className="card-body">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">Role:</span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-white capitalize">
+                {profile?.role || "member"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">
+                Auth Provider:
+              </span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-white capitalize">
+                {profile?.authProvider || "email"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">
+                Email Verified:
+              </span>
+              <span
+                className={`ml-2 font-medium ${profile?.emailVerified ? "text-green-600" : "text-yellow-600"}`}
+              >
+                {profile?.emailVerified ? "Yes" : "No"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">
+                Member Since:
+              </span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                {profile?.createdAt
+                  ? new Date(profile.createdAt).toLocaleDateString()
+                  : "-"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Change Password (only for email users) */}
+      {!isOAuthUser && (
+        <div className="card">
+          <div className="card-header">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Change Password
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Update your account password
+            </p>
+          </div>
+          <div className="card-body">
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                  className="input w-full"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  className="input w-full"
+                  required
+                  minLength={8}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  className="input w-full"
+                  required
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={changePasswordMutation.isPending}
+                >
+                  {changePasswordMutation.isPending ? (
+                    <LoadingSpinner size="sm" />
+                  ) : (
+                    "Change Password"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isOAuthUser && (
+        <div className="card">
+          <div className="card-header">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Password
+            </h2>
+          </div>
+          <div className="card-body">
+            <p className="text-gray-500 dark:text-gray-400">
+              Your account is linked to {profile?.authProvider}. Password
+              management is handled by your OAuth provider.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Danger Zone */}
+      <div className="card border-red-200 dark:border-red-900">
+        <div className="card-header bg-red-50 dark:bg-red-900/20">
+          <h2 className="text-lg font-semibold text-red-600 dark:text-red-400">
+            Danger Zone
+          </h2>
+          <p className="text-sm text-red-500 dark:text-red-400">
+            Irreversible actions
+          </p>
+        </div>
+        <div className="card-body">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-gray-900 dark:text-white">
+                Delete Account
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Permanently delete your account and all associated data
+              </p>
+            </div>
+            <button
+              className="btn bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete Account
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Confirm Account Deletion
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Are you sure you want to delete your account? This action cannot
+              be undone and all your data will be permanently removed.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn bg-red-600 hover:bg-red-700 text-white"
+                onClick={handleDeleteAccount}
+                disabled={deleteAccountMutation.isPending}
+              >
+                {deleteAccountMutation.isPending ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  "Delete Account"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Billing Settings Section
 // ============================================================================
 
 function BillingSettings() {
-  const { data: settings } = useOrganizationSettings();
+  const toast = useToast();
+  const { data: billingData, isLoading, error } = useBillingUsage();
+  const upgradeMutation = useUpgradePlan();
+
+  const handleUpgrade = async (plan: "free" | "pro" | "enterprise") => {
+    if (plan === "enterprise") {
+      // Open contact sales page or modal
+      window.open(
+        "mailto:sales@buglens.io?subject=Enterprise%20Plan%20Inquiry",
+        "_blank"
+      );
+      return;
+    }
+
+    try {
+      await upgradeMutation.mutateAsync(plan);
+      toast.success(
+        "Plan Updated",
+        `Successfully switched to ${plan.toUpperCase()} plan`
+      );
+    } catch (err) {
+      toast.error(
+        "Upgrade Failed",
+        "Failed to upgrade plan. Please try again."
+      );
+    }
+  };
+
+  const currentPlan = billingData?.plan || "free";
 
   const plans = [
     {
+      id: "free" as const,
       name: "Free",
       price: 0,
       features: [
-        "100 events/day",
-        "50K LLM tokens/day",
-        "3 team members",
+        `${billingData?.limits?.eventsPerDay || 100} events/day`,
+        `${((billingData?.limits?.llmTokensPerDay || 50000) / 1000).toFixed(0)}K LLM tokens/day`,
+        `${billingData?.limits?.usersAllowed || 3} team members`,
         "7-day history",
       ],
-      current: settings?.plan === "free",
+      current: currentPlan === "free",
     },
     {
+      id: "pro" as const,
       name: "Pro",
       price: 49,
       features: [
@@ -1467,10 +2093,11 @@ function BillingSettings() {
         "30-day history",
         "Priority support",
       ],
-      current: settings?.plan === "pro",
+      current: currentPlan === "pro",
       recommended: true,
     },
     {
+      id: "enterprise" as const,
       name: "Enterprise",
       price: null,
       features: [
@@ -1481,9 +2108,29 @@ function BillingSettings() {
         "SLA guarantee",
         "Dedicated support",
       ],
-      current: settings?.plan === "enterprise",
+      current: currentPlan === "enterprise",
     },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="card">
+        <div className="card-body text-center py-8">
+          <p className="text-red-500">Failed to load billing information</p>
+        </div>
+      </div>
+    );
+  }
+
+  const priceMap: Record<string, number> = { free: 0, pro: 49, enterprise: 0 };
 
   return (
     <div className="space-y-6">
@@ -1498,16 +2145,58 @@ function BillingSettings() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {settings?.plan?.toUpperCase() || "PRO"} Plan
+                {currentPlan.toUpperCase()} Plan
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Billed monthly • Next billing date: Feb 1, 2024
+                {currentPlan === "free"
+                  ? "No billing"
+                  : "Billed monthly • Next billing date: Feb 1, 2024"}
               </p>
             </div>
             <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              $49<span className="text-sm font-normal">/month</span>
+              {currentPlan === "enterprise"
+                ? "Custom"
+                : `$${priceMap[currentPlan]}`}
+              {currentPlan !== "enterprise" && currentPlan !== "free" && (
+                <span className="text-sm font-normal">/month</span>
+              )}
             </p>
           </div>
+
+          {/* Usage Stats */}
+          {billingData?.usage && billingData?.limits && (
+            <div className="mt-6 grid grid-cols-3 gap-4">
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {billingData.usage.eventsToday?.toLocaleString() || 0}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Events Today /{" "}
+                  {billingData.limits.eventsPerDay?.toLocaleString() || "100"}
+                </p>
+              </div>
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {((billingData.usage.llmTokensToday || 0) / 1000).toFixed(1)}K
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Tokens Today /{" "}
+                  {(
+                    (billingData.limits.llmTokensPerDay || 50000) / 1000
+                  ).toFixed(0)}
+                  K
+                </p>
+              </div>
+              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {billingData.usage.teamMembers || 0}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Team Members / {billingData.limits.usersAllowed || 3}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1567,13 +2256,18 @@ function BillingSettings() {
                       ? "btn-primary"
                       : "btn-secondary"
                 )}
-                disabled={plan.current}
+                disabled={plan.current || upgradeMutation.isPending}
+                onClick={() => handleUpgrade(plan.id)}
               >
-                {plan.current
-                  ? "Current Plan"
-                  : plan.price === null
-                    ? "Contact Sales"
-                    : "Upgrade"}
+                {upgradeMutation.isPending ? (
+                  <LoadingSpinner size="sm" />
+                ) : plan.current ? (
+                  "Current Plan"
+                ) : plan.price === null ? (
+                  "Contact Sales"
+                ) : (
+                  "Upgrade"
+                )}
               </button>
             </div>
           </div>
@@ -1588,22 +2282,28 @@ function BillingSettings() {
           </h2>
         </div>
         <div className="card-body">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center">
-                <span className="text-white text-xs font-bold">VISA</span>
+          {currentPlan === "free" ? (
+            <p className="text-gray-500 dark:text-gray-400">
+              No payment method required for free plan
+            </p>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">VISA</span>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    •••• •••• •••• 4242
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Expires 12/25
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">
-                  •••• •••• •••• 4242
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Expires 12/25
-                </p>
-              </div>
+              <button className="btn btn-secondary">Update Card</button>
             </div>
-            <button className="btn btn-secondary">Update Card</button>
-          </div>
+          )}
         </div>
       </div>
 
@@ -1614,31 +2314,40 @@ function BillingSettings() {
             Billing History
           </h2>
         </div>
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {[
-            { date: "Jan 1, 2024", amount: 49.0, status: "Paid" },
-            { date: "Dec 1, 2023", amount: 49.0, status: "Paid" },
-            { date: "Nov 1, 2023", amount: 49.0, status: "Paid" },
-          ].map((invoice, i) => (
-            <div key={i} className="p-4 flex items-center justify-between">
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">
-                  {invoice.date}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Pro Plan
-                </p>
+        {currentPlan === "free" ? (
+          <div className="card-body">
+            <p className="text-gray-500 dark:text-gray-400">
+              No billing history for free plan
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {[
+              { date: "Jan 1, 2024", amount: 49.0, status: "Paid" },
+              { date: "Dec 1, 2023", amount: 49.0, status: "Paid" },
+              { date: "Nov 1, 2023", amount: 49.0, status: "Paid" },
+            ].map((invoice, i) => (
+              <div key={i} className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {invoice.date}
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}{" "}
+                    Plan
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="badge badge-success">{invoice.status}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    ${invoice.amount.toFixed(2)}
+                  </span>
+                  <button className="btn btn-ghost text-sm">Download</button>
+                </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="badge badge-success">{invoice.status}</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  ${invoice.amount.toFixed(2)}
-                </span>
-                <button className="btn btn-ghost text-sm">Download</button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

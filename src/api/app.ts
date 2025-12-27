@@ -19,6 +19,8 @@ import { settingsRoutes } from "./routes/settings.js";
 import { costsRoutes } from "./routes/costs.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { authRoutes } from "./routes/auth.js";
+import { teamRoutes } from "./routes/team.js";
+import { profileRoutes } from "./routes/profile.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -103,6 +105,8 @@ await server.register(integrationsRoutes, { prefix: "/api" });
 await server.register(settingsRoutes, { prefix: "/api" });
 await server.register(costsRoutes, { prefix: "/api" });
 await server.register(analyticsRoutes, { prefix: "/api" });
+await server.register(teamRoutes, { prefix: "/api" });
+await server.register(profileRoutes, { prefix: "/api" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

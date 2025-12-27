@@ -8,7 +8,7 @@
  * - Error handling for tampered data
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Mock config before imports
 vi.mock("../../src/utils/config.js", () => ({

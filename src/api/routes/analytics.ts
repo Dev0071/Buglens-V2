@@ -374,6 +374,98 @@ async function getDailyAnalyticsHandler(
   }
 }
 
+/**
+ * GET /api/analytics/rca-quality
+ *
+ * Returns RCA quality metrics for the last 7 days
+ */
+async function getRCAQualityHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const orgId = request.getOrgId();
+
+  if (!orgId) {
+    reply.status(401).send({
+      error: "Unauthorized",
+      message: "Organization context required",
+    });
+    return;
+  }
+
+  try {
+    // Get RCA quality data from last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const rcaQualityResult = await query<{
+      total_rcas: string;
+      high_confidence: string;
+      medium_confidence: string;
+      low_confidence: string;
+      avg_confidence: string | null;
+      avg_processing_time: string | null;
+    }>(
+      `SELECT
+        COUNT(*) as total_rcas,
+        COUNT(*) FILTER (WHERE confidence >= 0.8) as high_confidence,
+        COUNT(*) FILTER (WHERE confidence >= 0.5 AND confidence < 0.8) as medium_confidence,
+        COUNT(*) FILTER (WHERE confidence < 0.5) as low_confidence,
+        AVG(confidence) as avg_confidence,
+        AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) as avg_processing_time
+      FROM rca_results
+      WHERE org_id = $1
+        AND created_at >= $2
+        AND status = 'completed'`,
+      [orgId, sevenDaysAgo.toISOString()]
+    );
+
+    const result = rcaQualityResult.rows[0] || {
+      total_rcas: "0",
+      high_confidence: "0",
+      medium_confidence: "0",
+      low_confidence: "0",
+      avg_confidence: null,
+      avg_processing_time: null,
+    };
+
+    const totalRCAs = parseInt(result.total_rcas, 10);
+    const highConfidence = parseInt(result.high_confidence, 10);
+    const mediumConfidence = parseInt(result.medium_confidence, 10);
+    const lowConfidence = parseInt(result.low_confidence, 10);
+
+    reply.send({
+      period: "7d",
+      totalRCAs,
+      qualityBreakdown: {
+        highConfidence,
+        mediumConfidence,
+        lowConfidence,
+      },
+      percentages: {
+        highConfidence: totalRCAs > 0 ? (highConfidence / totalRCAs) * 100 : 0,
+        mediumConfidence:
+          totalRCAs > 0 ? (mediumConfidence / totalRCAs) * 100 : 0,
+        lowConfidence: totalRCAs > 0 ? (lowConfidence / totalRCAs) * 100 : 0,
+      },
+      avgConfidence: result.avg_confidence
+        ? parseFloat(result.avg_confidence)
+        : 0,
+      avgProcessingTime: result.avg_processing_time
+        ? parseFloat(result.avg_processing_time)
+        : 0,
+    });
+
+    logger.info({ orgId }, "RCA quality metrics retrieved successfully");
+  } catch (error) {
+    logger.error({ error, orgId }, "Failed to fetch RCA quality metrics");
+    reply.status(500).send({
+      error: "Internal Server Error",
+      message: "Failed to fetch RCA quality metrics",
+    });
+  }
+}
+
 // ============================================
 // Route Registration
 // ============================================
@@ -463,6 +555,45 @@ export async function analyticsRoutes(server: FastifyInstance): Promise<void> {
       },
     },
     getDailyAnalyticsHandler
+  );
+
+  // GET /api/analytics/rca-quality
+  server.get(
+    "/analytics/rca-quality",
+    {
+      schema: {
+        description: "Get RCA quality metrics for the last 7 days",
+        tags: ["Analytics"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              period: { type: "string" },
+              totalRCAs: { type: "number" },
+              qualityBreakdown: {
+                type: "object",
+                properties: {
+                  highConfidence: { type: "number" },
+                  mediumConfidence: { type: "number" },
+                  lowConfidence: { type: "number" },
+                },
+              },
+              percentages: {
+                type: "object",
+                properties: {
+                  highConfidence: { type: "number" },
+                  mediumConfidence: { type: "number" },
+                  lowConfidence: { type: "number" },
+                },
+              },
+              avgConfidence: { type: "number" },
+              avgProcessingTime: { type: "number" },
+            },
+          },
+        },
+      },
+    },
+    getRCAQualityHandler
   );
 
   logger.info("Analytics routes registered");

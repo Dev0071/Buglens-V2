@@ -361,7 +361,7 @@ export class AuthService {
     organization: AuthOrganization;
     refreshToken: string;
   }> {
-    const { provider, providerId, email, name, avatarUrl } = input;
+    const { provider, providerId: _providerId, email, name, avatarUrl } = input;
 
     // Check if user exists with this email
     const existingUser = await query<
@@ -414,7 +414,7 @@ export class AuthService {
       : `${email.split("@")[0]}'s Org`;
     const orgSlug = generateSlug(orgName) + "-" + Date.now().toString(36);
 
-    const result = await transaction(async (client) => {
+    const result = await transaction(null, async (client) => {
       // Create organization
       const orgResult = await client.query<OrganizationRecord>(
         `INSERT INTO organizations (name, slug, plan)

@@ -96,7 +96,12 @@ class PlatformCredentialsService {
           config.GITHUB_OAUTH_CLIENT_ID && config.GITHUB_OAUTH_CLIENT_SECRET
         );
       case "github_app":
-        return !!(config.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY);
+        // Require both app ID and app name to be configured for GitHub App
+        return !!(
+          config.GITHUB_APP_ID &&
+          config.GITHUB_APP_NAME &&
+          process.env.GITHUB_APP_PRIVATE_KEY
+        );
       case "slack":
         return !!(config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET);
       case "jira":
@@ -150,7 +155,7 @@ class PlatformCredentialsService {
     // In production, private key comes from AWS Secrets Manager
     // For now, check if it's available
     const privateKey = process.env.GITHUB_APP_PRIVATE_KEY || "";
-    const appName = process.env.GITHUB_APP_NAME || "buglens";
+    const appName = config.GITHUB_APP_NAME || "buglens";
 
     return {
       appId: config.GITHUB_APP_ID,

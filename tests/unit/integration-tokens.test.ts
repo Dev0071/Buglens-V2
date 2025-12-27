@@ -55,7 +55,7 @@ describe("Integration Tokens Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEncrypt.mockReturnValue({ version: 1, data: "encrypted-data" });
-    mockDecrypt.mockImplementation((data) => ({
+    mockDecrypt.mockImplementation((_data) => ({
       accessToken: "decrypted-token",
       refreshToken: "decrypted-refresh",
       tokenType: "Bearer",

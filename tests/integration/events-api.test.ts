@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { server } from "../../src/api/app.js";
-import type { FastifyInstance } from "fastify";
 import { query } from "../../src/db/client.js";
 
 describe("Events API", () => {

@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
+import { useToast } from "@/components/ui/toaster";
 
 /**
  * Login page component with email/password and OAuth options
@@ -15,6 +17,36 @@ function LoginPage() {
   } = useAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const toast = useToast();
+
+  // Handle OAuth error parameters
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    const provider = searchParams.get("provider");
+
+    if (errorParam) {
+      const errorMessages: Record<string, string> = {
+        oauth_cancelled: `${provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "OAuth"} sign-in was cancelled`,
+        invalid_state: "Session expired. Please try signing in again.",
+        oauth_failed: `${provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "OAuth"} sign-in failed. Please try again.`,
+        oauth_verification_failed:
+          "Failed to verify your account. Please try again.",
+        access_denied:
+          "Access was denied. Please check permissions and try again.",
+      };
+
+      toast.error(
+        "Sign-in Error",
+        errorMessages[errorParam] || "An error occurred. Please try again."
+      );
+
+      // Clear the error from URL
+      searchParams.delete("error");
+      searchParams.delete("provider");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
