@@ -2,200 +2,256 @@
 
 ## Overview
 
-The Workers & Queues subsystem handles asynchronous job processing using BullMQ and Redis. All long-running operations (code fetching, AST analysis, LLM calls, Slack notifications) are processed via background jobs to ensure webhook responses remain fast.
+Buglens uses BullMQ and Redis to process all asynchronous and long-running operations via background jobs. This ensures fast webhook/API responses and reliable, scalable processing for:
 
-## Architecture
+- Deterministic RCA analysis (AST, stack trace, code fetch)
+- Evidence assembly (code context, timeline, commits)
+- LLM reasoning (GPT-4o-mini)
+- Token refresh (OAuth lifecycle)
+
+## Actual Queue/Worker Architecture (2025)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        WORKERS & QUEUES                                      │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                         BullMQ QUEUES                                   │ │
-│  │                                                                         │ │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │  │   rca-jobs                    │   Priority: 1 (High)            │   │ │
-│  │  │   Main RCA processing queue   │   Concurrency: 3                │   │ │
-│  │  │   Rate limited per org        │   Retry: 3 attempts             │   │ │
-│  │  └─────────────────────────────────────────────────────────────────┘   │ │
-│  │                                                                         │ │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │  │   code-fetch                  │   Priority: 2 (Normal)          │   │ │
-│  │  │   GitHub code fetching        │   Concurrency: 5                │   │ │
-│  │  │   Respects rate limits        │   Retry: 5 attempts             │   │ │
-│  │  └─────────────────────────────────────────────────────────────────┘   │ │
-│  │                                                                         │ │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │  │   notifications               │   Priority: 3 (Low)             │   │ │
-│  │  │   Slack/Email delivery        │   Concurrency: 10               │   │ │
-│  │  │   Non-blocking                │   Retry: 3 attempts             │   │ │
-│  │  └─────────────────────────────────────────────────────────────────┘   │ │
-│  │                                                                         │ │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │  │   cost-tracking               │   Priority: 4 (Background)      │   │ │
-│  │  │   Async cost metric updates   │   Concurrency: 1                │   │ │
-│  │  │   Non-critical                │   Retry: 1 attempt              │   │ │
-│  │  └─────────────────────────────────────────────────────────────────┘   │ │
-│  └────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                       JOB FLOW DIAGRAM                                  │ │
-│  │                                                                         │ │
-│  │  Webhook ──▶ Validate ──▶ Enqueue ──▶ Worker ──▶ Process ──▶ Complete  │ │
-│  │                 │                        │                              │ │
-│  │                 │                        │                              │ │
-│  │                 ▼                        ▼                              │ │
-│  │           Rate Check              Child Jobs                            │ │
-│  │           Quota Check             (code-fetch)                          │ │
-│  │                                   (notifications)                       │ │
-│  │                                                                         │ │
-│  └────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │                         REDIS STRUCTURE                                 │ │
-│  │                                                                         │ │
-│  │  bull:rca-jobs:*        - RCA job queue                                │ │
-│  │  bull:code-fetch:*      - Code fetch queue                             │ │
-│  │  bull:notifications:*   - Notification queue                           │ │
-│  │  bull:cost-tracking:*   - Cost tracking queue                          │ │
-│  │                                                                         │ │
-│  │  ratelimit:*            - Rate limit counters                          │ │
-│  │  cache:gh:*             - GitHub file cache                            │ │
-│  │  cache:rca:*            - RCA result cache                             │ │
-│  └────────────────────────────────────────────────────────────────────────┘ │
+│                        WORKERS & QUEUES (BullMQ)                            │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  deterministic-analyzer   │  Deterministic RCA (AST, stack, code)    │  │
+│  │  evidence-assembly        │  Evidence bundle assembly                │  │
+│  │  llm-reasoning            │  LLM narrative generation                │  │
+│  │  token-refresh            │  OAuth token lifecycle                   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  All queues use BullMQ, Redis, and per-queue concurrency/retry config │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Files
+## File Structure
 
-| File                                 | Purpose                          |
-| ------------------------------------ | -------------------------------- |
-| `src/workers/rca-worker.ts`          | Main RCA processing worker       |
-| `src/workers/code-fetch-worker.ts`   | Code fetching worker             |
-| `src/workers/notification-worker.ts` | Slack/Email notification worker  |
-| `src/services/queue.ts`              | Queue configuration and helpers  |
-| `src/services/job-scheduler.ts`      | Job scheduling and orchestration |
+| File                                           | Purpose                                  |
+| ---------------------------------------------- | ---------------------------------------- |
+| `src/workers/index.ts`                         | Worker bootstrap (starts all workers)    |
+| `src/workers/deterministic-analyzer.worker.ts` | Deterministic analyzer worker entrypoint |
+| `src/workers/queues/deterministic.ts`          | Deterministic analyzer queue config      |
+| `src/workers/queues/evidence.ts`               | Evidence assembly queue config           |
+| `src/workers/queues/llm-reasoning.ts`          | LLM reasoning queue config               |
+| `src/workers/queues/token-refresh.ts`          | Token refresh queue config               |
 
----
+## Queue/Worker Details
 
-## Queue Configuration
+### 1. Deterministic Analyzer Queue
+
+- **Queue Name:** `deterministic-analyzer`
+- **Job Data:** `{ jobId, eventId, orgId }`
+- **Worker:** `deterministic-analyzer.worker.ts`
+- **Concurrency:** 1
+- **Attempts:** 3 (exponential backoff)
+- **Purpose:**
+  - Runs deterministic RCA pipeline (AST, stack trace, code fetch)
+  - Calls Python analyzer for findings
+  - Enqueues evidence-assembly job on success
+
+### 2. Evidence Assembly Queue
+
+- **Queue Name:** `evidence-assembly`
+- **Job Data:** `{ jobId, eventId, orgId }`
+- **Worker:** `queues/evidence.ts`
+- **Concurrency:** 5
+- **Attempts:** 3 (exponential backoff)
+- **Purpose:**
+  - Collects code context, timeline, recent commits
+  - Builds evidence bundle for LLM
+  - Enqueues llm-reasoning job
+
+### 3. LLM Reasoning Queue
+
+- **Queue Name:** `llm-reasoning`
+- **Job Data:** `{ jobId, eventId, orgId }`
+- **Worker:** `queues/llm-reasoning.ts`
+- **Concurrency:** 3
+- **Attempts:** 2 (exponential backoff)
+- **Purpose:**
+  - Calls LLM (GPT-4o-mini) for narrative RCA
+  - Stores RCA result, triggers notifications
+
+### 4. Token Refresh Queue
+
+- **Queue Name:** `token-refresh`
+- **Job Data:** `{ type, orgId?, integrationId? }`
+- **Worker:** `queues/token-refresh.ts`
+- **Concurrency:** 1
+- **Attempts:** 2 (fixed backoff)
+- **Purpose:**
+  - Periodic OAuth token refresh
+  - Token health checks
+
+## Worker Bootstrap
+
+All workers are started from `src/workers/index.ts`:
 
 ```typescript
-// src/services/queue.ts
-import { Queue, Worker, QueueEvents, Job } from "bullmq";
-import Redis from "ioredis";
-import { config } from "../utils/config";
+import { startDeterministicAnalyzerWorker } from "./deterministic-analyzer.worker.js";
+import { startEvidenceWorker } from "./queues/evidence.js";
+import { startLLMWorker } from "./queues/llm-reasoning.js";
+import {
+  startTokenRefreshWorker,
+  initializeTokenScheduler,
+} from "./queues/token-refresh.js";
 
-// Shared Redis connection
-const redisConnection = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: null, // Required by BullMQ
-});
+async function bootstrap() {
+  startDeterministicAnalyzerWorker();
+  startEvidenceWorker();
+  startLLMWorker();
+  startTokenRefreshWorker();
+  await initializeTokenScheduler();
+}
+```
 
-// Queue definitions with configuration
-export const QUEUES = {
-  RCA_JOBS: "rca-jobs",
-  CODE_FETCH: "code-fetch",
-  NOTIFICATIONS: "notifications",
-  COST_TRACKING: "cost-tracking",
-} as const;
+## Queue Configuration Example
 
-export interface QueueConfig {
+```typescript
+// src/workers/queues/deterministic.ts
+import { Queue, type JobsOptions } from "bullmq";
+import { config } from "../../utils/config.js";
+
+export const DETERMINISTIC_QUEUE_NAME = "deterministic-analyzer";
+
+const defaultJobOptions: JobsOptions = {
+  removeOnComplete: 100,
+  removeOnFail: 100,
+  attempts: 3,
+  backoff: { type: "exponential", delay: 1000 },
+};
+
+export function getQueue() {
+  return new Queue(DETERMINISTIC_QUEUE_NAME, {
+    connection: { host: "localhost", port: 6379 },
+    defaultJobOptions,
+  });
+}
+```
+
+## Rate Limiting & Retry
+
+- Per-org rate limits are enforced in job handlers (see `checkOrgQuota`)
+- Each queue sets its own concurrency and retry/backoff policy
+- No dead letter queue (failed jobs are logged and can be retried manually)
+
+## Job Data Types
+
+| Queue                  | Job Data Type                  |
+| ---------------------- | ------------------------------ |
+| deterministic-analyzer | `DeterministicAnalyzerJobData` |
+| evidence-assembly      | `EvidenceAssemblyJobData`      |
+| llm-reasoning          | `LLMReasoningJobData`          |
+| token-refresh          | `TokenRefreshJobData`          |
+
+## Summary
+
+- All queues are defined in `src/workers/queues/`
+- Each queue has its own config, job data type, and worker
+- No `src/services/queue.ts` or `rca-worker.ts` exists (old docs)
+- All job types, concurrency, and retry policies are set per-queue
+- See code for up-to-date job data interfaces and queue options
+  export interface QueueConfig {
   name: string;
   concurrency: number;
   priority: number;
   retries: number;
   backoff: {
-    type: "exponential" | "fixed";
-    delay: number;
+  type: "exponential" | "fixed";
+  delay: number;
   };
-}
+  }
 
 export const QUEUE_CONFIGS: Record<keyof typeof QUEUES, QueueConfig> = {
-  RCA_JOBS: {
-    name: QUEUES.RCA_JOBS,
-    concurrency: 3,
-    priority: 1,
-    retries: 3,
-    backoff: {
-      type: "exponential",
-      delay: 5000, // 5s, 10s, 20s
-    },
-  },
-  CODE_FETCH: {
-    name: QUEUES.CODE_FETCH,
-    concurrency: 5,
-    priority: 2,
-    retries: 5,
-    backoff: {
-      type: "exponential",
-      delay: 2000, // 2s, 4s, 8s, 16s, 32s
-    },
-  },
-  NOTIFICATIONS: {
-    name: QUEUES.NOTIFICATIONS,
-    concurrency: 10,
-    priority: 3,
-    retries: 3,
-    backoff: {
-      type: "fixed",
-      delay: 10000, // 10s between retries
-    },
-  },
-  COST_TRACKING: {
-    name: QUEUES.COST_TRACKING,
-    concurrency: 1,
-    priority: 4,
-    retries: 1,
-    backoff: {
-      type: "fixed",
-      delay: 1000,
-    },
-  },
+RCA_JOBS: {
+name: QUEUES.RCA_JOBS,
+concurrency: 3,
+priority: 1,
+retries: 3,
+backoff: {
+type: "exponential",
+delay: 5000, // 5s, 10s, 20s
+},
+},
+CODE_FETCH: {
+name: QUEUES.CODE_FETCH,
+concurrency: 5,
+priority: 2,
+retries: 5,
+backoff: {
+type: "exponential",
+delay: 2000, // 2s, 4s, 8s, 16s, 32s
+},
+},
+NOTIFICATIONS: {
+name: QUEUES.NOTIFICATIONS,
+concurrency: 10,
+priority: 3,
+retries: 3,
+backoff: {
+type: "fixed",
+delay: 10000, // 10s between retries
+},
+},
+COST_TRACKING: {
+name: QUEUES.COST_TRACKING,
+concurrency: 1,
+priority: 4,
+retries: 1,
+backoff: {
+type: "fixed",
+delay: 1000,
+},
+},
 };
 
 // Create queue instance
 export function createQueue(queueName: keyof typeof QUEUES): Queue {
-  const queueConfig = QUEUE_CONFIGS[queueName];
+const queueConfig = QUEUE_CONFIGS[queueName];
 
-  return new Queue(queueConfig.name, {
-    connection: redisConnection,
-    defaultJobOptions: {
-      attempts: queueConfig.retries,
-      backoff: queueConfig.backoff,
-      removeOnComplete: {
-        age: 86400, // Keep completed jobs for 24 hours
-        count: 1000, // Keep last 1000 completed
-      },
-      removeOnFail: {
-        age: 604800, // Keep failed jobs for 7 days
-      },
-    },
-  });
+return new Queue(queueConfig.name, {
+connection: redisConnection,
+defaultJobOptions: {
+attempts: queueConfig.retries,
+backoff: queueConfig.backoff,
+removeOnComplete: {
+age: 86400, // Keep completed jobs for 24 hours
+count: 1000, // Keep last 1000 completed
+},
+removeOnFail: {
+age: 604800, // Keep failed jobs for 7 days
+},
+},
+});
 }
 
 // Create worker instance
 export function createWorker<T, R>(
-  queueName: keyof typeof QUEUES,
-  processor: (job: Job<T>) => Promise<R>
+queueName: keyof typeof QUEUES,
+processor: (job: Job<T>) => Promise<R>
 ): Worker<T, R> {
-  const queueConfig = QUEUE_CONFIGS[queueName];
+const queueConfig = QUEUE_CONFIGS[queueName];
 
-  return new Worker<T, R>(queueConfig.name, processor, {
-    connection: redisConnection,
-    concurrency: queueConfig.concurrency,
-    limiter: {
-      max: 100,
-      duration: 60000, // 100 jobs per minute max
-    },
-  });
+return new Worker<T, R>(queueConfig.name, processor, {
+connection: redisConnection,
+concurrency: queueConfig.concurrency,
+limiter: {
+max: 100,
+duration: 60000, // 100 jobs per minute max
+},
+});
 }
 
 // Queue health check
 export async function checkQueueHealth(): Promise<Record<string, QueueHealth>> {
-  const health: Record<string, QueueHealth> = {};
+const health: Record<string, QueueHealth> = {};
 
-  for (const [key, config] of Object.entries(QUEUE_CONFIGS)) {
-    const queue = createQueue(key as keyof typeof QUEUES);
+for (const [key, config] of Object.entries(QUEUE_CONFIGS)) {
+const queue = createQueue(key as keyof typeof QUEUES);
 
     const [waiting, active, completed, failed] = await Promise.all([
       queue.getWaitingCount(),
@@ -213,19 +269,21 @@ export async function checkQueueHealth(): Promise<Record<string, QueueHealth>> {
     };
 
     await queue.close();
-  }
 
-  return health;
+}
+
+return health;
 }
 
 interface QueueHealth {
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  isPaused: boolean;
+waiting: number;
+active: number;
+completed: number;
+failed: number;
+isPaused: boolean;
 }
-```
+
+````
 
 ---
 
@@ -441,7 +499,7 @@ async function getSlackChannel(orgId: string): Promise<string | null> {
 
   return result.rows[0]?.channel || null;
 }
-```
+````
 
 ---
 

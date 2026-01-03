@@ -6,18 +6,31 @@ Buglens is an AI-powered Root Cause Analysis (RCA) copilot for production incide
 
 ## Documentation Index
 
-| Document                                                | Description                                 |
-| ------------------------------------------------------- | ------------------------------------------- |
-| [01 - API Layer](./01-api-layer.md)                     | Webhook handlers, middleware, routing       |
-| [02 - Extraction Pipeline](./02-extraction-pipeline.md) | 3-stage deterministic + LLM extraction      |
-| [03 - Code Fetcher](./03-code-fetcher.md)               | 3-tier GitHub caching strategy              |
-| [04 - GitHub Integration](./04-github-integration.md)   | GitHub App auth, file fetching, rate limits |
-| [05 - Python Analysis](./05-python-analysis.md)         | AST analysis, tree-sitter, rule engine      |
-| [06 - Evidence Assembly](./06-evidence-assembly.md)     | Evidence collection, timeline, storage      |
-| [07 - Workers & Queues](./07-workers-queues.md)         | BullMQ workers, job processing              |
-| [08 - Database](./08-database.md)                       | PostgreSQL schema, RLS, migrations          |
-| [09 - Types & Schemas](./09-types-schemas.md)           | Zod validation, TypeScript types            |
-| [10 - Configuration](./10-configuration.md)             | Environment variables, rate limits          |
+### **Comprehensive Merged Documentation (Recommended)**
+
+| Document                                                                  | Description                                                                                                                  |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **[Backend Architecture & Services](./BACKEND_ARCHITECTURE_SERVICES.md)** | Complete backend documentation: API, extraction pipeline, code fetcher, Python analysis, evidence assembly, workers & queues |
+| **[Data Layer & Integrations](./DATA_LAYER_INTEGRATIONS.md)**             | Database schema with RLS, GitHub integration, type systems with Zod, integration management                                  |
+| **[Configuration & Deployment](./CONFIGURATION_DEPLOYMENT.md)**           | Environment variables, rate limits, Docker Compose, deployment best practices                                                |
+
+### **Individual Component Documentation (Reference)**
+
+> **Note**: The documents below have been merged into the three comprehensive documents above. Use the merged documents for complete, up-to-date information.
+
+| Document                                                          | Description                                           |
+| ----------------------------------------------------------------- | ----------------------------------------------------- |
+| [01 - API Layer](./01-api-layer.md)                               | Webhook handlers, middleware, routing                 |
+| [02 - Extraction Pipeline](./02-extraction-pipeline.md)           | 3-stage deterministic + LLM extraction                |
+| [03 - Code Fetcher](./03-code-fetcher.md)                         | 3-tier GitHub caching strategy                        |
+| [04 - GitHub Integration](./04-github-integration.md)             | GitHub App auth, file fetching, rate limits           |
+| [05 - Python Analysis](./05-python-analysis.md)                   | AST analysis, tree-sitter, rule engine                |
+| [06 - Evidence Assembly](./06-evidence-assembly.md)               | Evidence collection, timeline, storage                |
+| [07 - Workers & Queues](./07-workers-queues.md)                   | BullMQ workers, job processing                        |
+| [08 - Database](./08-database.md)                                 | PostgreSQL schema, RLS, migrations                    |
+| [09 - Types & Schemas](./09-types-schemas.md)                     | Zod validation, TypeScript types                      |
+| [10 - Configuration](./10-configuration.md)                       | Environment variables, rate limits                    |
+| [Integration Schema Explained](./INTEGRATION_SCHEMA_EXPLAINED.md) | Deep dive into integrations table and GitHub strategy |
 
 ## Architecture Philosophy
 

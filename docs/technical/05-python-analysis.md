@@ -62,89 +62,153 @@ The Python Analysis Engine provides deterministic code analysis using AST (Abstr
 
 ## Files
 
-| File                                  | Purpose                         |
-| ------------------------------------- | ------------------------------- |
-| `python/analyzers/ast_analyzer.py`    | Core AST analysis orchestrator  |
-| `python/analyzers/js_analyzer.py`     | JavaScript/TypeScript analyzer  |
-| `python/analyzers/pattern_matcher.py` | Pattern matching utilities      |
-| `python/analyzers/rules/`             | Individual rule implementations |
-| `python/utils/tree_sitter_utils.py`   | Tree-sitter helper functions    |
+| File                                | Purpose                               |
+| ----------------------------------- | ------------------------------------- |
+| `python/analyzers/js_analyzer.py`   | JavaScript/TypeScript analyzer (main) |
+| `python/analyzers/base.py`          | Core data structures and base types   |
+| `python/analyzers/rules/`           | Individual rule implementations       |
+| `python/utils/tree_sitter_utils.py` | Tree-sitter helper functions (if any) |
+
+**Note**: There is no `ast_analyzer.py` or `pattern_matcher.py` - the implementation uses a functional paradigm with pure functions in `js_analyzer.py` and rule modules.
 
 ---
 
 ## Core Analyzer
 
-### AST Analyzer Orchestrator
+### JavaScript/TypeScript Analyzer (js_analyzer.py)
+
+The actual implementation uses a **functional paradigm** with pure functions, not an OOP `ASTAnalyzer` class. The analyzer exports a main `analyze` function that orchestrates rule evaluation.
 
 ```python
-# python/analyzers/ast_analyzer.py
-from dataclasses import dataclass
-from typing import List, Optional
-import tree_sitter_javascript as ts_javascript
-from tree_sitter import Language, Parser
+# python/analyzers/js_analyzer.py
+from __future__ import annotations
 
-from .rules import (
-    evaluate_null_access,
-    evaluate_async_patterns,
-    evaluate_error_handling,
-    evaluate_type_coercion,
-    evaluate_array_operations,
-    evaluate_ai_signatures,
-)
+import json
+import sys
+import time
+from typing import Any, Dict, List
+
+from tree_sitter import Language, Parser
+from tree_sitter_javascript import language as javascript_language
+from tree_sitter_typescript import language_typescript, language_tsx
+
+from .base import AnalysisContext, CodeSegment, RuleFunction
+from .rules import RULE_FUNCTIONS
+
+SUPPORTED_LANGUAGES = {"javascript", "typescript", "tsx", "jsx"}
+ANALYZER_NAME = "js_analyzer"
+ANALYZER_VERSION = "1.0.0"
+
+
+# Pure Functions for Analysis (Functional Paradigm)
+
+
+def create_parser(language: str) -> Parser:
+    """Pure factory function to create appropriate parser for language."""
+    lang_lower = language.lower()
+    if lang_lower in ("tsx", "jsx"):
+        return Parser(Language(language_tsx()))
+    elif lang_lower in ("typescript", "ts"):
+        return Parser(Language(language_typescript()))
+    return Parser(Language(javascript_language()))
+
+
+def parse_code_segment(segment: CodeSegment) -> AnalysisContext:
+    """Pure function to parse a code segment and create analysis context."""
+    parser = create_parser(segment.language)
+    tree = parser.parse(bytes(segment.content, "utf-8"))
+    return AnalysisContext(segment, tree, {})
+
+
+def extract_segments(payload: Dict[str, Any]) -> List[CodeSegment]:
+    """Pure function to extract code segments from payload."""
+    return [
+        CodeSegment(
+            file_path=segment.get("file_path", "unknown"),
+            language=segment.get("language", "text"),
+            content=segment.get("content", ""),
+            error_line=int(segment.get("error_line", 1)),
+            error_column=segment.get("error_column"),
+        )
+        for segment in payload.get("code_segments", [])
+        if segment.get("language", "text").lower() in SUPPORTED_LANGUAGES
+    ]
+
+
+def apply_rules(context: AnalysisContext, rules: List[RuleFunction]) -> List[Dict[str, Any]]:
+    """Pure function to apply all rules to a context and collect findings."""
+    findings: List[Dict[str, Any]] = []
+    for rule_fn in rules:
+        findings.extend(rule_fn(context))
+    return findings
+
+
+def analyze_segment(segment: CodeSegment, rules: List[RuleFunction], metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Pure function to analyze a single code segment."""
+    parser = create_parser(segment.language)
+    tree = parser.parse(bytes(segment.content, "utf-8"))
+    context = AnalysisContext(segment, tree, metadata)
+    return apply_rules(context, rules)
+
+
+def analyze(payload: Dict[str, Any], rules: List[RuleFunction] = RULE_FUNCTIONS) -> Dict[str, Any]:
+    """
+    Pure function to analyze a payload and return results.
+
+    This is the main entry point for functional analysis.
+    """
+    start_time = time.time()
+
+    segments = extract_segments(payload)
+    findings: List[Dict[str, Any]] = []
+
+    for segment in segments:
+        findings.extend(analyze_segment(segment, rules, payload))
+
+    runtime_ms = int((time.time() - start_time) * 1000)
+
+    return {
+        "analyzer": {
+            "name": ANALYZER_NAME,
+            "version": ANALYZER_VERSION,
+        },
+        "findings": findings,
+        "segments_analyzed": len(segments),
+        "total_findings": len(findings),
+        "runtime_ms": runtime_ms,
+    }
+```
+
+### Data Structures (base.py)
+
+```python
+# python/analyzers/base.py
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
+
+
+@dataclass
+class CodeSegment:
+    """A segment of code to analyze."""
+    file_path: str
+    language: str
+    content: str
+    error_line: int
+    error_column: Optional[int] = None
+
 
 @dataclass
 class AnalysisContext:
     """Context passed to all rule evaluators."""
-    source_code: str
-    ast_tree: 'Tree'
-    error_message: str
-    error_type: str
-    file_path: str
-    language: str
-    line_number: Optional[int] = None
+    segment: CodeSegment
+    tree: Any  # tree-sitter Tree object
+    metadata: Dict[str, Any]
 
 
-@dataclass
-class Finding:
-    """A deterministic finding from AST analysis."""
-    rule_id: str
-    title: str
-    severity: str  # 'high', 'medium', 'low'
-    confidence: float  # 0.0 - 1.0
-    message: str
-    line_start: int
-    line_end: int
-    column_start: int
-    column_end: int
-    code_snippet: str
-    suggested_fix: Optional[str] = None
-    explanation: Optional[str] = None
+# Type alias for rule functions
+RuleFunction = Callable[[AnalysisContext], List[Dict[str, Any]]]
+```
 
-
-class ASTAnalyzer:
-    """
-    Orchestrates AST analysis across multiple rule sets.
-
-    Uses functional rule evaluators for all analysis logic.
-    This class only handles orchestration and resource management.
-    """
-
-    def __init__(self):
-        self.parsers = {}
-        self.rules = [
-            evaluate_null_access,
-            evaluate_async_patterns,
-            evaluate_error_handling,
-            evaluate_type_coercion,
-            evaluate_array_operations,
-            evaluate_ai_signatures,
-        ]
-
-    def get_parser(self, language: str) -> Parser:
-        """Get or create parser for language."""
-        if language not in self.parsers:
-            if language in ('javascript', 'typescript', 'jsx', 'tsx'):
-                lang = Language(ts_javascript.language())
             else:
                 raise ValueError(f"Unsupported language: {language}")
 
@@ -212,7 +276,8 @@ class ASTAnalyzer:
             if file_path.endswith(ext):
                 return lang
         return 'javascript'  # Default
-```
+
+````
 
 ---
 
@@ -434,7 +499,7 @@ def _generate_fix(node: Node, property_name: str, context: AnalysisContext) -> s
         return f"{object_name}?.{property_name}"
 
     return original.replace('.', '?.')
-```
+````
 
 ### Async Pattern Rule
 

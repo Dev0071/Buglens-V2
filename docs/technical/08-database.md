@@ -432,6 +432,184 @@ exports.down = (pgm) => {
 };
 ```
 
+### 008 - Integrations (OAuth & GitHub App)
+
+**Base Table (Migration 008):**
+
+```javascript
+// migrations/008_create_integrations.cjs
+exports.up = (pgm) => {
+  pgm.createTable("integrations", {
+    id: {
+      type: "uuid",
+      primaryKey: true,
+      default: pgm.func("gen_random_uuid()"),
+    },
+    org_id: {
+      type: "uuid",
+      notNull: true,
+      references: "organizations(id)",
+      onDelete: "CASCADE",
+    },
+    type: { type: "text", notNull: true }, // github, github_app, slack, jira, etc.
+    config: { type: "jsonb", notNull: true, default: "{}" }, // Legacy config storage
+    secret_id: { type: "text" }, // AWS Secrets Manager ID (if applicable)
+    is_active: { type: "boolean", notNull: true, default: true },
+    last_verified_at: { type: "timestamptz" },
+    created_at: {
+      type: "timestamptz",
+      notNull: true,
+      default: pgm.func("NOW()"),
+    },
+    updated_at: {
+      type: "timestamptz",
+      notNull: true,
+      default: pgm.func("NOW()"),
+    },
+  });
+
+  pgm.addConstraint("integrations", "integrations_org_type_unique", {
+    unique: ["org_id", "type"],
+  });
+
+  pgm.createIndex("integrations", "org_id");
+  pgm.createIndex("integrations", ["org_id", "type"]);
+
+  pgm.sql("ALTER TABLE integrations ENABLE ROW LEVEL SECURITY");
+  pgm.sql(`
+    CREATE POLICY integrations_isolation ON integrations
+      USING (org_id = current_setting('app.current_org_id', true)::uuid)
+  `);
+};
+```
+
+**Migration 020 - Encrypted Tokens:**
+
+```javascript
+// migrations/020_add_encrypted_tokens.cjs
+exports.up = (pgm) => {
+  // Add encrypted_tokens column for OAuth credentials
+  pgm.addColumns("integrations", {
+    encrypted_tokens: { type: "jsonb" }, // Stores AES-256-GCM encrypted tokens
+  });
+};
+```
+
+**Migration 021 - GitHub App Columns:**
+
+```javascript
+// migrations/021_add_github_app_columns.cjs
+exports.up = (pgm) => {
+  // Add columns for GitHub App and multi-installation support
+  pgm.addColumn("integrations", {
+    status: {
+      type: "text",
+      notNull: true,
+      default: "connected", // connected | disconnected | error
+    },
+    display_name: { type: "text" }, // Human-readable name (e.g., "GitHub App - Acme Corp")
+    external_id: { type: "text" }, // GitHub installation_id, Slack team_id, etc.
+  });
+
+  // Drop old unique constraint (org_id, type)
+  pgm.dropConstraint("integrations", "integrations_org_type_unique");
+
+  // New unique constraint allows multiple integrations of same type per org
+  pgm.addConstraint("integrations", "integrations_org_type_external_unique", {
+    unique: ["org_id", "type", "external_id"],
+  });
+
+  pgm.createIndex("integrations", "external_id");
+  pgm.createIndex("integrations", ["org_id", "status"]);
+};
+```
+
+**Migration 022 - Metadata Column:**
+
+```javascript
+// migrations/022_add_metadata_column.cjs
+exports.up = (pgm) => {
+  // Add metadata column for non-sensitive integration data
+  pgm.addColumn("integrations", {
+    metadata: {
+      type: "jsonb",
+      notNull: true,
+      default: pgm.func("'{}'::jsonb"),
+    },
+  });
+
+  // GIN index for efficient JSONB queries (e.g., metadata->>'installationId')
+  pgm.addIndex("integrations", "metadata", { method: "gin" });
+};
+```
+
+**Migration 023 - Make config Nullable:**
+
+```javascript
+// migrations/023_make_config_nullable.cjs
+exports.up = (pgm) => {
+  // Make config nullable (transitioning to encrypted_tokens + metadata pattern)
+  pgm.alterColumn("integrations", "config", {
+    type: "jsonb",
+    notNull: false, // No longer required
+    default: pgm.func("'{}'::jsonb"),
+  });
+};
+```
+
+**Final Schema (after migrations 008, 020-023):**
+
+```typescript
+interface Integration {
+  id: string; // UUID
+  org_id: string; // UUID (FK to organizations)
+  type: string; // 'github' | 'github_app' | 'slack' | 'jira' | 'sentry'
+  status: string; // 'connected' | 'disconnected' | 'error'
+  display_name: string | null; // Human-readable name
+  external_id: string | null; // External identifier (installation_id, team_id)
+  config: Record<string, unknown> | null; // Legacy config (nullable)
+  encrypted_tokens: EncryptedData | null; // AES-256-GCM encrypted OAuth tokens
+  metadata: Record<string, unknown>; // Non-sensitive data (repos, permissions, scopes)
+  secret_id: string | null; // AWS Secrets Manager ID (if applicable)
+  is_active: boolean; // true = active, false = disconnected
+  last_verified_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Unique constraint: (org_id, type, external_id)
+// Allows multiple GitHub installations per org, but prevents duplicate installations
+```
+
+**Usage Pattern:**
+
+```typescript
+// Store GitHub App integration
+await pool.query(
+  `INSERT INTO integrations (org_id, type, status, display_name, external_id, encrypted_tokens, metadata, is_active)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+  [
+    orgId,
+    "github_app",
+    "connected",
+    "GitHub App - Acme Corp",
+    "12345678", // GitHub installation_id
+    encryptedTokens, // { data, iv, authTag, version }
+    { installationId: "12345678", repos: ["acme/webapp"], permissions: {...} },
+    true,
+  ]
+);
+
+// Query active integrations
+await withOrgContext(orgId, async (client) => {
+  const result = await client.query(
+    `SELECT * FROM integrations WHERE is_active = true AND type = $1`,
+    ["github_app"]
+  );
+  return result.rows;
+});
+```
+
 ### 009 - Cost Metrics
 
 ```javascript
