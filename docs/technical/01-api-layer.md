@@ -41,15 +41,26 @@ The API layer is built on **Fastify**, a high-performance Node.js web framework.
 
 ## Files
 
-| File                                | Purpose                                        |
-| ----------------------------------- | ---------------------------------------------- |
-| `src/api/app.ts`                    | Fastify application setup, plugin registration |
-| `src/api/server.ts`                 | Server bootstrap, port binding                 |
-| `src/api/routes/webhooks.ts`        | Sentry webhook handler                         |
-| `src/api/routes/github-webhooks.ts` | GitHub App webhook handler                     |
-| `src/api/routes/health.ts`          | Health check endpoints                         |
-| `src/api/middleware/org-context.ts` | Multi-tenancy middleware                       |
-| `src/api/middleware/rate-limit.ts`  | Per-organization rate limiting                 |
+| File                                | Purpose                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| `src/api/app.ts`                    | Fastify application setup, plugin registration                                 |
+| `src/api/server.ts`                 | Server bootstrap, port binding                                                 |
+| `src/api/routes/webhooks.ts`        | Sentry webhook handler                                                         |
+| `src/api/routes/github-webhooks.ts` | GitHub App webhook handler                                                     |
+| `src/api/routes/health.ts`          | Health check endpoints                                                         |
+| `src/api/routes/auth.ts`            | Authentication (login, signup, session management)                             |
+| `src/api/routes/integrations.ts`    | Integration management (GitHub, Slack, Jira, Teams) + OAuth flows              |
+| `src/api/routes/oauth.ts`           | **REMOVED** - OAuth functionality moved to integrations.ts                     |
+| `src/api/routes/rca.ts`             | RCA results and analysis                                                       |
+| `src/api/routes/events.ts`          | Event listing and details                                                      |
+| `src/api/routes/dashboard.ts`       | Dashboard metrics and stats                                                    |
+| `src/api/routes/settings.ts`        | Organization settings                                                          |
+| `src/api/routes/costs.ts`           | Cost tracking and analytics                                                    |
+| `src/api/routes/analytics.ts`       | Platform analytics                                                             |
+| `src/api/routes/team.ts`            | Team member management                                                         |
+| `src/api/routes/profile.ts`         | User profile management                                                        |
+| `src/api/middleware/org-context.ts` | Multi-tenancy middleware                                                       |
+| `src/api/middleware/rate-limit.ts`  | **NOTE**: Global rate limiting is configured in app.ts via @fastify/rate-limit |
 
 ---
 
@@ -58,52 +69,76 @@ The API layer is built on **Fastify**, a high-performance Node.js web framework.
 ### Plugin Registration Order
 
 ```typescript
-export async function buildApp(): Promise<FastifyInstance> {
-  const server = fastify({
-    logger: {
-      level: config.LOG_LEVEL,
-      transport:
-        config.NODE_ENV === "development" ? prettyTransport : undefined,
-    },
-  });
+export const server = Fastify({
+  logger: logger,
+  requestIdHeader: "x-request-id",
+  disableRequestLogging: false,
+});
 
-  // 1. Raw body preservation (for HMAC verification)
-  await server.register(rawBody, {
-    field: "rawBody",
-    global: false,
-    encoding: "utf8",
-    runFirst: true,
-  });
+// 1. Raw body preservation (for HMAC verification)
+server.removeContentTypeParser("application/json");
+server.addContentTypeParser(
+  "application/json",
+  { parseAs: "buffer" },
+  (request, body, done) => {
+    const buffer = body as Buffer;
+    (request as FastifyRequest & { rawBody?: Buffer }).rawBody = buffer;
+    const json = JSON.parse(buffer.toString("utf-8"));
+    done(null, json);
+  }
+);
 
-  // 2. Organization context decorators
-  setupOrgDecorators(server);
-  server.addHook("preHandler", orgContextMiddleware);
+// 2. Organization context decorators
+setupOrgDecorators(server);
+server.addHook("preHandler", orgContextMiddleware);
 
-  // 3. CORS (explicit origins in production)
-  await server.register(cors, {
-    origin:
-      config.NODE_ENV === "production"
-        ? ["https://app.buglens.com", "https://buglens.com"]
-        : ["http://localhost:3000", "http://localhost:5173"],
-    credentials: true,
-  });
+// 3. CORS (explicit origins in production)
+await server.register(cors, {
+  origin:
+    config.NODE_ENV === "test"
+      ? true
+      : config.CORS_ORIGINS && Array.isArray(config.CORS_ORIGINS)
+        ? config.CORS_ORIGINS
+        : config.NODE_ENV === "production"
+          ? ["https://app.buglens.com", "https://buglens.com"]
+          : ["http://localhost:3000", "http://localhost:5173"],
+  credentials: true,
+});
 
-  // 4. JWT authentication
-  await server.register(jwt, {
-    secret: config.JWT_SECRET,
-  });
+// 4. JWT authentication
+await server.register(jwt, {
+  secret: config.JWT_SECRET,
+});
 
-  // 5. Global rate limiting (100 req/min per org/IP)
-  await server.register(rateLimit, {
-    max: 100,
-    timeWindow: "1 minute",
-    keyGenerator: (request) => request.getOrgId() || request.ip,
-  });
+// 5. Cookie support (for session management)
+await server.register(cookie, {
+  secret: config.JWT_SECRET,
+  parseOptions: {},
+});
 
-  // 6. Route registration
-  await server.register(healthRoutes);
-  await server.register(webhookRoutes, { prefix: "/api/v1" });
-  await server.register(githubWebhookRoutes, { prefix: "/api/v1" });
+// 6. Global rate limiting (100 req/min per org/IP)
+await server.register(rateLimit, {
+  max: 100,
+  timeWindow: "1 minute",
+  cache: 10000,
+  redis: config.NODE_ENV === "test" ? undefined : redis.client,
+  keyGenerator: (request) => request.getOrgId() || request.ip,
+});
+
+// 7. Route registration
+await server.register(healthRoutes, { prefix: "/api/v1" });
+await server.register(webhookRoutes, { prefix: "/api/v1" });
+await server.register(githubWebhookRoutes, { prefix: "/api/v1" });
+await server.register(authRoutes, { prefix: "/api" });
+await server.register(rcaRoutes, { prefix: "/api" });
+await server.register(dashboardRoutes, { prefix: "/api" });
+await server.register(eventsRoutes, { prefix: "/api" });
+await server.register(integrationsRoutes, { prefix: "/api" }); // Handles OAuth flows
+await server.register(settingsRoutes, { prefix: "/api" });
+await server.register(costsRoutes, { prefix: "/api" });
+await server.register(analyticsRoutes, { prefix: "/api" });
+await server.register(teamRoutes, { prefix: "/api" });
+await server.register(profileRoutes, { prefix: "/api" });
 
   return server;
 }

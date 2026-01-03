@@ -197,7 +197,7 @@ function UserMenu({
             <Menu.Item>
               {({ active }) => (
                 <a
-                  href="/settings"
+                  href="/settings/profile"
                   className={`dropdown-item flex items-center gap-2 ${
                     active ? "bg-gray-100 dark:bg-gray-700" : ""
                   }`}

@@ -19,12 +19,12 @@ import {
   BellIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ArrowPathIcon,
   ClipboardDocumentIcon,
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
+import { useAuthStore } from "@/store/auth";
 import {
   useOrganizationSettings,
   useUpdateSettings,
@@ -1256,7 +1256,9 @@ function SentryConfigModal({
   const [dsn, setDsn] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const webhookUrl = `${window.location.origin}/api/v1/webhooks/sentry`;
+  // Get orgId from auth store for webhook URL
+  const user = useAuthStore((state) => state.user);
+  const webhookUrl = `${window.location.origin}/api/v1/webhooks/sentry/${user?.orgId || "{YOUR_ORG_ID}"}`;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1323,22 +1325,31 @@ function SentryConfigModal({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Webhook URL (Add this to Sentry)
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-3">
                 <input
                   type="text"
                   value={webhookUrl}
                   readOnly
-                  className="input w-full text-sm bg-white dark:bg-gray-800"
+                  className="input w-full text-sm bg-white dark:bg-gray-800 font-mono"
                 />
                 <button
                   type="button"
                   onClick={copyToClipboard}
-                  className="btn btn-secondary flex items-center gap-1"
+                  className="btn btn-secondary flex items-center gap-1 whitespace-nowrap"
                 >
                   <ClipboardDocumentIcon className="w-4 h-4" />
                   {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                In Sentry: Go to{" "}
+                <strong>
+                  Settings → Integrations → Internal Integrations → Create New
+                  Integration
+                </strong>
+                . Add this webhook URL under <strong>Webhooks</strong> and
+                subscribe to <strong>error.created</strong> events.
+              </p>
             </div>
 
             <div className="flex gap-3 pt-4">

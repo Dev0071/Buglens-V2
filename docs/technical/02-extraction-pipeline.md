@@ -827,9 +827,44 @@ if (validation.status === "failed") {
 
 ---
 
-## Performance Considerations
+---
 
-1. **Stage 2 is expensive** - LLM calls take 2-5 seconds and cost tokens
-2. **Maximize Stage 1 coverage** - Add more deterministic patterns before relying on LLM
-3. **Cache validation results** - GitHub ref checks are cached in Redis
-4. **Timeout handling** - LLM calls timeout after 30 seconds
+## Field Naming, Nullability, and Breadcrumb/Timeline Logic (Audit Alignment)
+
+### Field Naming Consistency
+
+- All error and extraction types use `type`, `value`, and `message` fields to match Sentry and internal code.
+- Stack frame and extraction result types use `commit_sha`, `branch`, and `repo` (not `commitSha`, `errorType`, etc.).
+- Example:
+  ```typescript
+  interface ExtractionResult {
+    repo?: string;
+    commit_sha?: string | null;
+    branch?: string | null;
+    frames: ExtractedFrame[];
+    primary_frame_index?: number;
+    extraction_source: "deterministic" | "llm_assisted";
+    confidence: number;
+    validation_status: "verified" | "fallback" | "failed";
+    llm_tokens_used: number;
+  }
+  ```
+
+### Nullable vs Optional Fields
+
+- All fields that may be missing from Sentry or GitHub are marked as `?` (optional) and/or `| null` (nullable) in type tables and code examples.
+- This matches the Zod schemas and runtime validation in code.
+
+### Breadcrumb/Timeline Extraction
+
+- Breadcrumbs are extracted from `eventData.breadcrumbs` and passed to the timeline reconstructor.
+- Timeline events are sorted by timestamp, normalized to a `TimelineEvent` type, and filtered to a relevant window (e.g., 1 minute before error).
+- Timeline fields: `timestamp`, `category`, `message`, `level`, `data`, `relative_ms`.
+- Only events within the relevant window are included in the final timeline for RCA.
+
+### Confidence Scoring
+
+- Confidence is computed as a sum of deterministic extraction (+0.3), LLM assist (+0.2), and GitHub validation (+0.3), normalized to [0, 1].
+- The scoring rubric is documented above and matches the code implementation.
+
+---

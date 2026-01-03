@@ -1,3 +1,159 @@
+# Configuration & Deployment - Comprehensive Technical Documentation
+
+> **Buglens V2** - AI-Powered Root Cause Analysis Platform  
+> **Document Version**: 1.0.0  
+> **Last Updated**: January 3, 2026  
+> **Maintainers**: Buglens Engineering Team
+
+---
+
+## Overview
+
+This document covers all configuration and deployment aspects of Buglens including environment variables, rate limits, Docker Compose setup, and deployment best practices.
+
+### Key Features
+
+1. **Zod Validation**: All environment variables validated at startup with fail-fast behavior
+2. **Type-Safe Configuration**: TypeScript types inferred from Zod schemas
+3. **Plan-Based Rate Limits**: Per-organization quotas for free, pro, and enterprise tiers
+4. **Docker Compose Ready**: Complete local development environment
+5. **AWS Secrets Manager**: Production secret management integration
+
+### Configuration Philosophy
+
+- **Fail Fast**: Invalid configuration causes immediate startup failure with clear error messages
+- **Sensible Defaults**: Development-friendly defaults for local testing
+- **Environment Isolation**: Test, development, and production configurations clearly separated
+- **No Secrets in Code**: All sensitive values from environment or Secrets Manager
+
+---
+
+## Table of Contents
+
+### Part 1: Environment Variables
+- [Configuration Module](#10---configuration--environment)
+- [Server Configuration](#server-configuration)
+- [Database Configuration](#database-configuration)
+- [Redis Configuration](#redis-configuration)
+- [AWS Configuration](#aws-configuration)
+- [GitHub App Configuration](#github-app-configuration)
+- [LLM Configuration](#llm-configuration)
+- [Application Settings](#application-settings)
+
+### Part 2: Rate Limits
+- [Rate Limits Configuration](#rate-limits-configuration)
+- [Per-Plan Limits](#per-plan-rate-limits)
+- [Quota Checking](#quota-checking--enforcement)
+- [Cost Tracking](#cost-tracking)
+
+### Part 3: Docker Compose Setup
+- [Docker Compose Configuration](#docker-compose-configuration)
+- [Services (PostgreSQL, Redis, LocalStack)](#services)
+- [Volumes & Networks](#volumes--networks)
+- [Health Checks](#health-checks)
+
+### Part 4: Deployment
+- [Environment Variable Checklist](#environment-variables-2025-table)
+- [Testing Configuration](#testing-configuration)
+- [Production Best Practices](#configuration-best-practices)
+- [Secret Management](#secret-management-aws-secrets-manager)
+
+---
+
+## Quick Reference
+
+### Minimum Required Environment Variables
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/buglens
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# AWS
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=buglens-evidence
+
+# Authentication
+JWT_SECRET=your-secret-key-min-32-chars
+
+# LLM
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+### Rate Limits by Plan
+
+```typescript
+const RATE_LIMITS = {
+  free: {
+    rca_per_hour: 5,
+    rca_per_day: 50,
+    llm_tokens_per_day: 100_000,
+    github_api_per_hour: 500,
+    max_repos: 3,
+    max_users: 5,
+    retention_days: 30,
+  },
+  pro: {
+    rca_per_hour: 50,
+    rca_per_day: 500,
+    llm_tokens_per_day: 1_000_000,
+    github_api_per_hour: 2_000,
+    max_repos: 20,
+    max_users: 50,
+    retention_days: 90,
+  },
+  enterprise: {
+    rca_per_hour: -1,  // unlimited
+    rca_per_day: 5_000,
+    llm_tokens_per_day: 10_000_000,
+    github_api_per_hour: 5_000,
+    max_repos: -1,
+    max_users: -1,
+    retention_days: 365,
+  },
+};
+```
+
+### Docker Compose Quick Start
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Check service health
+docker-compose ps
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+### Configuration Validation Example
+
+```typescript
+import { config } from './utils/config';
+
+// At startup, config is already validated
+// Invalid config causes process exit with error details
+
+console.log(`Starting Buglens on port ${config.PORT}`);
+console.log(`LLM Provider: ${config.LLM_PROVIDER}`);
+console.log(`Environment: ${config.NODE_ENV}`);
+```
+
+---
+
+## Document Sections
+
+The following section contains the complete content from the configuration documentation file. All content has been preserved without modification to ensure accuracy and completeness.
+
+---
+
 # 10 - Configuration & Environment
 
 ## Overview

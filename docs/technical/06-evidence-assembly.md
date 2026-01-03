@@ -39,12 +39,46 @@ The Evidence Assembly subsystem collects, correlates, and packages all available
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │                      EVIDENCE BUNDLE                                    │ │
 │  │                                                                         │ │
-│  │  {                                                                      │ │
-│  │    errorInfo:    { type, message, stack, fingerprint }                 │ │
-│  │    codeContext:  { frames: [{ file, code, analysis }] }                │ │
-│  │    timeline:     { events: [...], duration_ms }                        │ │
-│  │    commits:      [{ sha, message, author, date }]                      │ │
-│  │    metadata:     { confidence, completeness, gaps }                    │ │
+│  │  EvidenceBundle {                                                        │ │
+│  │    bundle_id: UUID,                                                      │ │
+│  │    created_at: ISO timestamp,                                            │ │
+│  │    org_id: UUID,                                                         │ │
+│  │    event_id: UUID,                                                       │ │
+│  │    job_id: UUID,                                                         │ │
+│  │                                                                          │ │
+│  │    error: {                                                              │ │
+│  │      message: string,                                                    │ │
+│  │      type: string,                                                       │ │
+│  │      value?: string,                                                     │ │
+│  │      stack_trace: [                                                      │ │
+│  │        { file, line, column, function, in_app }                          │ │
+│  │      ],                                                                  │ │
+│  │      tags?: Record<string, string>,                                      │ │
+│  │      fingerprint?: string[],                                             │ │
+│  │      timestamp?: string,                                                 │ │
+│  │    },                                                                    │ │
+│  │                                                                          │ │
+│  │    code: {                                                               │ │
+│  │      primary: CodeContext | null, // main error location                 │ │
+│  │      related: CodeContext[], // other stack frames                       │ │
+│  │      repo: string,                                                       │ │
+│  │      commit_sha: string | null,                                          │ │
+│  │    },                                                                    │ │
+│  │                                                                          │ │
+│  │    deterministic_findings: DeterministicFinding[],                       │ │
+│  │                                                                          │ │
+│  │    timeline: Timeline | null,                                            │ │
+│  │    recent_commits: CommitInfo[],                                         │ │
+│  │    environment: EnvironmentContext,                                      │ │
+│  │                                                                          │ │
+│  │    metadata: {                                                           │ │
+│  │      sentry_event_id: string,                                            │ │
+│  │      processing_started_at: string,                                      │ │
+│  │      code_fetch_source: "github" | "redis_cache" | "s3_cache" | "embedded" | null,
+│  │      source_map_used: boolean,                                           │ │
+│  │      validation_passed: boolean,                                         │ │
+│  │      validation_errors?: string[],                                       │ │
+│  │    },                                                                    │ │
 │  │  }                                                                      │ │
 │  │                                                                         │ │
 │  │  Stored in: S3 (gzipped) + Postgres (metadata)                         │ │
@@ -65,60 +99,45 @@ The Evidence Assembly subsystem collects, correlates, and packages all available
 
 ## Evidence Collector Service
 
-### Class Structure
+### Service Flow (src/services/evidence-collector.ts)
 
-```typescript
-// src/services/evidence-collector.ts
-import {
-  extractErrorInfo,
-  buildCodeContext,
-  transformCommit,
-  calculateEvidenceConfidence,
-} from "./evidence-transforms";
-import { PythonBridge } from "./python-bridge";
-import { GitHubService } from "./github";
-import { CodeFetcherService } from "./code-fetcher";
+The `EvidenceCollectorService` orchestrates evidence assembly for each RCA job. It uses pure functions for all stateless transforms and delegates I/O to service methods. The process:
 
-export interface CollectEvidenceParams {
-  eventId: string;
-  orgId: string;
-  eventData: SentryEvent;
-  repo: string;
-  ref: string;
+1. **Extract error info** from the event payload (`extractErrorInfo`).
+2. **Build code context** from fetched code (`buildCodeContext`).
+3. **Fetch recent commits** for the error file (`fetchRecentCommits`).
+4. **Reconstruct timeline** from breadcrumbs (`reconstructTimeline`).
+5. **Extract environment context** (`extractEnvironmentContext`).
+6. **Extract deterministic findings** from analyzer result (`extractDeterministicFindings`).
+7. **Determine code fetch source** for cache metrics (`determineCodeFetchSource`).
+8. **Assemble EvidenceBundle** and validate against schema.
+
+All stateless transforms are pure functions in `evidence-transforms.ts`. The final bundle is validated with Zod (`evidenceBundleSchema`).
+
+**Note:** The field `deterministic_findings` is the canonical output of the deterministic analyzer (AST rules, pattern matching, etc). There is no longer an `astFindings` or `findings` field—use `deterministic_findings` throughout.
+
+**Confidence scoring** is handled by `calculateEvidenceConfidence` (see below).
+private readonly github: GitHubService;
+private readonly pythonBridge: PythonBridge;
+
+constructor(
+deps: {
+codeFetcher?: CodeFetcherService;
+github?: GitHubService;
+pythonBridge?: PythonBridge;
+} = {}
+) {
+this.codeFetcher = deps.codeFetcher ?? new CodeFetcherService();
+this.github = deps.github ?? new GitHubService();
+this.pythonBridge =
+deps.pythonBridge ??
+new PythonBridge({
+module: "timeline.reconstructor",
+});
 }
 
-export interface EvidenceBundle {
-  errorInfo: ErrorInfo;
-  codeContext: CodeContext;
-  timeline: Timeline;
-  commits: CommitInfo[];
-  astFindings: ASTFinding[];
-  metadata: EvidenceMetadata;
-}
-
-export class EvidenceCollectorService {
-  private readonly codeFetcher: CodeFetcherService;
-  private readonly github: GitHubService;
-  private readonly pythonBridge: PythonBridge;
-
-  constructor(
-    deps: {
-      codeFetcher?: CodeFetcherService;
-      github?: GitHubService;
-      pythonBridge?: PythonBridge;
-    } = {}
-  ) {
-    this.codeFetcher = deps.codeFetcher ?? new CodeFetcherService();
-    this.github = deps.github ?? new GitHubService();
-    this.pythonBridge =
-      deps.pythonBridge ??
-      new PythonBridge({
-        module: "timeline.reconstructor",
-      });
-  }
-
-  async collect(params: CollectEvidenceParams): Promise<EvidenceBundle> {
-    const { eventId, orgId, eventData, repo, ref } = params;
+async collect(params: CollectEvidenceParams): Promise<EvidenceBundle> {
+const { eventId, orgId, eventData, repo, ref } = params;
 
     // 1. Extract error info (pure function)
     const errorInfo = extractErrorInfo(eventData);
@@ -166,19 +185,20 @@ export class EvidenceCollectorService {
       astFindings,
       metadata,
     };
-  }
 
-  private async fetchCodeForStackTrace(
-    orgId: string,
-    repo: string,
-    ref: string,
-    stackTrace: StackFrame[]
-  ): Promise<CodeFetchResult[]> {
-    // Fetch code for top N frames (configurable)
-    const maxFrames = config.EVIDENCE_MAX_FRAMES || 5;
-    const framesToFetch = stackTrace
-      .filter((frame) => frame.in_app !== false)
-      .slice(0, maxFrames);
+}
+
+private async fetchCodeForStackTrace(
+orgId: string,
+repo: string,
+ref: string,
+stackTrace: StackFrame[]
+): Promise<CodeFetchResult[]> {
+// Fetch code for top N frames (configurable)
+const maxFrames = config.EVIDENCE_MAX_FRAMES || 5;
+const framesToFetch = stackTrace
+.filter((frame) => frame.in_app !== false)
+.slice(0, maxFrames);
 
     const results = await Promise.all(
       framesToFetch.map((frame) =>
@@ -200,13 +220,14 @@ export class EvidenceCollectorService {
     );
 
     return results;
-  }
 
-  private async runASTAnalysis(
-    codeResults: CodeFetchResult[],
-    errorInfo: ErrorInfo
-  ): Promise<ASTFinding[]> {
-    const allFindings: ASTFinding[] = [];
+}
+
+private async runASTAnalysis(
+codeResults: CodeFetchResult[],
+errorInfo: ErrorInfo
+): Promise<ASTFinding[]> {
+const allFindings: ASTFinding[] = [];
 
     for (const result of codeResults) {
       if (!result.code) continue;
@@ -234,14 +255,15 @@ export class EvidenceCollectorService {
 
     // Sort by confidence and dedupe
     return allFindings.sort((a, b) => b.confidence - a.confidence).slice(0, 10); // Top 10 findings
-  }
 
-  private async reconstructTimeline(
-    breadcrumbs: Breadcrumb[]
-  ): Promise<Timeline> {
-    if (breadcrumbs.length === 0) {
-      return { events: [], duration_ms: 0 };
-    }
+}
+
+private async reconstructTimeline(
+breadcrumbs: Breadcrumb[]
+): Promise<Timeline> {
+if (breadcrumbs.length === 0) {
+return { events: [], duration_ms: 0 };
+}
 
     // Use Python for complex timeline reconstruction
     const result = await this.pythonBridge.call("reconstruct_timeline", {
@@ -249,31 +271,35 @@ export class EvidenceCollectorService {
     });
 
     return result;
-  }
 
-  private async getRecentCommits(
-    orgId: string,
-    repo: string,
-    filePath?: string
-  ): Promise<CommitInfo[]> {
-    try {
-      const commits = await this.github.getRecentCommits(
-        orgId,
-        repo,
-        filePath,
-        10 // Last 10 commits
-      );
+}
+
+private async getRecentCommits(
+orgId: string,
+repo: string,
+filePath?: string
+): Promise<CommitInfo[]> {
+try {
+const commits = await this.github.getRecentCommits(
+orgId,
+repo,
+filePath,
+10 // Last 10 commits
+);
 
       return commits.map(transformCommit);
     } catch (error) {
       logger.warn({ error, repo }, "Failed to fetch commits");
       return [];
     }
-  }
+
 }
-```
+}
+
+````
 
 ---
+
 
 ## Evidence Transforms (Pure Functions)
 
@@ -405,64 +431,20 @@ export function transformCommit(commit: GitHubCommit): CommitInfo {
   };
 }
 
-/**
- * Calculate evidence confidence score.
- * @pure
- */
-export function calculateEvidenceConfidence(
-  bundle: Partial<EvidenceBundle>
-): EvidenceMetadata {
-  let score = 0;
-  const gaps: string[] = [];
 
-  // Error info (25 points max)
-  if (bundle.errorInfo?.message) score += 10;
-  if (bundle.errorInfo?.stack_trace?.length) {
-    score += Math.min(bundle.errorInfo.stack_trace.length * 3, 15);
-  }
+### Confidence Scoring
 
-  // Code context (30 points max)
-  if (bundle.codeContext?.files_available) {
-    score += Math.min(bundle.codeContext.files_available * 10, 30);
-  } else {
-    gaps.push("No source code available");
-  }
+The confidence score for an evidence bundle is computed by `calculateEvidenceConfidence` (pure function). The scoring rubric is:
 
-  // AST findings (25 points max)
-  if (bundle.astFindings?.length) {
-    const highConfFindings = bundle.astFindings.filter(
-      (f) => f.confidence > 0.7
-    );
-    score += Math.min(highConfFindings.length * 8, 25);
-  } else {
-    gaps.push("No deterministic findings");
-  }
+- **Error info:** up to 25 points (message + stack trace)
+- **Code context:** up to 30 points (files available)
+- **Deterministic findings:** up to 25 points (high-confidence findings)
+- **Timeline:** up to 10 points (breadcrumb events)
+- **Commits:** up to 10 points (recent commit context)
 
-  // Timeline (10 points max)
-  if (bundle.timeline?.events?.length) {
-    score += Math.min(bundle.timeline.events.length, 10);
-  } else {
-    gaps.push("No breadcrumb timeline");
-  }
+Gaps are recorded for missing evidence. The final confidence is normalized to [0, 1]. If confidence < 0.7, the bundle may be flagged for human review.
 
-  // Commits (10 points max)
-  if (bundle.commits?.length) {
-    score += Math.min(bundle.commits.length, 10);
-  }
-
-  return {
-    confidence: Math.min(score, 100) / 100,
-    completeness: score / 100,
-    gaps,
-    sources: {
-      error: !!bundle.errorInfo,
-      code: (bundle.codeContext?.files_available || 0) > 0,
-      ast: (bundle.astFindings?.length || 0) > 0,
-      timeline: (bundle.timeline?.events?.length || 0) > 0,
-      commits: (bundle.commits?.length || 0) > 0,
-    },
-  };
-}
+See `calculateEvidenceConfidence` in `src/services/evidence-transforms.ts` for details.
 
 /**
  * Detect programming language from file extension.
@@ -482,7 +464,7 @@ export function detectLanguage(filePath: string): string {
   };
   return langMap[ext || ""] || "unknown";
 }
-```
+````
 
 ---
 
