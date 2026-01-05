@@ -20,6 +20,7 @@
     "worker": "tsx src/workers/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.962.0",
     "@aws-sdk/client-s3": "^3.470.0",
     "@aws-sdk/client-secrets-manager": "^3.470.0",
     "@fastify/cookie": "^9.4.0",

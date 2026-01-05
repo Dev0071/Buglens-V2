@@ -1,0 +1,4 @@
+'use strict';
+
+Object.defineProperty(exports,'__esModule',{value:!0});var e=require('axios');function t(e){return e&&"object"==typeof e&&"default"in e?e:{default:e}}var n=t(e);const r={info:(e,...t)=>console.log(`[INFO] ${e}`,...t),error:(e,...t)=>console.error(`[ERROR] ${e}`,...t),warn:(e,...t)=>console.warn(`[WARN] ${e}`,...t)};async function o(e,t){r.info(`Fetching ${e}`);try{const o=await n.default.get(e,{timeout:t||5e3});return r.info(`Success: ${o.status}`),o.data}catch(e){throw r.error("Request failed:",e.message),e}}async function s(e){const t=await o(`/api/users/${e}`);return t.profile.displayName}async function i(){const e=await o("/api/config");return{env:e.environment,version:e.version}}exports.fetchData=o,exports.getConfig=i,exports.getUserDisplayName=s,exports.logger=r;
+//# sourceMappingURL=rollup-bundle.cjs.map

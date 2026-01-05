@@ -1,0 +1,340 @@
+# Deploy to Production Environment
+# Requires manual approval via GitHub Environment protection rules
+name: Deploy Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Skip tests (emergency only)"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  DO_APP_ID: ${{ secrets.DO_APP_ID_PRODUCTION }}
+
+jobs:
+  # ============================================
+  # Run Full Test Suite
+  # ============================================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: buglens_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install -r python/requirements.txt
+
+      - name: Run migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/buglens_test
+
+      - name: Run all tests
+        run: npm run test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/buglens_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+
+      - name: Run frontend tests
+        working-directory: ./web
+        run: |
+          npm ci
+          npm run test -- --run
+
+  # ============================================
+  # Approval Gate
+  # ============================================
+  approve:
+    name: Production Approval
+    runs-on: ubuntu-latest
+    needs: test
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    environment: production # Requires approval in GitHub repo settings
+
+    steps:
+      - name: Approved for production
+        run: |
+          echo "✅ Production deployment approved"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+  # ============================================
+  # Deploy to Production
+  # ============================================
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: approve
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Pre-deployment health check
+        run: |
+          API_URL="${{ vars.PRODUCTION_API_URL }}"
+          echo "Checking current production health..."
+          curl -sf "$API_URL/health" || echo "Warning: Current deployment may be unhealthy"
+
+      - name: Create deployment
+        id: deploy
+        run: |
+          echo "Creating production deployment..."
+          DEPLOYMENT_ID=$(doctl apps create-deployment $DO_APP_ID --format ID --no-header)
+          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+          echo "Deployment ID: $DEPLOYMENT_ID"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment to complete..."
+          for i in {1..90}; do
+            STATUS=$(doctl apps get-deployment $DO_APP_ID ${{ steps.deploy.outputs.deployment_id }} --format Phase --no-header)
+            echo "[$i/90] Status: $STATUS"
+
+            if [ "$STATUS" == "ACTIVE" ]; then
+              echo "✅ Deployment successful!"
+              exit 0
+            elif [ "$STATUS" == "ERROR" ] || [ "$STATUS" == "FAILED" ]; then
+              echo "❌ Deployment failed!"
+              doctl apps logs $DO_APP_ID --type=deploy
+              exit 1
+            fi
+
+            sleep 20
+          done
+          echo "⏰ Deployment timed out after 30 minutes"
+          exit 1
+
+      - name: Post-deployment verification
+        run: |
+          API_URL="${{ vars.PRODUCTION_API_URL }}"
+          echo "Running post-deployment checks..."
+
+          # Wait for services to stabilize
+          sleep 30
+
+          # Health check
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Health check failed: HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Check response time
+          RESPONSE_TIME=$(curl -s -o /dev/null -w "%{time_total}" "$API_URL/health")
+          echo "Response time: ${RESPONSE_TIME}s"
+
+          # Verify database
+          DB_STATUS=$(curl -s "$API_URL/health" | jq -r '.database // "unknown"')
+          if [ "$DB_STATUS" != "healthy" ]; then
+            echo "❌ Database unhealthy: $DB_STATUS"
+            exit 1
+          fi
+          echo "✅ Database healthy"
+
+          # Verify Redis
+          REDIS_STATUS=$(curl -s "$API_URL/health" | jq -r '.redis // "unknown"')
+          if [ "$REDIS_STATUS" != "healthy" ]; then
+            echo "❌ Redis unhealthy: $REDIS_STATUS"
+            exit 1
+          fi
+          echo "✅ Redis healthy"
+
+  # ============================================
+  # Run Migrations
+  # ============================================
+  migrate:
+    name: Run Migrations
+    runs-on: ubuntu-latest
+    needs: deploy
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  # ============================================
+  # Create Sentry Release
+  # ============================================
+  sentry-release:
+    name: Create Sentry Release
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        with:
+          environment: production
+          version: ${{ github.sha }}
+          set_commits: auto
+
+  # ============================================
+  # Notify
+  # ============================================
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [deploy, migrate]
+    if: always()
+
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ needs.deploy.result }}
+          channel: "#deployments"
+          fields: repo,commit,author,action,workflow,job
+          mention: "channel"
+          if_mention: failure
+          text: |
+            Production deployment ${{ needs.deploy.result == 'success' && '✅ succeeded' || '❌ failed' }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+      - name: Create GitHub deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              auto_merge: false,
+              required_contexts: []
+            });
+
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: '${{ needs.deploy.result }}' === 'success' ? 'success' : 'failure',
+              environment_url: '${{ vars.PRODUCTION_URL }}',
+              description: 'Deployed to production'
+            });
+        continue-on-error: true
+
+  # ============================================
+  # Rollback (on failure)
+  # ============================================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: failure()
+    environment: production
+
+    steps:
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Rollback to previous deployment
+        run: |
+          echo "⚠️ Deployment failed, initiating rollback..."
+
+          # Get previous successful deployment
+          PREV_DEPLOYMENT=$(doctl apps list-deployments $DO_APP_ID --format ID,Phase --no-header | grep ACTIVE | head -2 | tail -1 | awk '{print $1}')
+
+          if [ -n "$PREV_DEPLOYMENT" ]; then
+            echo "Rolling back to deployment: $PREV_DEPLOYMENT"
+            # Note: DigitalOcean doesn't have direct rollback, redeploy previous
+            echo "Manual rollback required - check DigitalOcean console"
+          else
+            echo "No previous deployment found for rollback"
+          fi
+
+      - name: Alert on rollback
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "channel": "#deployments",
+              "attachments": [{
+                "color": "danger",
+                "text": "🚨 PRODUCTION ROLLBACK INITIATED\nCommit: ${{ github.sha }}\nCheck DigitalOcean console for manual rollback"
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

@@ -1,0 +1,23 @@
+{
+  "version": 3,
+  "sources": [
+    "../src/logger.ts",
+    "../src/http.ts",
+    "../src/user.ts",
+    "../src/config.ts"
+  ],
+  "names": [
+    "logger",
+    "fetchData",
+    "getUserDisplayName",
+    "getConfig"
+  ],
+  "mappings": "AAAAA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UCJpBC,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UCJpBC,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UCJpBC,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA",
+  "file": "rollup-bundle.cjs",
+  "sourcesContent": [
+    "// logger.ts\nexport const logger = {\n  info: (msg: string) => console.log(msg),\n  error: (msg: string) => console.error(msg)\n};",
+    "// http.ts\nimport { logger } from './logger';\nexport async function fetchData(url: string) {\n  logger.info(url);\n  return fetch(url);\n}",
+    "// user.ts\nimport { fetchData } from './http';\nexport async function getUserDisplayName(userId: number) {\n  const user = await fetchData(`/api/users/${userId}`);\n  return user.profile.displayName;\n}",
+    "// config.ts\nimport { fetchData } from './http';\nexport async function getConfig() {\n  return fetchData('/api/config');\n}"
+  ]
+}

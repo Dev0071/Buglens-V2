@@ -353,12 +353,13 @@ export async function refreshIntegrationTokens(
 
   // Call appropriate refresh function based on type
   switch (type) {
-    case "google":
+    case "google": {
       const googleResult = await refreshGoogleTokens(tokens.refreshToken);
       if (googleResult) {
         refreshResult = { ...googleResult, refreshToken: tokens.refreshToken };
       }
       break;
+    }
     case "slack":
       refreshResult = await refreshSlackTokens(tokens.refreshToken);
       break;

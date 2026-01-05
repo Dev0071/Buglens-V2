@@ -873,6 +873,15 @@ class CodeFetcherService {
     let consumer: SourceMapConsumer | null = null;
 
     try {
+      // Validate source map has minimum required fields
+      if (!sourceMap || !sourceMap.mappings || !sourceMap.sources) {
+        logger.debug(
+          { hasMap: !!sourceMap, hasMappings: !!sourceMap?.mappings },
+          "Invalid source map structure"
+        );
+        return null;
+      }
+
       consumer = await new SourceMapConsumer(sourceMap);
 
       const original = consumer.originalPositionFor({
@@ -899,6 +908,15 @@ class CodeFetcherService {
       }
 
       return { resolvedFrame, originalSource };
+    } catch (error) {
+      logger.debug(
+        {
+          error: error instanceof Error ? error.message : "Unknown error",
+          frame: frame.file,
+        },
+        "Failed to apply source map"
+      );
+      return null;
     } finally {
       if (consumer) {
         consumer.destroy();

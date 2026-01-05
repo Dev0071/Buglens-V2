@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "sources": [
+    "/Users/dev/project/src/api-client.ts"
+  ],
+  "names": [
+    "ApiClient",
+    "config",
+    "baseUrl"
+  ],
+  "mappings": "AAAAA,UAAUA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UAAUC,UACzBA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUC,UACzBA,UAAUA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UACzBA,UAAUA,UAAUA,UAAUA,UACzBA",
+  "file": "vite-bundle.js",
+  "sourcesContent": [
+    "// api-client.ts\nimport axios from 'axios';\n\nexport class ApiClient {\n  private baseUrl: string;\n\n  constructor(config: { baseUrl: string }) {\n    this.baseUrl = config.baseUrl;\n  }\n\n  async get(endpoint: string) {\n    return axios.get(`${this.baseUrl}${endpoint}`);\n  }\n}"
+  ]
+}

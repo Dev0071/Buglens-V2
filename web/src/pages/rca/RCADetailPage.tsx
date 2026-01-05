@@ -19,6 +19,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { EvidenceGraphView } from "@/components/EvidenceGraphView";
 
 // Tab types
 type TabId = "summary" | "evidence" | "code" | "timeline" | "feedback";
@@ -325,24 +326,13 @@ function SummaryTab({ rca }: { rca: RCAResult }) {
 // ============================================================================
 
 function EvidenceTab({ rca }: { rca: RCAResult }) {
-  // This would use React Flow for interactive graph visualization
-  // For now, showing a simplified representation
-
-  const nodes = [
-    { id: "error", label: "Error", type: "error" },
-    { id: "stacktrace", label: "Stack Trace", type: "evidence" },
-    { id: "code", label: "Code Context", type: "evidence" },
-    ...rca.evidence.deterministic_findings.map((f, i) => ({
-      id: `finding-${i}`,
-      label: f.title,
-      type: "finding",
-    })),
-    { id: "root_cause", label: "Root Cause", type: "result" },
-  ];
+  // Get orgId from the RCA result or context
+  // For now, we'll use a placeholder since org context is typically from auth
+  const orgId = rca.org_id || "";
 
   return (
     <div className="space-y-6">
-      {/* Graph Placeholder */}
+      {/* Interactive Evidence Graph */}
       <div className="card">
         <div className="card-header">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -353,65 +343,67 @@ function EvidenceTab({ rca }: { rca: RCAResult }) {
           </p>
         </div>
         <div className="card-body">
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 min-h-[400px] flex items-center justify-center">
-            <div className="text-center">
-              <ChartBarIcon className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400 mb-2">
-                Interactive evidence graph
-              </p>
-              <p className="text-sm text-gray-400 dark:text-gray-500">
-                (React Flow integration coming soon)
-              </p>
-            </div>
-          </div>
+          <EvidenceGraphView rcaId={rca.id} orgId={orgId} />
         </div>
       </div>
 
-      {/* Evidence Nodes List */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Evidence Nodes
-          </h2>
-        </div>
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {nodes.map((node) => (
-              <div
-                key={node.id}
-                className={cn(
-                  "p-4 rounded-lg border",
-                  node.type === "error"
-                    ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20"
-                    : node.type === "result"
-                      ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
-                      : node.type === "finding"
+      {/* Deterministic Findings Summary */}
+      {rca.evidence.deterministic_findings.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Deterministic Findings
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Evidence from static code analysis
+            </p>
+          </div>
+          <div className="card-body">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {rca.evidence.deterministic_findings.map((finding, i) => (
+                <div
+                  key={`finding-${i}`}
+                  className={cn(
+                    "p-4 rounded-lg border",
+                    finding.severity === "high"
+                      ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20"
+                      : finding.severity === "medium"
                         ? "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20"
                         : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
-                )}
-              >
-                <span
-                  className={cn(
-                    "text-xs font-medium uppercase tracking-wider",
-                    node.type === "error"
-                      ? "text-red-600 dark:text-red-400"
-                      : node.type === "result"
-                        ? "text-green-600 dark:text-green-400"
-                        : node.type === "finding"
-                          ? "text-yellow-600 dark:text-yellow-400"
-                          : "text-gray-600 dark:text-gray-400"
                   )}
                 >
-                  {node.type}
-                </span>
-                <p className="mt-1 font-medium text-gray-900 dark:text-white">
-                  {node.label}
-                </p>
-              </div>
-            ))}
+                  <div className="flex items-center justify-between mb-2">
+                    <span
+                      className={cn(
+                        "text-xs font-medium uppercase tracking-wider",
+                        finding.severity === "high"
+                          ? "text-red-600 dark:text-red-400"
+                          : finding.severity === "medium"
+                            ? "text-yellow-600 dark:text-yellow-400"
+                            : "text-gray-600 dark:text-gray-400"
+                      )}
+                    >
+                      {finding.severity}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {Math.round(finding.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {finding.title}
+                  </p>
+                  {finding.file_path && (
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">
+                      {finding.file_path}
+                      {finding.line_number && `:${finding.line_number}`}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

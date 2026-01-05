@@ -1,0 +1,212 @@
+# DigitalOcean App Platform Specification
+# Staging Environment
+
+name: buglens-staging
+region: nyc
+
+features:
+  - buildpack-stack=ubuntu-22
+
+# ===========================================
+# API Service
+# ===========================================
+services:
+  - name: api
+    github:
+      repo: your-username/buglens # UPDATE THIS
+      branch: staging
+      deploy_on_push: true
+
+    dockerfile_path: Dockerfile
+
+    # Smallest professional tier - $12/mo
+    instance_count: 1
+    instance_size_slug: professional-xs
+
+    http_port: 3000
+
+    routes:
+      - path: /
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      # Core
+      - key: NODE_ENV
+        value: staging
+      - key: PORT
+        value: "3000"
+      - key: LOG_LEVEL
+        value: info
+
+      # Database (injected from managed DB)
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${buglens-db-staging.DATABASE_URL}
+
+      # Redis (injected from managed Redis)
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${buglens-redis-staging.DATABASE_URL}
+
+      # S3/Spaces Cache
+      - key: S3_ENDPOINT
+        value: https://nyc3.digitaloceanspaces.com
+      - key: S3_BUCKET_NAME
+        value: buglens-cache-staging
+      - key: SPACES_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # GitHub Integration
+      - key: GITHUB_APP_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_APP_NAME
+        value: buglens-staging
+      - key: GITHUB_PRIVATE_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+      # Sentry
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SENTRY_ENVIRONMENT
+        value: staging
+
+      # Slack
+      - key: SLACK_SIGNING_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: SLACK_BOT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+
+      # Auth
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: ENCRYPTION_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # Feature Flags
+      - key: FEATURE_LLM_ENABLED
+        value: "true"
+      - key: FEATURE_SLACK_ENABLED
+        value: "true"
+      - key: FEATURE_SOURCE_MAPS_ENABLED
+        value: "true"
+
+  # ===========================================
+  # Worker Service (BullMQ)
+  # ===========================================
+  - name: worker
+    github:
+      repo: your-username/buglens # UPDATE THIS
+      branch: staging
+      deploy_on_push: true
+
+    dockerfile_path: Dockerfile.worker
+
+    instance_count: 1
+    instance_size_slug: professional-xs
+
+    # No HTTP port - internal worker only
+
+    envs:
+      - key: NODE_ENV
+        value: staging
+      - key: WORKER_MODE
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+
+      # Database
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${buglens-db-staging.DATABASE_URL}
+
+      # Redis
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${buglens-redis-staging.DATABASE_URL}
+
+      # S3/Spaces
+      - key: S3_ENDPOINT
+        value: https://nyc3.digitaloceanspaces.com
+      - key: S3_BUCKET_NAME
+        value: buglens-cache-staging
+      - key: SPACES_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # GitHub
+      - key: GITHUB_APP_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_PRIVATE_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # Sentry
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SENTRY_ENVIRONMENT
+        value: staging
+
+# ===========================================
+# Managed PostgreSQL Database
+# ===========================================
+databases:
+  - name: buglens-db-staging
+    engine: PG
+    version: "15"
+    size: db-s-1vcpu-1gb # $15/mo
+    num_nodes: 1
+    production: false # Enables maintenance windows
+
+  # ===========================================
+  # Managed Redis
+  # ===========================================
+  - name: buglens-redis-staging
+    engine: REDIS
+    version: "7"
+    size: db-s-1vcpu-1gb # $15/mo
+    num_nodes: 1
+    production: false

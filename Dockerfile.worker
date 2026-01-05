@@ -1,0 +1,73 @@
+# Buglens Worker Dockerfile
+# For BullMQ background job processing
+
+# ============================================
+# Stage 1: Builder
+# ============================================
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY package*.json ./
+COPY tsconfig.json ./
+RUN npm ci
+
+COPY src/ ./src/
+RUN npm run build
+
+# ============================================
+# Stage 2: Production Dependencies
+# ============================================
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+
+# ============================================
+# Stage 3: Python Analyzers
+# ============================================
+FROM python:3.11-alpine AS python-deps
+
+WORKDIR /python
+COPY python/requirements.txt ./
+RUN pip install --no-cache-dir --target=/python/packages -r requirements.txt
+
+# ============================================
+# Stage 4: Production Runner
+# ============================================
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Install Python runtime
+RUN apk add --no-cache python3
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 buglens
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+# Copy Python analyzers
+COPY python/ ./python/
+COPY --from=python-deps /python/packages /usr/local/lib/python3.11/site-packages
+
+ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+
+# Health check - worker-specific
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD node -e "process.exit(0)" || exit 1
+
+USER buglens
+
+ENV NODE_ENV=production
+ENV WORKER_MODE=true
+
+# Start worker
+CMD ["node", "dist/workers/rca-worker.js"]

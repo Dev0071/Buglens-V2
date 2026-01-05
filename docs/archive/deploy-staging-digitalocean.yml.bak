@@ -1,0 +1,127 @@
+# Deploy to Staging Environment
+name: Deploy Staging
+
+on:
+  push:
+    branches: [staging]
+
+env:
+  DO_APP_ID: ${{ secrets.DO_APP_ID_STAGING }}
+
+jobs:
+  deploy:
+    name: Deploy to DigitalOcean
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Create deployment
+        id: deploy
+        run: |
+          DEPLOYMENT_ID=$(doctl apps create-deployment $DO_APP_ID --format ID --no-header)
+          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+          echo "Created deployment: $DEPLOYMENT_ID"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment to complete..."
+          for i in {1..60}; do
+            STATUS=$(doctl apps get-deployment $DO_APP_ID ${{ steps.deploy.outputs.deployment_id }} --format Phase --no-header)
+            echo "[$i/60] Deployment status: $STATUS"
+
+            if [ "$STATUS" == "ACTIVE" ]; then
+              echo "✅ Deployment successful!"
+              exit 0
+            elif [ "$STATUS" == "ERROR" ] || [ "$STATUS" == "FAILED" ]; then
+              echo "❌ Deployment failed!"
+              doctl apps logs $DO_APP_ID --type=deploy
+              exit 1
+            fi
+
+            sleep 15
+          done
+          echo "⏰ Deployment timed out"
+          exit 1
+
+      - name: Run smoke tests
+        run: |
+          API_URL="${{ vars.STAGING_API_URL }}"
+          echo "Testing $API_URL..."
+
+          # Health check
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Health check failed: HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+          # Database check
+          DB_STATUS=$(curl -s "$API_URL/health" | jq -r '.database // "unknown"')
+          echo "Database status: $DB_STATUS"
+
+          # Redis check
+          REDIS_STATUS=$(curl -s "$API_URL/health" | jq -r '.redis // "unknown"')
+          echo "Redis status: $REDIS_STATUS"
+
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        with:
+          environment: staging
+          version: ${{ github.sha }}
+        continue-on-error: true
+
+      - name: Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: "#deployments"
+          fields: repo,commit,author,action,workflow,job
+          mention: "here"
+          if_mention: failure
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+  # Run migrations after deploy
+  migrate:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: deploy
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Verify migrations
+        run: |
+          echo "Checking migration status..."
+          npm run migrate:status || true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
