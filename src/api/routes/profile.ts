@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcrypt";
 import { logger } from "../../utils/logger.js";
 import { query } from "../../db/client.js";
+import { logPasswordChange, logAccountDeletion } from "../../services/audit.js";
 
 // ============================================
 // Request/Response Schemas
@@ -325,6 +326,21 @@ async function changePasswordHandler(
       [newPasswordHash, userId]
     );
 
+    // Get org_id for audit logging
+    const orgResult = await query<{ org_id: string }>(
+      `SELECT org_id FROM users WHERE id = $1`,
+      [userId]
+    );
+    const orgId = orgResult.rows[0]?.org_id;
+
+    // Audit log: password change (CRITICAL for SOC2)
+    await logPasswordChange(
+      userId,
+      orgId,
+      request.ip,
+      request.headers["user-agent"] as string
+    );
+
     reply.send({
       success: true,
       message: "Password changed successfully",
@@ -563,6 +579,22 @@ async function deleteAccountHandler(
 
     // Invalidate all sessions
     await query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+
+    // Get user email for audit
+    const userDetails = await query<{ email: string }>(
+      `SELECT email FROM users WHERE id = $1`,
+      [userId]
+    );
+    const email = userDetails.rows[0]?.email || "unknown";
+
+    // Audit log: account deletion (HIGH priority for SOC2)
+    await logAccountDeletion(
+      userId,
+      orgId || "",
+      email,
+      request.ip,
+      request.headers["user-agent"] as string
+    );
 
     reply.send({
       success: true,

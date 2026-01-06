@@ -2,6 +2,11 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { logger } from "../../utils/logger.js";
 import { query, transaction } from "../../db/client.js";
+import {
+  logSettingsUpdate,
+  logOrgDelete,
+  logPlanChange,
+} from "../../services/audit.js";
 
 // ============================================
 // Request/Response Schemas
@@ -310,6 +315,20 @@ async function updateOrganizationSettingsHandler(
 
     logger.info({ orgId, updates }, "Organization settings updated");
 
+    // Get userId for audit logging
+    const userId = request.getUserId();
+
+    // Audit log: settings update (HIGH priority for SOC2)
+    if (userId) {
+      await logSettingsUpdate(
+        userId,
+        orgId,
+        "organization_settings",
+        { name: newName, settings: updates.settings },
+        request.ip
+      );
+    }
+
     reply.send({
       success: true,
       message: "Settings updated successfully",
@@ -358,6 +377,13 @@ async function deleteOrganizationHandler(
       return;
     }
 
+    // Get org name for audit log
+    const orgResult = await query<{ name: string }>(
+      `SELECT name FROM organizations WHERE id = $1`,
+      [orgId]
+    );
+    const orgName = orgResult.rows[0]?.name || "unknown";
+
     // Soft delete organization (set deleted_at timestamp)
     await transaction(orgId, async (client) => {
       await client.query(
@@ -371,6 +397,9 @@ async function deleteOrganizationHandler(
       // Log the deletion
       logger.info({ orgId, userId }, "Organization deleted");
     });
+
+    // Audit log: organization deletion (CRITICAL for SOC2)
+    await logOrgDelete(userId, orgId, orgName, request.ip);
 
     reply.send({
       success: true,
@@ -510,6 +539,13 @@ async function upgradePlanHandler(
       return;
     }
 
+    // Get current plan for audit log
+    const currentPlanResult = await query<{ plan: string }>(
+      `SELECT plan FROM organizations WHERE id = $1`,
+      [orgId]
+    );
+    const oldPlan = currentPlanResult.rows[0]?.plan || "free";
+
     // Update plan
     await transaction(orgId, async (client) => {
       await client.query(
@@ -522,6 +558,9 @@ async function upgradePlanHandler(
 
       logger.info({ orgId, userId, plan }, "Organization plan upgraded");
     });
+
+    // Audit log: plan change (HIGH priority for SOC2)
+    await logPlanChange(userId, orgId, oldPlan, plan, request.ip);
 
     reply.send({
       success: true,

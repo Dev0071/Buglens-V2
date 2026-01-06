@@ -119,7 +119,10 @@ describe("LLM Reasoning Worker", () => {
       const { transaction } = await import("../../src/db/client.js");
 
       vi.mocked(transaction).mockImplementation(
-        async (_orgId: string, fn: (client: any) => Promise<any>) => {
+        async (
+          _orgId: string | null | undefined,
+          fn: (client: any) => Promise<any>
+        ) => {
           return fn({
             query: vi.fn().mockImplementation((sql: string) => {
               if (sql.includes("rca_jobs")) {

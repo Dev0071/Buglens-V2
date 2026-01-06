@@ -27,6 +27,19 @@ const RCADetailPage = lazy(() => import("@/pages/rca/RCADetailPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
 const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
 
+// Admin pages (lazy loaded)
+const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
+const AdminDashboardPage = lazy(
+  () => import("@/pages/admin/AdminDashboardPage")
+);
+const SecretManagementPage = lazy(
+  () => import("@/pages/admin/SecretManagementPage")
+);
+const OrganizationsPage = lazy(() => import("@/pages/admin/OrganizationsPage"));
+const UsersPage = lazy(() => import("@/pages/admin/UsersPage"));
+const SystemHealthPage = lazy(() => import("@/pages/admin/SystemHealthPage"));
+const AuditLogsPage = lazy(() => import("@/pages/admin/AuditLogsPage"));
+
 /**
  * OAuth callback handler - processes token from URL after OAuth redirect
  */
@@ -196,6 +209,24 @@ function App() {
                     element={<Navigate to="/settings/integrations" replace />}
                   />
                   <Route path="/analytics" element={<AnalyticsPage />} />
+                </Route>
+
+                {/* Admin routes - protected with role check and admin token */}
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute>
+                      <AdminLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<AdminDashboardPage />} />
+                  <Route path="secrets" element={<SecretManagementPage />} />
+                  <Route path="organizations" element={<OrganizationsPage />} />
+                  <Route path="users" element={<UsersPage />} />
+                  <Route path="system" element={<SystemHealthPage />} />
+                  <Route path="audit" element={<AuditLogsPage />} />
+                  <Route path="analytics" element={<AnalyticsPage />} />
                 </Route>
 
                 {/* Catch all - redirect to dashboard */}

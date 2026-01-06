@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { SourceMapConsumer } from "source-map";
+import { SourceMapConsumer, RawSourceMap } from "source-map";
 
 // ============================================================================
 // Fixture Loading
@@ -21,22 +21,19 @@ import { SourceMapConsumer } from "source-map";
 
 const FIXTURES_DIR = path.join(__dirname, "../fixtures/source-maps");
 
-interface _BundleFixture {
-  name: string;
-  minifiedCode: string;
-  sourceMap: object;
-  expectedSourceFile: string;
-  testCases: Array<{
-    description: string;
-    minifiedLine: number;
-    minifiedColumn: number;
-    expectedOriginalLine: number;
-    expectedOriginalColumn?: number;
-    expectedSymbol?: string;
-  }>;
-}
+// BundleFixture interface - kept for documentation purposes
+// Defines structure for bundler output test fixtures
+// interface BundleFixture {
+//   name: string;
+//   minifiedCode: string;
+//   sourceMap: object;
+//   expectedSourceFile: string;
+//   testCases: Array<{...}>;
+// }
 
-function loadFixture(baseName: string): { code: string; map: object } | null {
+function loadFixture(
+  baseName: string
+): { code: string; map: RawSourceMap } | null {
   try {
     const codeFile = path.join(FIXTURES_DIR, baseName);
     const mapFile = path.join(FIXTURES_DIR, `${baseName}.map`);
@@ -47,7 +44,7 @@ function loadFixture(baseName: string): { code: string; map: object } | null {
 
     return {
       code: fs.readFileSync(codeFile, "utf-8"),
-      map: JSON.parse(fs.readFileSync(mapFile, "utf-8")),
+      map: JSON.parse(fs.readFileSync(mapFile, "utf-8")) as RawSourceMap,
     };
   } catch {
     return null;

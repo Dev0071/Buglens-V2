@@ -35,6 +35,7 @@ const MINIFIED_JS_NO_MAP = `"use strict";var a=function(n){return n*2};console.l
  */
 const EXTERNAL_SOURCE_MAP: RawSourceMap = {
   version: 3,
+  file: "app.min.js",
   sources: ["src/app.ts"],
   names: ["double", "n", "console", "log"],
   mappings: "AAAA,IAAMA,OAAO,SAACC,EAAD,OAAYA,EAAI,GAA7BC,QAAQC,IAAIH,OAAO",
@@ -48,6 +49,7 @@ const EXTERNAL_SOURCE_MAP: RawSourceMap = {
  */
 const WEBPACK_SOURCE_MAP: RawSourceMap = {
   version: 3,
+  file: "bundle.js",
   sources: ["webpack://my-app/./src/components/Button.tsx"],
   names: ["Button", "props"],
   mappings: "AAAA,SAASA,OAAOC",
@@ -61,6 +63,7 @@ const WEBPACK_SOURCE_MAP: RawSourceMap = {
  */
 const VITE_SOURCE_MAP: RawSourceMap = {
   version: 3,
+  file: "helpers.js",
   sources: ["/src/utils/helpers.ts"],
   names: ["formatDate"],
   mappings: "AAAA,SAASa",
@@ -74,6 +77,7 @@ const VITE_SOURCE_MAP: RawSourceMap = {
  */
 const ROLLUP_SOURCE_MAP: RawSourceMap = {
   version: 3,
+  file: "math.js",
   sources: ["../src/lib/math.ts"],
   names: ["add", "multiply"],
   mappings: "AAAA",
@@ -86,17 +90,18 @@ const ROLLUP_SOURCE_MAP: RawSourceMap = {
  * Malformed source map (invalid JSON)
  * @internal - kept for potential future test expansion
  */
-const _MALFORMED_SOURCE_MAP = `{version: 3, sources: invalid}`;
+void `{version: 3, sources: invalid}`; // _MALFORMED_SOURCE_MAP
 
 /**
  * Source map with missing required fields
  * @internal - kept for potential future test expansion
  */
-const _INCOMPLETE_SOURCE_MAP: Partial<RawSourceMap> = {
+const _incompleteSourceMap: Partial<RawSourceMap> = {
   version: 3,
   sources: ["src/file.ts"],
   // Missing mappings
 };
+void _incompleteSourceMap;
 
 // ============================================
 // Helper Functions
@@ -106,14 +111,8 @@ function createBase64SourceMap(map: RawSourceMap): string {
   return Buffer.from(JSON.stringify(map)).toString("base64");
 }
 
-/**
- * Helper for creating inline source maps
- * @internal - kept for potential future test expansion
- */
-function _createMinifiedWithInlineMap(code: string, map: RawSourceMap): string {
-  const base64 = createBase64SourceMap(map);
-  return `${code}\n//# sourceMappingURL=data:application/json;base64,${base64}`;
-}
+// Intentionally used to suppress unused variable warning - helper reserved for future tests
+void createBase64SourceMap;
 
 // ============================================
 // Tests
@@ -477,6 +476,7 @@ console.log(double(5));
 
       const emptyMappingsMap = {
         version: 3,
+        file: "test.js",
         sources: ["test.ts"],
         mappings: "",
         names: [],

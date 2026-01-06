@@ -377,9 +377,12 @@ describe("Deterministic Analyzer Worker", () => {
       if (
         logCall &&
         typeof logCall[0] === "object" &&
+        logCall[0] !== null &&
         "durationMs" in logCall[0]
       ) {
-        expect(logCall[0].durationMs).toBeGreaterThanOrEqual(30);
+        expect(
+          (logCall[0] as { durationMs: number }).durationMs
+        ).toBeGreaterThanOrEqual(30);
       }
     });
 

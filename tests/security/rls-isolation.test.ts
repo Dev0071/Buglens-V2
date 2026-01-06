@@ -468,8 +468,8 @@ describe("Security Attack Scenarios", () => {
   describe("enumeration attack prevention", () => {
     it("should not reveal existence of other orgs' data", () => {
       const getResource = (
-        requestingOrgId: string,
-        resourceId: string,
+        _requestingOrgId: string, // Not currently used in logic but kept for future enhancement
+        _resourceId: string, // Not currently used in logic but kept for future enhancement
         exists: boolean,
         belongsToOrg: boolean
       ) => {
