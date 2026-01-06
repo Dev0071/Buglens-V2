@@ -16,19 +16,19 @@ from analyzers.base import AnalysisContext, CodeSegment
 @pytest.fixture
 def js_parser():
     """Create a JavaScript parser."""
-    return Parser(Language(javascript_language()))
+    return Parser(Language(javascript_language(), name="javascript"))
 
 
 @pytest.fixture
 def ts_parser():
     """Create a TypeScript parser."""
-    return Parser(Language(language_typescript()))
+    return Parser(Language(language_typescript(), name="typescript"))
 
 
 @pytest.fixture
 def tsx_parser():
     """Create a TSX parser."""
-    return Parser(Language(language_tsx()))
+    return Parser(Language(language_tsx(), name="tsx"))
 
 
 def create_js_context(code: str, error_line: int = 1, error_message: str = "") -> AnalysisContext:
@@ -39,7 +39,7 @@ def create_js_context(code: str, error_line: int = 1, error_message: str = "") -
         content=code,
         error_line=error_line,
     )
-    parser = Parser(Language(javascript_language()))
+    parser = Parser(Language(javascript_language(), name="javascript"))
     tree = parser.parse(bytes(code, "utf-8"))
     return AnalysisContext(segment, tree, {"error_message": error_message})
 
@@ -52,7 +52,7 @@ def create_ts_context(code: str, error_line: int = 1, error_message: str = "") -
         content=code,
         error_line=error_line,
     )
-    parser = Parser(Language(language_typescript()))
+    parser = Parser(Language(language_typescript(), name="typescript"))
     tree = parser.parse(bytes(code, "utf-8"))
     return AnalysisContext(segment, tree, {"error_message": error_message})
 
@@ -80,11 +80,11 @@ def create_context() -> Callable[..., AnalysisContext]:
             error_line=error_line,
         )
         if language == "typescript":
-            parser = Parser(Language(language_typescript()))
+            parser = Parser(Language(language_typescript(), name="typescript"))
         elif language == "tsx":
-            parser = Parser(Language(language_tsx()))
+            parser = Parser(Language(language_tsx(), name="tsx"))
         else:
-            parser = Parser(Language(javascript_language()))
+            parser = Parser(Language(javascript_language(), name="javascript"))
         tree = parser.parse(bytes(code, "utf-8"))
         return AnalysisContext(segment, tree, {"error_message": error_message})
 

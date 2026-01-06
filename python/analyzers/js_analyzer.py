@@ -28,10 +28,10 @@ def create_parser(language: str) -> Parser:
     """
     lang_lower = language.lower()
     if lang_lower in ("tsx", "jsx"):
-        return Parser(Language(language_tsx()))
+        return Parser(Language(language_tsx(), name="tsx"))
     elif lang_lower in ("typescript", "ts"):
-        return Parser(Language(language_typescript()))
-    return Parser(Language(javascript_language()))
+        return Parser(Language(language_typescript(), name="typescript"))
+    return Parser(Language(javascript_language(), name="javascript"))
 
 
 def parse_code_segment(segment: CodeSegment) -> AnalysisContext:
