@@ -17,64 +17,78 @@ import { DeterministicAnalyzerService } from "../services/deterministic-analyzer
  *
  * Then fetches code and runs Python analyzers for findings.
  */
-export function startDeterministicAnalyzerWorker(): Worker<DeterministicAnalyzerJobData> {
-  const service = new DeterministicAnalyzerService();
 
-  const worker = new Worker<DeterministicAnalyzerJobData>(
-    DETERMINISTIC_QUEUE_NAME,
-    async (job: Job<DeterministicAnalyzerJobData>) => {
-      const { jobId, eventId, orgId } = job.data;
-      const startTime = Date.now();
+/**
+ * Create the job processor function
+ * Exported for testing purposes
+ */
+export function createDeterministicProcessor(
+  service: DeterministicAnalyzerService
+) {
+  return async (job: Job<DeterministicAnalyzerJobData>) => {
+    const { jobId, eventId, orgId } = job.data;
+    const startTime = Date.now();
 
+    logger.info(
+      {
+        jobId,
+        eventId,
+        orgId,
+        attempt: job.attemptsMade + 1,
+        maxAttempts: job.opts.attempts || 3,
+        worker: "deterministic-analyzer",
+      },
+      "[JOB:START] Deterministic analysis starting"
+    );
+
+    try {
+      await service.process(job.data);
+
+      const durationMs = Date.now() - startTime;
       logger.info(
         {
           jobId,
           eventId,
           orgId,
-          attempt: job.attemptsMade + 1,
-          maxAttempts: job.opts.attempts || 3,
+          durationMs,
+          durationSec: (durationMs / 1000).toFixed(2),
           worker: "deterministic-analyzer",
+          status: "success",
         },
-        "[JOB:START] Deterministic analysis starting"
+        "[JOB:SUCCESS] Deterministic analysis completed"
       );
 
-      try {
-        await service.process(job.data);
+      return { success: true, durationMs };
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      const err = error instanceof Error ? error : new Error(String(error));
 
-        const durationMs = Date.now() - startTime;
-        logger.info(
-          {
-            jobId,
-            eventId,
-            orgId,
-            durationMs,
-            durationSec: (durationMs / 1000).toFixed(2),
-            worker: "deterministic-analyzer",
-            status: "success",
-          },
-          "[JOB:SUCCESS] Deterministic analysis completed"
-        );
-      } catch (error) {
-        const durationMs = Date.now() - startTime;
-        const err = error instanceof Error ? error : new Error(String(error));
+      logger.error(
+        {
+          jobId,
+          eventId,
+          orgId,
+          durationMs,
+          attempt: job.attemptsMade + 1,
+          error: err.message,
+          errorStack: err.stack,
+          worker: "deterministic-analyzer",
+          status: "failed",
+        },
+        "[JOB:ERROR] Deterministic analysis failed"
+      );
+      throw error;
+    }
+  };
+}
 
-        logger.error(
-          {
-            jobId,
-            eventId,
-            orgId,
-            durationMs,
-            attempt: job.attemptsMade + 1,
-            error: err.message,
-            errorStack: err.stack,
-            worker: "deterministic-analyzer",
-            status: "failed",
-          },
-          "[JOB:ERROR] Deterministic analysis failed"
-        );
-        throw error;
-      }
-    },
+export function startDeterministicAnalyzerWorker(): Worker<DeterministicAnalyzerJobData> {
+  const service = new DeterministicAnalyzerService();
+  const processor = createDeterministicProcessor(service);
+
+  const worker = new Worker<DeterministicAnalyzerJobData>(
+    DETERMINISTIC_QUEUE_NAME,
+    processor,
     {
       connection: resolveQueueConnection(),
       concurrency: 1, // Process one at a time for predictable resource usage

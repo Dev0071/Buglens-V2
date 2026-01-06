@@ -10,6 +10,7 @@ import { Suspense, lazy, useEffect } from "react";
 import { useAuthStore } from "@/store/auth";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider, Toaster } from "@/components/ui/toaster";
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import AuthLayout from "@/layouts/AuthLayout";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -130,77 +131,82 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
  */
 function App() {
   return (
-    <ThemeProvider defaultTheme="system" storageKey="buglens-theme">
-      <ToastProvider>
-        <BrowserRouter>
-          {/* Handle OAuth callback tokens */}
-          <OAuthCallbackHandler />
-          <Suspense fallback={<LoadingSpinner fullScreen />}>
-            <Routes>
-              {/* Landing page - public marketing page */}
-              <Route path="/landing" element={<LandingPage />} />
+    <ErrorBoundary>
+      <ThemeProvider defaultTheme="system" storageKey="buglens-theme">
+        <ToastProvider>
+          <BrowserRouter>
+            {/* Handle OAuth callback tokens */}
+            <OAuthCallbackHandler />
+            <Suspense fallback={<LoadingSpinner fullScreen />}>
+              <Routes>
+                {/* Landing page - public marketing page */}
+                <Route path="/landing" element={<LandingPage />} />
 
-              {/* Public routes */}
-              <Route element={<AuthLayout />}>
+                {/* Public routes */}
+                <Route element={<AuthLayout />}>
+                  <Route
+                    path="/login"
+                    element={
+                      <PublicRoute>
+                        <LoginPage />
+                      </PublicRoute>
+                    }
+                  />
+                  <Route
+                    path="/signup"
+                    element={
+                      <PublicRoute>
+                        <SignupPage />
+                      </PublicRoute>
+                    }
+                  />
+                </Route>
+
+                {/* Protected routes */}
                 <Route
-                  path="/login"
                   element={
-                    <PublicRoute>
-                      <LoginPage />
-                    </PublicRoute>
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
                   }
-                />
-                <Route
-                  path="/signup"
-                  element={
-                    <PublicRoute>
-                      <SignupPage />
-                    </PublicRoute>
-                  }
-                />
-              </Route>
+                >
+                  <Route index element={<DashboardPage />} />
+                  <Route path="/events" element={<EventsPage />} />
+                  <Route
+                    path="/events/:eventId"
+                    element={<EventDetailPage />}
+                  />
+                  <Route path="/rca/:rcaId" element={<RCADetailPage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/settings/profile" element={<SettingsPage />} />
+                  <Route path="/settings/team" element={<SettingsPage />} />
+                  <Route
+                    path="/settings/integrations"
+                    element={<SettingsPage />}
+                  />
+                  <Route path="/settings/api-keys" element={<SettingsPage />} />
+                  <Route
+                    path="/settings/notifications"
+                    element={<SettingsPage />}
+                  />
+                  <Route path="/settings/billing" element={<SettingsPage />} />
+                  {/* Redirect old /integrations route to settings */}
+                  <Route
+                    path="/integrations"
+                    element={<Navigate to="/settings/integrations" replace />}
+                  />
+                  <Route path="/analytics" element={<AnalyticsPage />} />
+                </Route>
 
-              {/* Protected routes */}
-              <Route
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<DashboardPage />} />
-                <Route path="/events" element={<EventsPage />} />
-                <Route path="/events/:eventId" element={<EventDetailPage />} />
-                <Route path="/rca/:rcaId" element={<RCADetailPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/profile" element={<SettingsPage />} />
-                <Route path="/settings/team" element={<SettingsPage />} />
-                <Route
-                  path="/settings/integrations"
-                  element={<SettingsPage />}
-                />
-                <Route path="/settings/api-keys" element={<SettingsPage />} />
-                <Route
-                  path="/settings/notifications"
-                  element={<SettingsPage />}
-                />
-                <Route path="/settings/billing" element={<SettingsPage />} />
-                {/* Redirect old /integrations route to settings */}
-                <Route
-                  path="/integrations"
-                  element={<Navigate to="/settings/integrations" replace />}
-                />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-              </Route>
-
-              {/* Catch all - redirect to dashboard */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-          <Toaster />
-        </BrowserRouter>
-      </ToastProvider>
-    </ThemeProvider>
+                {/* Catch all - redirect to dashboard */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+            <Toaster />
+          </BrowserRouter>
+        </ToastProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

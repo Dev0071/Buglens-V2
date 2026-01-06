@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // Setup file to initialize WASM modules
+    setupFiles: ["./tests/setup.ts"],
     // Run test files sequentially to prevent database contamination
     fileParallelism: false,
     // Tests within a file run sequentially
@@ -20,5 +22,16 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
       exclude: ["node_modules/**", "dist/**", "**/*.test.ts", "**/*.config.ts"],
     },
+    // Use threads for better isolation
+    pool: "threads",
+    poolOptions: {
+      threads: {
+        singleThread: true,
+      },
+    },
+  },
+  // Handle WASM files properly
+  optimizeDeps: {
+    exclude: ["source-map"],
   },
 });

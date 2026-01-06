@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "sources": [
+    "webpack://buglens-demo/./src/user-module.ts"
+  ],
+  "names": [
+    "getUserData",
+    "id",
+    "processUser"
+  ],
+  "mappings": "AAAAA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUC,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUC,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA,UACpBA,UAAUA,UAAUA",
+  "file": "webpack-bundle.js",
+  "sourcesContent": [
+    "// user-module.ts - Original source\nexport const getUserData = (id: number) => {\n  return {\n    id: id,\n    name: 'User ' + id,\n    email: 'user' + id + '@example.com'\n  };\n};\n\nexport const processUser = (id: number) => {\n  const user = getUserData(id);\n  return user.name.toUpperCase();\n};"
+  ]
+}
