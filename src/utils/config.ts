@@ -90,6 +90,9 @@ const envSchema = z.object({
   RATE_LIMIT_FREE_EVENTS_PER_HOUR: z.coerce.number().default(100),
   RATE_LIMIT_FREE_RCA_JOBS_PER_DAY: z.coerce.number().default(50),
   RATE_LIMIT_FREE_LLM_TOKENS_PER_DAY: z.coerce.number().default(100000),
+
+  // Admin Security
+  PLATFORM_ADMIN_TOKEN: z.string().min(32).optional(), // Required for secret management API
 });
 
 export type Config = z.infer<typeof envSchema>;

@@ -92,6 +92,8 @@ export interface DeterministicFinding {
   severity: "low" | "medium" | "high" | "critical";
   confidence: number;
   evidence_refs: string[];
+  file_path?: string;
+  line_number?: number;
 }
 
 // Code file context
@@ -125,6 +127,7 @@ export interface RCAEvidence {
 export interface RCAResult {
   id: string;
   event_id: string;
+  org_id?: string;
   title: string;
   summary: string;
   root_cause: string;

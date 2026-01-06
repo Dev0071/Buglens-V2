@@ -21,6 +21,11 @@ import { analyticsRoutes } from "./routes/analytics.js";
 import { authRoutes } from "./routes/auth.js";
 import { teamRoutes } from "./routes/team.js";
 import { profileRoutes } from "./routes/profile.js";
+import { adminSecretRoutes } from "./routes/admin/secrets.js";
+import { adminOrganizationRoutes } from "./routes/admin/organizations.js";
+import { adminUserRoutes } from "./routes/admin/users.js";
+import { adminSystemRoutes } from "./routes/admin/system.js";
+import { adminAuditRoutes } from "./routes/admin/audit.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -93,6 +98,65 @@ await server.register(rateLimit, {
   keyGenerator: (request) => request.getOrgId() || request.ip,
 });
 
+// ============================================
+// Security Headers (SOC2 Compliance)
+// ============================================
+server.addHook("onSend", async (request, reply) => {
+  // Prevent clickjacking
+  reply.header("X-Frame-Options", "DENY");
+
+  // Prevent MIME type sniffing
+  reply.header("X-Content-Type-Options", "nosniff");
+
+  // XSS Protection (legacy browsers)
+  reply.header("X-XSS-Protection", "1; mode=block");
+
+  // Referrer policy - don't leak URLs
+  reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // Permissions policy - disable unnecessary features
+  reply.header(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=()"
+  );
+
+  // Content Security Policy
+  // Note: CSP is primarily for browser-rendered content
+  // API responses are JSON so this is mainly defensive
+  if (config.NODE_ENV === "production") {
+    reply.header(
+      "Content-Security-Policy",
+      [
+        "default-src 'none'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+      ].join("; ")
+    );
+  }
+
+  // Strict Transport Security (HTTPS only)
+  if (config.NODE_ENV === "production") {
+    reply.header(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains; preload"
+    );
+  }
+
+  // Cache control for sensitive endpoints
+  if (
+    request.url.startsWith("/api/admin") ||
+    request.url.startsWith("/api/auth")
+  ) {
+    reply.header(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    reply.header("Pragma", "no-cache");
+    reply.header("Expires", "0");
+  }
+});
+
 // Register routes
 await server.register(healthRoutes, { prefix: "/api/v1" });
 await server.register(webhooksRoutes, { prefix: "/api/v1" });
@@ -107,6 +171,13 @@ await server.register(costsRoutes, { prefix: "/api" });
 await server.register(analyticsRoutes, { prefix: "/api" });
 await server.register(teamRoutes, { prefix: "/api" });
 await server.register(profileRoutes, { prefix: "/api" });
+await server.register(adminSecretRoutes, { prefix: "/api/admin/secrets" });
+await server.register(adminOrganizationRoutes, {
+  prefix: "/api/admin/organizations",
+});
+await server.register(adminUserRoutes, { prefix: "/api/admin/users" });
+await server.register(adminSystemRoutes, { prefix: "/api/admin/system" });
+await server.register(adminAuditRoutes, { prefix: "/api/admin/audit" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

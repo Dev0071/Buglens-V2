@@ -29,6 +29,10 @@ import {
 } from "../../services/token-lifecycle.js";
 import { triggerSingleTokenRefresh } from "../../workers/queues/token-refresh.js";
 import {
+  logIntegrationConnect,
+  logIntegrationDisconnect,
+} from "../../services/audit.js";
+import {
   notificationService,
   type EventNotificationData,
 } from "../../services/notification-service.js";
@@ -491,6 +495,18 @@ async function disconnectIntegrationHandler(
       "Integration disconnected"
     );
 
+    // Audit log: integration disconnect (HIGH priority for SOC2)
+    const userId = request.getUserId();
+    if (userId) {
+      await logIntegrationDisconnect(
+        userId,
+        orgId,
+        integrationType,
+        id,
+        request.ip
+      );
+    }
+
     reply.send({
       success: true,
       message: `${getIntegrationName(integrationType)} integration disconnected`,
@@ -784,11 +800,21 @@ export async function integrationsRoutes(
       const user = await getGitHubUser(tokens.access_token);
       const repos = await getGitHubRepos(tokens.access_token);
 
-      await saveIntegration(oauthState.orgId, "github", {
+      const integrationId = await saveIntegration(oauthState.orgId, "github", {
         login: user.login,
         access_token: tokens.access_token, // Will be encrypted
         repos: repos.map((r) => ({ id: r.id, full_name: r.full_name })),
       });
+
+      // Audit log: GitHub integration connected (CRITICAL for SOC2)
+      // Note: OAuth callbacks don't have user context, use org-level logging
+      await logIntegrationConnect(
+        "system", // OAuth callback doesn't have user context
+        oauthState.orgId,
+        "github",
+        integrationId,
+        request.ip
+      );
 
       return reply.redirect(
         `${config.FRONTEND_URL}/settings/integrations?success=github_connected`
@@ -870,7 +896,20 @@ export async function integrationsRoutes(
 
     try {
       const slackResponse = await exchangeSlackCode(code);
-      await processSlackInstallation(slackResponse, oauthState.orgId);
+      const integrationId = await processSlackInstallation(
+        slackResponse,
+        oauthState.orgId
+      );
+
+      // Audit log: Slack integration connected (CRITICAL for SOC2)
+      await logIntegrationConnect(
+        "system",
+        oauthState.orgId,
+        "slack",
+        integrationId || "unknown",
+        request.ip
+      );
+
       return reply.redirect(
         `${config.FRONTEND_URL}/settings/integrations?success=slack_connected`
       );
@@ -936,10 +975,20 @@ export async function integrationsRoutes(
 
     try {
       const tokens = await exchangeJiraCode(code);
-      await saveIntegration(oauthState.orgId, "jira", {
+      const integrationId = await saveIntegration(oauthState.orgId, "jira", {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
+
+      // Audit log: Jira integration connected (CRITICAL for SOC2)
+      await logIntegrationConnect(
+        "system",
+        oauthState.orgId,
+        "jira",
+        integrationId,
+        request.ip
+      );
+
       return reply.redirect(
         `${config.FRONTEND_URL}/settings/integrations?success=jira_connected`
       );
@@ -1007,10 +1056,20 @@ export async function integrationsRoutes(
 
     try {
       const tokens = await exchangeTeamsCode(code);
-      await saveIntegration(oauthState.orgId, "teams", {
+      const integrationId = await saveIntegration(oauthState.orgId, "teams", {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
       });
+
+      // Audit log: Teams integration connected (CRITICAL for SOC2)
+      await logIntegrationConnect(
+        "system",
+        oauthState.orgId,
+        "teams",
+        integrationId,
+        request.ip
+      );
+
       return reply.redirect(
         `${config.FRONTEND_URL}/settings/integrations?success=teams_connected`
       );

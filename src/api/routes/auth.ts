@@ -33,6 +33,13 @@ import {
   unlinkOAuthProvider,
   switchPrimaryProvider,
 } from "../../services/account-linking.js";
+import {
+  logLogin,
+  logLoginFailed,
+  logLogout,
+  logSignup,
+  logOrgCreated,
+} from "../../services/audit.js";
 
 // ============================================
 // Helper Functions
@@ -116,6 +123,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           { expiresIn: "1h" }
         );
 
+        // Set access token in HTTP-only cookie (SOC2 compliance)
+        reply.setCookie("accessToken", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60, // 1 hour
+        });
+
         // Set refresh token in HTTP-only cookie
         reply.setCookie("refreshToken", result.refreshToken, {
           httpOnly: true,
@@ -124,6 +140,21 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           path: "/",
           maxAge: 30 * 24 * 60 * 60, // 30 days
         });
+
+        // Audit logging for SOC2 compliance
+        await logSignup(
+          result.user.id,
+          result.user.orgId,
+          body.email,
+          request.ip,
+          request.headers["user-agent"] as string
+        );
+        await logOrgCreated(
+          result.user.id,
+          result.user.orgId,
+          result.organization.name,
+          request.ip
+        );
 
         return reply.status(201).send({
           user: result.user,
@@ -170,6 +201,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           { expiresIn: "1h" }
         );
 
+        // Set access token in HTTP-only cookie (SOC2 compliance)
+        reply.setCookie("accessToken", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60, // 1 hour
+        });
+
         // Set refresh token in HTTP-only cookie
         reply.setCookie("refreshToken", result.refreshToken, {
           httpOnly: true,
@@ -179,12 +219,34 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 30 * 24 * 60 * 60, // 30 days
         });
 
+        // Audit logging for SOC2 compliance
+        await logLogin(
+          result.user.id,
+          result.user.orgId,
+          request.ip,
+          request.headers["user-agent"] as string,
+          { method: "password" }
+        );
+
         return reply.status(200).send({
           user: result.user,
           organization: result.organization,
           accessToken,
         });
       } catch (error) {
+        // Log failed login attempts for security monitoring
+        if (
+          error instanceof AuthError &&
+          error.code === "INVALID_CREDENTIALS"
+        ) {
+          const body = request.body as { email?: string };
+          await logLoginFailed(
+            body.email || "unknown",
+            request.ip,
+            request.headers["user-agent"] as string,
+            "invalid_credentials"
+          );
+        }
         return handleAuthError(error, reply);
       }
     }
@@ -199,15 +261,45 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const refreshToken = request.cookies?.refreshToken;
+        const accessToken = request.cookies?.accessToken;
+
+        // Try to get user info for audit logging before clearing
+        let userId: string | undefined;
+        let orgId: string | undefined;
+        if (accessToken) {
+          try {
+            const decoded = server.jwt.verify<{
+              userId: string;
+              orgId: string;
+            }>(accessToken);
+            userId = decoded.userId;
+            orgId = decoded.orgId;
+          } catch {
+            // Token may be expired, continue with logout
+          }
+        }
 
         if (refreshToken) {
           await authService.logout(refreshToken);
         }
 
-        // Clear the cookie
+        // Clear both cookies (SOC2 compliance)
+        reply.clearCookie("accessToken", {
+          path: "/",
+        });
         reply.clearCookie("refreshToken", {
           path: "/",
         });
+
+        // Audit log the logout
+        if (userId && orgId) {
+          await logLogout(
+            userId,
+            orgId,
+            request.ip,
+            request.headers["user-agent"] as string
+          );
+        }
 
         return reply
           .status(200)
@@ -264,6 +356,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           { expiresIn: "1h" }
         );
 
+        // Set access token in HTTP-only cookie (SOC2 compliance)
+        reply.setCookie("accessToken", accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60, // 1 hour
+        });
+
         // Update refresh token cookie
         reply.setCookie("refreshToken", result.refreshToken, {
           httpOnly: true,
@@ -292,17 +393,24 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     "/auth/me",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // Verify JWT from Authorization header
-        const authHeader = request.headers.authorization;
+        // Try to get JWT from Authorization header first, then cookie
+        // Cookie-based auth is preferred for SOC2 compliance (httpOnly)
+        let token: string | undefined;
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        const authHeader = request.headers.authorization;
+        if (authHeader && authHeader.startsWith("Bearer ")) {
+          token = authHeader.substring(7);
+        } else if (request.cookies?.accessToken) {
+          // Fall back to httpOnly cookie (SOC2 compliant)
+          token = request.cookies.accessToken;
+        }
+
+        if (!token) {
           return reply.status(401).send({
             error: "Unauthorized",
             message: "Access token is required",
           });
         }
-
-        const token = authHeader.substring(7);
 
         let decoded: { userId: string; orgId: string };
         try {
@@ -333,16 +441,22 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     "/auth/logout-all",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const authHeader = request.headers.authorization;
+        // Try to get JWT from Authorization header first, then cookie
+        let token: string | undefined;
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        const authHeader = request.headers.authorization;
+        if (authHeader && authHeader.startsWith("Bearer ")) {
+          token = authHeader.substring(7);
+        } else if (request.cookies?.accessToken) {
+          token = request.cookies.accessToken;
+        }
+
+        if (!token) {
           return reply.status(401).send({
             error: "Unauthorized",
             message: "Access token is required",
           });
         }
-
-        const token = authHeader.substring(7);
 
         let decoded: { userId: string };
         try {
@@ -356,7 +470,10 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
         await authService.logoutAll(decoded.userId);
 
-        // Clear the cookie
+        // Clear both cookies (SOC2 compliance)
+        reply.clearCookie("accessToken", {
+          path: "/",
+        });
         reply.clearCookie("refreshToken", {
           path: "/",
         });

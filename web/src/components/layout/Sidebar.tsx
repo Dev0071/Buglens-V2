@@ -7,8 +7,10 @@ import {
   ChevronRightIcon,
   XMarkIcon,
   ChartBarIcon,
+  ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
-import { useAuthStore } from "@/store/auth";
+import { useAuthStore, useUserRole } from "@/store/auth";
+import Logo, { LogoIcon } from "@/components/ui/Logo";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -23,6 +25,9 @@ const navigation = [
   { name: "Analytics", href: "/analytics", icon: ChartBarIcon },
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
 ];
+
+// Admin navigation item - shown only to admin/owner roles
+const adminNavItem = { name: "Admin", href: "/admin", icon: ShieldCheckIcon };
 
 /**
  * Sidebar navigation component
@@ -50,7 +55,7 @@ function Sidebar({
         `}
       >
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
-          <Logo collapsed={false} />
+          <SidebarLogo collapsed={false} />
           <button
             onClick={onClose}
             className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -77,7 +82,7 @@ function Sidebar({
         `}
       >
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
-          <Logo collapsed={isCollapsed} />
+          <SidebarLogo collapsed={isCollapsed} />
           {!isCollapsed && (
             <button
               onClick={onToggleCollapse}
@@ -109,19 +114,12 @@ function Sidebar({
 }
 
 /**
- * Logo component with collapsed state support
+ * Sidebar logo with collapsed state support
  */
-function Logo({ collapsed }: { collapsed: boolean }) {
+function SidebarLogo({ collapsed }: { collapsed: boolean }) {
   return (
     <NavLink to="/" className="flex items-center gap-2">
-      <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-        <span className="text-white font-bold text-lg">B</span>
-      </div>
-      {!collapsed && (
-        <span className="text-xl font-bold text-gray-900 dark:text-white">
-          Buglens
-        </span>
-      )}
+      {collapsed ? <LogoIcon size="md" /> : <Logo size="md" showText={true} />}
     </NavLink>
   );
 }
@@ -137,9 +135,18 @@ function SidebarContent({
 }: {
   collapsed: boolean;
   organization: { id: string; name: string; plan: string } | null;
-  user: { name: string; email: string; avatarUrl?: string } | null;
+  user: {
+    name: string;
+    email: string;
+    avatarUrl?: string;
+    role?: "owner" | "admin" | "member";
+  } | null;
   currentPath: string;
 }) {
+  // Check if user has admin access
+  const role = useUserRole();
+  const isAdminOrOwner = role === "admin" || role === "owner";
+
   return (
     <div className="flex flex-col flex-1 overflow-y-auto">
       {/* Organization selector */}
@@ -190,6 +197,26 @@ function SidebarContent({
             </NavLink>
           );
         })}
+
+        {/* Admin link - only shown to admin/owner users */}
+        {isAdminOrOwner && (
+          <>
+            <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+            <NavLink
+              to={adminNavItem.href}
+              className={`
+                sidebar-link
+                ${currentPath.startsWith("/admin") ? "active" : ""}
+                ${collapsed ? "justify-center px-2" : ""}
+                text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20
+              `}
+              title={collapsed ? adminNavItem.name : undefined}
+            >
+              <adminNavItem.icon className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span>{adminNavItem.name}</span>}
+            </NavLink>
+          </>
+        )}
       </nav>
 
       {/* User info */}

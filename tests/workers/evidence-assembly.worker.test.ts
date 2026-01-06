@@ -263,7 +263,12 @@ describe("Evidence Assembly Worker", () => {
       const { fetchRecentCommits } =
         await import("../../src/services/github.js");
 
-      const mockCommits = [
+      const mockCommits: Array<{
+        sha: string;
+        message: string;
+        author: string;
+        date: Date;
+      }> = [
         { sha: "abc123", message: "Fix bug", author: "dev1", date: new Date() },
         {
           sha: "def456",
@@ -291,7 +296,7 @@ describe("Evidence Assembly Worker", () => {
         },
       ];
 
-      vi.mocked(fetchRecentCommits).mockResolvedValue(mockCommits);
+      vi.mocked(fetchRecentCommits).mockResolvedValue(mockCommits as any);
 
       const mockBundle = {
         id: "bundle-commits",

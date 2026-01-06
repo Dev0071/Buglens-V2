@@ -30,6 +30,7 @@ import {
   ArrowRightIcon,
   ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
+import { LogoIcon } from "@/components/ui/Logo";
 
 export default function LandingPage() {
   return (
@@ -38,9 +39,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 w-full z-50 bg-zinc-950/80 backdrop-blur-sm border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-amber-500 rounded flex items-center justify-center">
-              <MagnifyingGlassIcon className="w-5 h-5 text-zinc-900" />
-            </div>
+            <LogoIcon size="md" />
             <span className="font-semibold text-lg">Buglens</span>
           </div>
           <div className="flex items-center gap-6">

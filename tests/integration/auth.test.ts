@@ -32,6 +32,10 @@ describe("Auth API", () => {
 
   afterAll(async () => {
     // Cleanup test users and organizations
+    // Delete audit logs first (foreign key constraint to organizations)
+    await query(
+      "DELETE FROM audit_logs WHERE org_id IN (SELECT id FROM organizations WHERE slug LIKE 'test-%')"
+    );
     await query(
       "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-%@buglens.com')"
     );
@@ -42,6 +46,10 @@ describe("Auth API", () => {
 
   beforeEach(async () => {
     // Clean up any test data from previous runs
+    // Delete audit logs first (foreign key constraint to organizations)
+    await query(
+      "DELETE FROM audit_logs WHERE org_id IN (SELECT id FROM organizations WHERE slug LIKE 'test-%')"
+    );
     await query(
       "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-%@buglens.com')"
     );

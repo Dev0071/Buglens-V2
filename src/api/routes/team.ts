@@ -3,6 +3,11 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { logger } from "../../utils/logger.js";
 import { query } from "../../db/client.js";
+import {
+  logUserInvite,
+  logUserRemove,
+  logRoleChange,
+} from "../../services/audit.js";
 
 // ============================================
 // Request/Response Schemas
@@ -273,6 +278,9 @@ async function inviteMemberHandler(
       "Team member invited"
     );
 
+    // Audit log: user invitation
+    await logUserInvite(userId, email, role, orgId, request.ip);
+
     reply.status(201).send({
       message: "Member invited successfully",
       member,
@@ -357,6 +365,8 @@ async function updateMemberRoleHandler(
       return;
     }
 
+    const oldRole = targetMember.rows[0].role;
+
     // Update the role
     await query(
       `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3`,
@@ -367,6 +377,9 @@ async function updateMemberRoleHandler(
       { orgId, memberId, newRole, updatedBy: userId },
       "Team member role updated"
     );
+
+    // Audit log: role change (CRITICAL for SOC2)
+    await logRoleChange(userId, memberId, orgId, oldRole, newRole, request.ip);
 
     reply.send({
       message: "Member role updated successfully",
@@ -469,6 +482,15 @@ async function removeMemberHandler(
     logger.info(
       { orgId, memberId, removedBy: userId, email: targetMember.rows[0].email },
       "Team member removed"
+    );
+
+    // Audit log: user removal (HIGH priority for SOC2)
+    await logUserRemove(
+      userId,
+      memberId,
+      targetMember.rows[0].email,
+      orgId,
+      request.ip
     );
 
     reply.send({

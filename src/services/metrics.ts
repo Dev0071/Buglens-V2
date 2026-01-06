@@ -39,6 +39,8 @@ export type SourceMapOutcome =
   | "missing"
   | "malformed"
   | "parse_error";
+export type RCAJobStatus = "success" | "failure" | "timeout" | "retry";
+export type DatabaseOperationType = "query" | "transaction" | "connection";
 
 interface MetricDataPoint {
   name: string;
@@ -69,6 +71,23 @@ interface AggregatedMetrics {
   githubApiCalls: number;
   githubRateLimitRemaining: number;
   githubApiLatency: number[];
+
+  // RCA Job metrics (NEW)
+  rcaJobs: { [status in RCAJobStatus]: number };
+  rcaJobLatency: number[];
+  rcaQueueDepth: number;
+  rcaJobsByOrg: Map<string, { success: number; failure: number }>;
+
+  // Database Pool metrics (NEW)
+  dbQueries: number;
+  dbQueryLatency: number[];
+  dbConnections: { active: number; idle: number; waiting: number };
+  dbTransactions: { success: number; failure: number };
+  dbConnectionWaitTime: number[];
+
+  // Organization-level metrics (NEW)
+  eventsByOrg: Map<string, number>;
+  llmTokensByOrg: Map<string, number>;
 }
 
 // ============================================
@@ -105,6 +124,23 @@ function createEmptyMetrics(): AggregatedMetrics {
     githubApiCalls: 0,
     githubRateLimitRemaining: 5000,
     githubApiLatency: [],
+
+    // RCA Job metrics
+    rcaJobs: { success: 0, failure: 0, timeout: 0, retry: 0 },
+    rcaJobLatency: [],
+    rcaQueueDepth: 0,
+    rcaJobsByOrg: new Map(),
+
+    // Database Pool metrics
+    dbQueries: 0,
+    dbQueryLatency: [],
+    dbConnections: { active: 0, idle: 0, waiting: 0 },
+    dbTransactions: { success: 0, failure: 0 },
+    dbConnectionWaitTime: [],
+
+    // Organization-level metrics
+    eventsByOrg: new Map(),
+    llmTokensByOrg: new Map(),
   };
 }
 
@@ -381,6 +417,308 @@ export function getGitHubApiStats(): {
 }
 
 // ============================================
+// RCA Job Metrics (NEW)
+// ============================================
+
+/**
+ * Record an RCA job completion.
+ */
+export function recordRCAJob(
+  status: RCAJobStatus,
+  latencyMs: number,
+  orgId: string
+): void {
+  metrics.rcaJobs[status]++;
+  metrics.rcaJobLatency.push(latencyMs);
+
+  // Track by organization
+  const orgStats = metrics.rcaJobsByOrg.get(orgId) || {
+    success: 0,
+    failure: 0,
+  };
+  if (status === "success") {
+    orgStats.success++;
+  } else {
+    orgStats.failure++;
+  }
+  metrics.rcaJobsByOrg.set(orgId, orgStats);
+
+  logger.debug(
+    { status, latencyMs, orgId },
+    `RCA job ${status === "success" ? "completed" : "failed"}`
+  );
+}
+
+/**
+ * Update RCA queue depth (call from queue worker).
+ */
+export function updateRCAQueueDepth(depth: number): void {
+  metrics.rcaQueueDepth = depth;
+
+  // Warn if queue is backing up
+  if (depth > 100) {
+    logger.warn({ queueDepth: depth }, "RCA queue depth is high");
+  }
+}
+
+/**
+ * Get RCA job stats.
+ */
+export function getRCAJobStats(): {
+  total: number;
+  success: number;
+  failure: number;
+  timeout: number;
+  retry: number;
+  successRate: number;
+  avgLatencyMs: number;
+  queueDepth: number;
+} {
+  const total =
+    metrics.rcaJobs.success +
+    metrics.rcaJobs.failure +
+    metrics.rcaJobs.timeout +
+    metrics.rcaJobs.retry;
+
+  const latencies = metrics.rcaJobLatency;
+  const avgLatencyMs =
+    latencies.length > 0
+      ? latencies.reduce((a, b) => a + b, 0) / latencies.length
+      : 0;
+
+  return {
+    total,
+    success: metrics.rcaJobs.success,
+    failure: metrics.rcaJobs.failure,
+    timeout: metrics.rcaJobs.timeout,
+    retry: metrics.rcaJobs.retry,
+    successRate: total > 0 ? (metrics.rcaJobs.success / total) * 100 : 100,
+    avgLatencyMs,
+    queueDepth: metrics.rcaQueueDepth,
+  };
+}
+
+/**
+ * Get RCA job stats by organization.
+ */
+export function getRCAJobStatsByOrg(): Map<
+  string,
+  { success: number; failure: number; successRate: number }
+> {
+  const result = new Map<
+    string,
+    { success: number; failure: number; successRate: number }
+  >();
+
+  for (const [orgId, stats] of metrics.rcaJobsByOrg) {
+    const total = stats.success + stats.failure;
+    result.set(orgId, {
+      ...stats,
+      successRate: total > 0 ? (stats.success / total) * 100 : 100,
+    });
+  }
+
+  return result;
+}
+
+// ============================================
+// Database Pool Metrics (NEW)
+// ============================================
+
+/**
+ * Record a database query.
+ */
+export function recordDatabaseQuery(
+  latencyMs: number,
+  success: boolean = true
+): void {
+  metrics.dbQueries++;
+  metrics.dbQueryLatency.push(latencyMs);
+
+  if (!success) {
+    // Track failed queries via transaction failure
+    metrics.dbTransactions.failure++;
+  }
+
+  // Warn on slow queries
+  if (latencyMs > 1000) {
+    logger.warn({ latencyMs }, "Slow database query detected");
+  }
+}
+
+/**
+ * Record a database transaction.
+ */
+export function recordDatabaseTransaction(
+  success: boolean,
+  latencyMs: number
+): void {
+  if (success) {
+    metrics.dbTransactions.success++;
+  } else {
+    metrics.dbTransactions.failure++;
+  }
+
+  metrics.dbQueryLatency.push(latencyMs);
+
+  logger.debug(
+    { success, latencyMs },
+    `Database transaction ${success ? "committed" : "rolled back"}`
+  );
+}
+
+/**
+ * Update database connection pool stats.
+ * Call this periodically from pool monitoring.
+ */
+export function updateDatabasePoolStats(stats: {
+  active: number;
+  idle: number;
+  waiting: number;
+}): void {
+  metrics.dbConnections = stats;
+
+  // Calculate utilization
+  const total = stats.active + stats.idle;
+  const utilization = total > 0 ? (stats.active / total) * 100 : 0;
+
+  // Warn if pool is saturated
+  if (utilization > 90) {
+    logger.warn(
+      { ...stats, utilization: utilization.toFixed(1) + "%" },
+      "Database connection pool nearly exhausted"
+    );
+  }
+
+  // Warn if many connections are waiting
+  if (stats.waiting > 5) {
+    logger.warn(
+      { waiting: stats.waiting },
+      "Database connections waiting for pool"
+    );
+  }
+}
+
+/**
+ * Record database connection wait time.
+ */
+export function recordDatabaseConnectionWait(waitTimeMs: number): void {
+  metrics.dbConnectionWaitTime.push(waitTimeMs);
+
+  if (waitTimeMs > 100) {
+    logger.debug({ waitTimeMs }, "Database connection wait time elevated");
+  }
+}
+
+/**
+ * Get database pool stats.
+ */
+export function getDatabasePoolStats(): {
+  queries: number;
+  avgQueryLatencyMs: number;
+  connections: { active: number; idle: number; waiting: number };
+  poolUtilization: number;
+  transactions: { success: number; failure: number; successRate: number };
+  avgConnectionWaitMs: number;
+} {
+  const latencies = metrics.dbQueryLatency;
+  const avgQueryLatencyMs =
+    latencies.length > 0
+      ? latencies.reduce((a, b) => a + b, 0) / latencies.length
+      : 0;
+
+  const waitTimes = metrics.dbConnectionWaitTime;
+  const avgConnectionWaitMs =
+    waitTimes.length > 0
+      ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length
+      : 0;
+
+  const { active, idle, waiting: _waiting } = metrics.dbConnections;
+  const total = active + idle;
+  const poolUtilization = total > 0 ? (active / total) * 100 : 0;
+
+  const txnTotal =
+    metrics.dbTransactions.success + metrics.dbTransactions.failure;
+  const txnSuccessRate =
+    txnTotal > 0 ? (metrics.dbTransactions.success / txnTotal) * 100 : 100;
+
+  return {
+    queries: metrics.dbQueries,
+    avgQueryLatencyMs,
+    connections: metrics.dbConnections,
+    poolUtilization,
+    transactions: {
+      ...metrics.dbTransactions,
+      successRate: txnSuccessRate,
+    },
+    avgConnectionWaitMs,
+  };
+}
+
+// ============================================
+// Organization-Level Metrics (NEW)
+// ============================================
+
+/**
+ * Record an event for an organization.
+ */
+export function recordEventForOrg(orgId: string): void {
+  const current = metrics.eventsByOrg.get(orgId) || 0;
+  metrics.eventsByOrg.set(orgId, current + 1);
+}
+
+/**
+ * Record LLM tokens used by an organization.
+ */
+export function recordLLMTokensForOrg(orgId: string, tokens: number): void {
+  const current = metrics.llmTokensByOrg.get(orgId) || 0;
+  metrics.llmTokensByOrg.set(orgId, current + tokens);
+}
+
+/**
+ * Get events by organization.
+ */
+export function getEventsByOrg(): Map<string, number> {
+  return new Map(metrics.eventsByOrg);
+}
+
+/**
+ * Get LLM tokens by organization.
+ */
+export function getLLMTokensByOrg(): Map<string, number> {
+  return new Map(metrics.llmTokensByOrg);
+}
+
+/**
+ * Get organization-level summary stats.
+ */
+export function getOrgLevelStats(): {
+  orgsWithEvents: number;
+  orgsWithLLMUsage: number;
+  topEventOrgs: Array<{ orgId: string; events: number }>;
+  topLLMOrgs: Array<{ orgId: string; tokens: number }>;
+} {
+  // Sort by events (descending) and take top 10
+  const topEventOrgs = Array.from(metrics.eventsByOrg.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([orgId, events]) => ({ orgId, events }));
+
+  // Sort by tokens (descending) and take top 10
+  const topLLMOrgs = Array.from(metrics.llmTokensByOrg.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([orgId, tokens]) => ({ orgId, tokens }));
+
+  return {
+    orgsWithEvents: metrics.eventsByOrg.size,
+    orgsWithLLMUsage: metrics.llmTokensByOrg.size,
+    topEventOrgs,
+    topLLMOrgs,
+  };
+}
+
+// ============================================
 // Aggregate Stats
 // ============================================
 
@@ -392,6 +730,9 @@ export function getAllStats(): {
   sourceMap: ReturnType<typeof getSourceMapStats>;
   llm: ReturnType<typeof getLLMStats>;
   github: ReturnType<typeof getGitHubApiStats>;
+  rcaJobs: ReturnType<typeof getRCAJobStats>;
+  database: ReturnType<typeof getDatabasePoolStats>;
+  organizations: ReturnType<typeof getOrgLevelStats>;
   collectedAt: Date;
 } {
   return {
@@ -399,6 +740,9 @@ export function getAllStats(): {
     sourceMap: getSourceMapStats(),
     llm: getLLMStats(),
     github: getGitHubApiStats(),
+    rcaJobs: getRCAJobStats(),
+    database: getDatabasePoolStats(),
+    organizations: getOrgLevelStats(),
     collectedAt: new Date(),
   };
 }
@@ -509,6 +853,160 @@ async function flushMetrics(): Promise<void> {
     timestamp: now,
   });
 
+  // RCA Job metrics (NEW)
+  for (const status of [
+    "success",
+    "failure",
+    "timeout",
+    "retry",
+  ] as RCAJobStatus[]) {
+    if (metrics.rcaJobs[status] > 0) {
+      dataPoints.push({
+        name: "RCAJobs",
+        value: metrics.rcaJobs[status],
+        unit: "Count",
+        dimensions: { Status: status },
+        timestamp: now,
+      });
+    }
+  }
+
+  const rcaStats = getRCAJobStats();
+  dataPoints.push({
+    name: "RCAJobSuccessRate",
+    value: rcaStats.successRate,
+    unit: "Percent",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  if (rcaStats.avgLatencyMs > 0) {
+    dataPoints.push({
+      name: "RCAJobLatency",
+      value: rcaStats.avgLatencyMs,
+      unit: "Milliseconds",
+      dimensions: {},
+      timestamp: now,
+    });
+  }
+
+  dataPoints.push({
+    name: "RCAQueueDepth",
+    value: metrics.rcaQueueDepth,
+    unit: "Count",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  // Database Pool metrics (NEW)
+  const dbStats = getDatabasePoolStats();
+
+  dataPoints.push({
+    name: "DatabaseQueries",
+    value: metrics.dbQueries,
+    unit: "Count",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  if (dbStats.avgQueryLatencyMs > 0) {
+    dataPoints.push({
+      name: "DatabaseQueryLatency",
+      value: dbStats.avgQueryLatencyMs,
+      unit: "Milliseconds",
+      dimensions: {},
+      timestamp: now,
+    });
+  }
+
+  dataPoints.push({
+    name: "DatabasePoolUtilization",
+    value: dbStats.poolUtilization,
+    unit: "Percent",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  dataPoints.push({
+    name: "DatabaseConnectionsActive",
+    value: metrics.dbConnections.active,
+    unit: "Count",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  dataPoints.push({
+    name: "DatabaseConnectionsWaiting",
+    value: metrics.dbConnections.waiting,
+    unit: "Count",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  if (dbStats.avgConnectionWaitMs > 0) {
+    dataPoints.push({
+      name: "DatabaseConnectionWaitTime",
+      value: dbStats.avgConnectionWaitMs,
+      unit: "Milliseconds",
+      dimensions: {},
+      timestamp: now,
+    });
+  }
+
+  dataPoints.push({
+    name: "DatabaseTransactionSuccessRate",
+    value: dbStats.transactions.successRate,
+    unit: "Percent",
+    dimensions: {},
+    timestamp: now,
+  });
+
+  // Organization-level metrics (NEW)
+  // Emit top 10 orgs by events
+  for (const { orgId, events } of getOrgLevelStats().topEventOrgs) {
+    dataPoints.push({
+      name: "EventsPerOrganization",
+      value: events,
+      unit: "Count",
+      dimensions: { OrgId: orgId },
+      timestamp: now,
+    });
+  }
+
+  // Emit top 10 orgs by LLM tokens
+  for (const { orgId, tokens } of getOrgLevelStats().topLLMOrgs) {
+    dataPoints.push({
+      name: "LLMTokensPerOrganization",
+      value: tokens,
+      unit: "Count",
+      dimensions: { OrgId: orgId },
+      timestamp: now,
+    });
+  }
+
+  // RCA jobs by org (top orgs)
+  const orgRCAStats = getRCAJobStatsByOrg();
+  const sortedOrgRCA = Array.from(orgRCAStats.entries())
+    .sort((a, b) => b[1].success + b[1].failure - (a[1].success + a[1].failure))
+    .slice(0, 10);
+
+  for (const [orgId, stats] of sortedOrgRCA) {
+    dataPoints.push({
+      name: "RCAJobsPerOrganization",
+      value: stats.success + stats.failure,
+      unit: "Count",
+      dimensions: { OrgId: orgId },
+      timestamp: now,
+    });
+    dataPoints.push({
+      name: "RCASuccessRatePerOrganization",
+      value: stats.successRate,
+      unit: "Percent",
+      dimensions: { OrgId: orgId },
+      timestamp: now,
+    });
+  }
+
   // Send to CloudWatch if available
   if (cloudWatchClient && dataPoints.length > 0) {
     await sendToCloudWatch(dataPoints);
@@ -584,11 +1082,15 @@ export function getMetricsHealth(): {
     cloudWatchEnabled: boolean;
     cacheHitRate: number;
     sourceMapSuccessRate: number;
+    rcaSuccessRate: number;
+    dbPoolUtilization: number;
     warnings: string[];
   };
 } {
   const cacheHitRate = getCacheHitRate();
   const sourceMapSuccessRate = getSourceMapSuccessRate();
+  const rcaStats = getRCAJobStats();
+  const dbStats = getDatabasePoolStats();
   const warnings: string[] = [];
 
   // Check for warning conditions
@@ -616,9 +1118,52 @@ export function getMetricsHealth(): {
     warnings.push(`High LLM error rate: ${llmErrorRate.toFixed(1)}%`);
   }
 
+  // RCA job health checks
+  if (rcaStats.successRate < 80 && rcaStats.total > 10) {
+    warnings.push(
+      `Low RCA job success rate: ${rcaStats.successRate.toFixed(1)}%`
+    );
+  }
+
+  if (rcaStats.queueDepth > 100) {
+    warnings.push(`High RCA queue depth: ${rcaStats.queueDepth}`);
+  }
+
+  if (rcaStats.avgLatencyMs > 30000 && rcaStats.total > 5) {
+    warnings.push(
+      `High RCA job latency: ${(rcaStats.avgLatencyMs / 1000).toFixed(1)}s`
+    );
+  }
+
+  // Database pool health checks
+  if (dbStats.poolUtilization > 90) {
+    warnings.push(
+      `High DB pool utilization: ${dbStats.poolUtilization.toFixed(1)}%`
+    );
+  }
+
+  if (metrics.dbConnections.waiting > 5) {
+    warnings.push(`DB connections waiting: ${metrics.dbConnections.waiting}`);
+  }
+
+  if (dbStats.avgConnectionWaitMs > 100) {
+    warnings.push(
+      `High DB connection wait time: ${dbStats.avgConnectionWaitMs.toFixed(0)}ms`
+    );
+  }
+
+  if (
+    dbStats.transactions.successRate < 95 &&
+    metrics.dbTransactions.success + metrics.dbTransactions.failure > 10
+  ) {
+    warnings.push(
+      `Low DB transaction success rate: ${dbStats.transactions.successRate.toFixed(1)}%`
+    );
+  }
+
   // Determine overall status
   let status: "healthy" | "degraded" | "unhealthy" = "healthy";
-  if (warnings.length > 2) {
+  if (warnings.length > 3) {
     status = "unhealthy";
   } else if (warnings.length > 0) {
     status = "degraded";
@@ -630,6 +1175,8 @@ export function getMetricsHealth(): {
       cloudWatchEnabled: cloudWatchClient !== null,
       cacheHitRate,
       sourceMapSuccessRate,
+      rcaSuccessRate: rcaStats.successRate,
+      dbPoolUtilization: dbStats.poolUtilization,
       warnings,
     },
   };

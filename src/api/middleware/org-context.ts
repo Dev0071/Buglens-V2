@@ -34,9 +34,10 @@ declare module "fastify" {
  * Sets org_id for row-level security
  *
  * Priority order:
- * 1. JWT token (for authenticated API requests)
- * 2. x-org-id header (for webhooks)
- * 3. org_id path parameter
+ * 1. JWT token from Authorization header (for authenticated API requests)
+ * 2. JWT token from httpOnly cookie (SOC2 compliant auth)
+ * 3. x-org-id header (for webhooks)
+ * 4. org_id path parameter
  */
 export async function orgContextMiddleware(
   request: FastifyRequest,
@@ -44,7 +45,7 @@ export async function orgContextMiddleware(
 ) {
   let candidateOrgId: string | undefined;
 
-  // 1. Try to extract from JWT (authenticated requests)
+  // 1. Try to extract from JWT in Authorization header (authenticated requests)
   const authHeader = request.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     try {
@@ -55,12 +56,30 @@ export async function orgContextMiddleware(
         candidateOrgId = user.orgId;
       }
     } catch (error) {
-      // JWT verification failed - continue to check headers/params
-      // This allows unauthenticated routes to still work
+      // JWT verification failed - continue to check cookies/headers/params
     }
   }
 
-  // 2. Try x-org-id header (webhooks)
+  // 2. Try to extract from httpOnly cookie (SOC2 compliant)
+  if (!candidateOrgId && request.cookies?.accessToken) {
+    try {
+      // Manually verify the cookie token
+      const cookieToken = request.cookies.accessToken;
+      const decoded = request.server.jwt.verify<{
+        userId: string;
+        orgId: string;
+      }>(cookieToken);
+      if (decoded && decoded.orgId) {
+        candidateOrgId = decoded.orgId;
+        // Set user on request for downstream middleware
+        request.user = decoded;
+      }
+    } catch {
+      // Cookie token invalid - continue to check headers/params
+    }
+  }
+
+  // 3. Try x-org-id header (webhooks)
   if (!candidateOrgId) {
     const headerOrgId = request.headers["x-org-id"];
     if (typeof headerOrgId === "string" && headerOrgId.trim().length > 0) {
@@ -68,7 +87,7 @@ export async function orgContextMiddleware(
     }
   }
 
-  // 3. Try path parameter
+  // 4. Try path parameter
   if (!candidateOrgId) {
     const params = request.params as Record<string, unknown> | undefined;
     if (params && typeof params.org_id === "string") {
