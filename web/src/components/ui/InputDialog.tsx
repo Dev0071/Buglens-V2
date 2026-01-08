@@ -137,7 +137,13 @@ export default function InputDialog({
 
                 <div className="flex items-start mb-4">
                   <div
-                    className={`flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-${variant === "danger" ? "red" : variant === "warning" ? "yellow" : "blue"}-100 dark:bg-${variant === "danger" ? "red" : variant === "warning" ? "yellow" : "blue"}-900/20 sm:h-10 sm:w-10`}
+                    className={`flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full ${
+                      variant === "danger"
+                        ? "bg-red-100 dark:bg-red-900/20"
+                        : variant === "warning"
+                        ? "bg-yellow-100 dark:bg-yellow-900/20"
+                        : "bg-blue-100 dark:bg-blue-900/20"
+                    } sm:h-10 sm:w-10`}
                   >
                     <ExclamationTriangleIcon
                       className={`h-6 w-6 ${styles.icon}`}
