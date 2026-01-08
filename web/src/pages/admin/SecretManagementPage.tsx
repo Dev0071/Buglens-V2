@@ -35,6 +35,7 @@ import {
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 /**
  * Secret type display names
@@ -358,6 +359,11 @@ export default function SecretManagementPage() {
   const { data: secretStatus, isLoading, refetch } = useSecretStatus();
   const [rotatingSecret, setRotatingSecret] = useState<SecretType | null>(null);
   const [showDetails, setShowDetails] = useState<SecretType | null>(null);
+  const [showRollbackDialog, setShowRollbackDialog] = useState(false);
+  const [rollbackSecretType, setRollbackSecretType] =
+    useState<SecretType | null>(null);
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const rotateSecret = useRotateSecret();
   const rollbackSecret = useRollbackSecret();
@@ -394,20 +400,21 @@ export default function SecretManagementPage() {
   };
 
   const handleRollback = async (secretType: SecretType) => {
-    if (
-      !confirm(
-        `Are you sure you want to rollback ${SECRET_TYPE_LABELS[secretType]}? This will restore the previous version.`
-      )
-    ) {
-      return;
-    }
+    setRollbackSecretType(secretType);
+    setShowRollbackDialog(true);
+  };
 
+  const confirmRollback = async () => {
+    if (!rollbackSecretType) return;
+
+    setIsProcessing(true);
     try {
-      const result = await rollbackSecret.mutateAsync(secretType);
+      const result = await rollbackSecret.mutateAsync(rollbackSecretType);
 
       if (result.success) {
         toast.success("Rollback Complete", result.message);
         refetch();
+        setShowRollbackDialog(false);
       } else {
         toast.error("Rollback Failed", result.error ?? "Unknown error");
       }
@@ -416,27 +423,29 @@ export default function SecretManagementPage() {
         "Error",
         error instanceof Error ? error.message : "Failed to rollback"
       );
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleCleanup = async () => {
-    if (
-      !confirm(
-        "This will permanently delete all expired secret versions. Continue?"
-      )
-    ) {
-      return;
-    }
+    setShowCleanupDialog(true);
+  };
 
+  const confirmCleanup = async () => {
+    setIsProcessing(true);
     try {
       const result = await cleanupSecrets.mutateAsync();
       toast.success("Cleanup Complete", result.message);
       refetch();
+      setShowCleanupDialog(false);
     } catch (error) {
       toast.error(
         "Error",
         error instanceof Error ? error.message : "Failed to cleanup"
       );
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -649,6 +658,30 @@ export default function SecretManagementPage() {
         onClose={() => setRotatingSecret(null)}
         onConfirm={handleRotate}
         isLoading={rotateSecret.isPending}
+      />
+
+      {/* Rollback Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showRollbackDialog}
+        onClose={() => setShowRollbackDialog(false)}
+        onConfirm={confirmRollback}
+        title="Rollback Secret"
+        message={`Are you sure you want to rollback ${rollbackSecretType ? SECRET_TYPE_LABELS[rollbackSecretType] : "this secret"}? This will restore the previous version and may affect services currently using this secret.`}
+        confirmText="Rollback Secret"
+        variant="danger"
+        isLoading={isProcessing}
+      />
+
+      {/* Cleanup Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showCleanupDialog}
+        onClose={() => setShowCleanupDialog(false)}
+        onConfirm={confirmCleanup}
+        title="Cleanup Expired Secrets"
+        message="This will permanently delete all expired secret versions. This action cannot be undone. Are you sure you want to continue?"
+        confirmText="Delete Expired Versions"
+        variant="danger"
+        isLoading={isProcessing}
       />
     </div>
   );

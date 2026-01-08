@@ -27,6 +27,9 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { LogoIcon } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 
+/** Minimum admin token length - must match backend configuration */
+export const ADMIN_TOKEN_MIN_LENGTH = 32;
+
 const adminNavigation = [
   { name: "Overview", href: "/admin", icon: HomeIcon },
   { name: "Secrets", href: "/admin/secrets", icon: KeyIcon },
@@ -56,8 +59,10 @@ function AdminUnlockScreen() {
     setIsLoading(true);
 
     // Validate token length
-    if (token.length < 32) {
-      setError("Admin token must be at least 32 characters");
+    if (token.length < ADMIN_TOKEN_MIN_LENGTH) {
+      setError(
+        `Admin token must be at least ${ADMIN_TOKEN_MIN_LENGTH} characters`
+      );
       setIsLoading(false);
       return;
     }

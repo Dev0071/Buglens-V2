@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { GitHubCommit } from "../../src/types/github.js";
 
 // Mock dependencies
 vi.mock("../../src/utils/logger.js", () => ({
@@ -60,10 +61,16 @@ vi.mock("../../src/services/github.js", () => ({
 }));
 
 // Mock BullMQ
-const mockWorker = {
+const mockWorker: {
+  on: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  _processor:
+    | ((job: { data: Record<string, unknown> }) => Promise<unknown>)
+    | null;
+} = {
   on: vi.fn(),
   close: vi.fn().mockResolvedValue(undefined),
-  _processor: null as any,
+  _processor: null,
 };
 
 vi.mock("bullmq", () => ({
@@ -296,7 +303,10 @@ describe("Evidence Assembly Worker", () => {
         },
       ];
 
-      vi.mocked(fetchRecentCommits).mockResolvedValue(mockCommits as any);
+      // Type cast is acceptable here as we're mocking the service layer's simplified return type
+      vi.mocked(fetchRecentCommits).mockResolvedValue(
+        mockCommits as unknown as GitHubCommit[]
+      );
 
       const mockBundle = {
         id: "bundle-commits",

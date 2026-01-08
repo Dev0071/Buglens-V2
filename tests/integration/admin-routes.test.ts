@@ -28,7 +28,6 @@ const TEST_USER_PASSWORD = "SecureUserPass123!";
 let adminToken: string;
 let userToken: string;
 let adminUserId: string;
-// regularUserId - tracked but not currently used in assertions
 let testOrgId: string;
 
 // Use configured token or test default (tests should set PLATFORM_ADMIN_TOKEN in .env.test)

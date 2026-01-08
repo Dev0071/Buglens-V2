@@ -88,30 +88,35 @@ const ROLLUP_SOURCE_MAP: RawSourceMap = {
 
 /**
  * Malformed source map (invalid JSON)
- * @internal - kept for potential future test expansion
+ * @internal - Reserved for potential future test expansion
  */
-void `{version: 3, sources: invalid}`; // _MALFORMED_SOURCE_MAP
+const MALFORMED_SOURCE_MAP = `{version: 3, sources: invalid}`;
 
 /**
  * Source map with missing required fields
- * @internal - kept for potential future test expansion
+ * @internal - Reserved for potential future test expansion
  */
-const _incompleteSourceMap: Partial<RawSourceMap> = {
+const INCOMPLETE_SOURCE_MAP: Partial<RawSourceMap> = {
   version: 3,
   sources: ["src/file.ts"],
   // Missing mappings
 };
-void _incompleteSourceMap;
 
 // ============================================
 // Helper Functions
 // ============================================
 
+/**
+ * Helper to create base64-encoded source map
+ * @internal - Reserved for potential future test expansion
+ */
 function createBase64SourceMap(map: RawSourceMap): string {
   return Buffer.from(JSON.stringify(map)).toString("base64");
 }
 
-// Intentionally used to suppress unused variable warning - helper reserved for future tests
+// Suppress unused warnings for reserved test helpers
+void MALFORMED_SOURCE_MAP;
+void INCOMPLETE_SOURCE_MAP;
 void createBase64SourceMap;
 
 // ============================================
