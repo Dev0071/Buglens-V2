@@ -956,7 +956,6 @@ function IntegrationsSettings() {
         if (data.authUrl) {
           // Redirect to OAuth provider
           window.location.href = data.authUrl;
-          console.log("Redirecting to auth URL:", data.authUrl);
         } else {
           setNotification({
             type: "error",

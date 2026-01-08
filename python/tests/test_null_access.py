@@ -20,7 +20,7 @@ def create_context(code: str, error_line: int = 1) -> AnalysisContext:
         content=code,
         error_line=error_line,
     )
-    parser = Parser(Language(javascript_language()))
+    parser = Parser(Language(javascript_language(), name="javascript"))
     tree = parser.parse(bytes(code, "utf-8"))
     return AnalysisContext(segment, tree, {})
 

@@ -13,7 +13,7 @@ const WORKER_STARTUP_BANNER = `
 ╚══════════════════════════════════════════════════════════════╝`;
 
 async function bootstrap() {
-  console.log(WORKER_STARTUP_BANNER);
+  logger.info(WORKER_STARTUP_BANNER);
   logger.info(
     { version: process.env.npm_package_version || "dev" },
     "Starting Buglens workers"

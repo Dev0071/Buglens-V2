@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply, FastifyInstance } from "fastify";
 import { pool } from "../../db/client.js";
+import { logger } from "../../utils/logger.js";
 
 /**
  * Organization context stored in request
@@ -111,7 +112,7 @@ export async function orgContextMiddleware(
 
   try {
     const orgId = candidateOrgId;
-    console.log(`Setting org context for orgId: ${orgId}`);
+    logger.debug({ orgId }, "Setting org context");
 
     // Verify organization exists
     const result = await pool.query(
