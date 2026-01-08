@@ -129,6 +129,7 @@ export default function InputDialog({
                     type="button"
                     className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     onClick={onClose}
+                    aria-label="Close dialog"
                   >
                     <XMarkIcon className="h-5 w-5" />
                   </button>
