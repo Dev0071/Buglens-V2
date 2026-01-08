@@ -24,6 +24,7 @@ import {
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
+import InputDialog from "@/components/ui/InputDialog";
 
 /**
  * Role badge component
@@ -89,15 +90,15 @@ function UserDetailPanel({
   const { data: user, isLoading } = useAdminUserDetail(userId);
   const suspendUser = useSuspendUser();
   const toast = useToast();
+  const [showSuspendDialog, setShowSuspendDialog] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleSuspendToggle = async () => {
+  const action = user?.status === "suspended" ? "unsuspend" : "suspend";
+
+  const handleSuspendToggle = async (reason: string) => {
     if (!user) return;
 
-    const action = user.status === "suspended" ? "unsuspend" : "suspend";
-    const reason = prompt(`Reason for ${action}ing user:`);
-
-    if (!reason) return;
-
+    setIsProcessing(true);
     try {
       await suspendUser.mutateAsync({
         userId: user.id,
@@ -106,11 +107,14 @@ function UserDetailPanel({
       });
 
       toast.success(`User ${action}ed`, `${user.name} has been ${action}ed.`);
+      setShowSuspendDialog(false);
     } catch (error) {
       toast.error(
         "Error",
         error instanceof Error ? error.message : "Operation failed"
       );
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -242,7 +246,7 @@ function UserDetailPanel({
       {/* Actions */}
       <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
         <button
-          onClick={handleSuspendToggle}
+          onClick={() => setShowSuspendDialog(true)}
           disabled={suspendUser.isPending || user.role === "owner"}
           className={cn(
             "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm",
@@ -270,6 +274,22 @@ function UserDetailPanel({
           </p>
         )}
       </div>
+
+      <InputDialog
+        isOpen={showSuspendDialog}
+        onClose={() => setShowSuspendDialog(false)}
+        onConfirm={handleSuspendToggle}
+        title={`${user.status === "suspended" ? "Unsuspend" : "Suspend"} User`}
+        message={`You are about to ${user.status === "suspended" ? "unsuspend" : "suspend"} ${user.name}. Please provide a reason for this action.`}
+        inputLabel="Reason"
+        inputPlaceholder={`Enter reason for ${user.status === "suspended" ? "unsuspending" : "suspending"} this user...`}
+        confirmText={
+          user.status === "suspended" ? "Unsuspend User" : "Suspend User"
+        }
+        variant={user.status === "suspended" ? "warning" : "danger"}
+        isLoading={isProcessing}
+        multiline
+      />
     </div>
   );
 }

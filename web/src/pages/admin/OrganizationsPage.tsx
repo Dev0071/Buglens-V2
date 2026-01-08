@@ -26,6 +26,7 @@ import {
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
+import InputDialog from "@/components/ui/InputDialog";
 
 /**
  * Plan badge component
@@ -90,15 +91,14 @@ function OrganizationDetailPanel({
   const { data: org, isLoading } = useAdminOrganizationDetail(orgId);
   const suspendOrg = useSuspendOrganization();
   const toast = useToast();
+  const [showSuspendDialog, setShowSuspendDialog] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleSuspendToggle = async () => {
+  const handleSuspendToggle = async (reason: string) => {
     if (!org) return;
 
     const action = org.status === "suspended" ? "unsuspend" : "suspend";
-    const reason = prompt(`Reason for ${action}ing organization:`);
-
-    if (!reason) return;
-
+    setIsProcessing(true);
     try {
       await suspendOrg.mutateAsync({
         orgId: org.id,
@@ -110,11 +110,14 @@ function OrganizationDetailPanel({
         `Organization ${action}ed`,
         `${org.name} has been ${action}ed.`
       );
+      setShowSuspendDialog(false);
     } catch (error) {
       toast.error(
         "Error",
         error instanceof Error ? error.message : "Operation failed"
       );
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -262,7 +265,7 @@ function OrganizationDetailPanel({
       {/* Actions */}
       <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
         <button
-          onClick={handleSuspendToggle}
+          onClick={() => setShowSuspendDialog(true)}
           disabled={suspendOrg.isPending}
           className={cn(
             "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm",
@@ -284,6 +287,24 @@ function OrganizationDetailPanel({
           )}
         </button>
       </div>
+
+      <InputDialog
+        isOpen={showSuspendDialog}
+        onClose={() => setShowSuspendDialog(false)}
+        onConfirm={handleSuspendToggle}
+        title={`${org.status === "suspended" ? "Unsuspend" : "Suspend"} Organization`}
+        message={`You are about to ${org.status === "suspended" ? "unsuspend" : "suspend"} ${org.name}. Please provide a reason for this action.`}
+        inputLabel="Reason"
+        inputPlaceholder={`Enter reason for ${org.status === "suspended" ? "unsuspending" : "suspending"} this organization...`}
+        confirmText={
+          org.status === "suspended"
+            ? "Unsuspend Organization"
+            : "Suspend Organization"
+        }
+        variant={org.status === "suspended" ? "warning" : "danger"}
+        isLoading={isProcessing}
+        multiline
+      />
     </div>
   );
 }

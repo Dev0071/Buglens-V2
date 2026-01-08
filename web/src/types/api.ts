@@ -92,7 +92,9 @@ export interface DeterministicFinding {
   severity: "low" | "medium" | "high" | "critical";
   confidence: number;
   evidence_refs: string[];
+  /** Optional file path - populated when finding is associated with a specific source file */
   file_path?: string;
+  /** Optional line number - populated when finding can be traced to a specific line in the source code */
   line_number?: number;
 }
 
@@ -127,6 +129,7 @@ export interface RCAEvidence {
 export interface RCAResult {
   id: string;
   event_id: string;
+  /** Optional organization ID - included in admin contexts for cross-org visibility */
   org_id?: string;
   title: string;
   summary: string;

@@ -61,7 +61,13 @@ const mockLogger = logger as any;
 describe("AuditService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockQuery.mockResolvedValue({ rows: [] });
+    mockQuery.mockResolvedValue({
+      rows: [],
+      rowCount: 0,
+      command: "",
+      oid: 0,
+      fields: [],
+    });
   });
 
   afterEach(() => {
