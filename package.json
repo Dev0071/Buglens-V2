@@ -12,9 +12,9 @@
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "migrate:create": "node-pg-migrate create",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create -f .node-pg-migraterc.cjs",
+    "migrate:up": "node-pg-migrate up -f .node-pg-migraterc.cjs",
+    "migrate:down": "node-pg-migrate down -f .node-pg-migraterc.cjs",
     "db:seed": "psql $DATABASE_URL -f scripts/seed-dev-data-full.sql",
     "db:reset": "npm run migrate:down && npm run migrate:up && npm run db:seed",
     "worker": "tsx src/workers/index.ts"
