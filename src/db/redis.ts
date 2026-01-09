@@ -15,10 +15,18 @@ export function getRedisClient(): Redis {
   if (redisClient) {
     return redisClient;
   }
-
-  const client = new Redis(config.REDIS_URL, {
+  const redisUrl = config.REDIS_URL;
+  const isTls = redisUrl.startsWith("rediss://");
+  const client = new Redis(redisUrl, {
     maxRetriesPerRequest: config.REDIS_MAX_RETRIES,
     enableReadyCheck: true,
+    ...(isTls
+      ? {
+          tls: {
+            rejectUnauthorized: false,
+          },
+        }
+      : {}),
     retryStrategy(times: number) {
       const delay = Math.min(times * 50, 2000);
       logger.warn({ attempt: times, delay }, "Redis connection retry");
