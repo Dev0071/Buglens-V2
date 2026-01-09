@@ -214,7 +214,7 @@ export type EvidenceBundle = z.infer<typeof evidenceBundleSchema>;
  * S3 storage reference for evidence bundle
  */
 export interface EvidenceStorageRef {
-  bucket: string;
+  bucket?: string;
   key: string;
   size_bytes: number;
   compressed: boolean;
