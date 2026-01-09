@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "tsx watch src/api/server.ts",
     "build": "tsc",
-    "start": "node dist/api/server.js",
-    "heroku-postbuild": "npm run build && npm run migrate:up",
+    "start": "node dist/src/server.js",
+    "heroku-postbuild": "npm run build",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .ts,.tsx",
@@ -59,6 +59,6 @@
     "vitest": "^1.0.0"
   },
   "engines": {
-    "node": ">=20.x"
+    "node": "20.x"
   }
 }
