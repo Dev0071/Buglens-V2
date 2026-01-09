@@ -6,7 +6,7 @@ dotenv.config();
 const envSchema = z.object({
   // Application
   NODE_ENV: z
-    .enum(["development", "production", "test"])
+    .enum(["development", "staging", "production", "test"])
     .default("development"),
   PORT: z.coerce.number().default(3000),
   FRONTEND_URL: z.string().default("http://localhost:3002"),
@@ -24,6 +24,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   DATABASE_POOL_MIN: z.coerce.number().default(2),
   DATABASE_POOL_MAX: z.coerce.number().default(10),
+  DATABASE_SSL: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((val) => val === "true"),
 
   // Redis
   REDIS_URL: z.string().url(),

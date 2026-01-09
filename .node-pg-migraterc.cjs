@@ -4,9 +4,10 @@ module.exports = {
   dir: 'migrations',
   direction: 'up',
   count: Infinity,
-  // Enable SSL for Heroku (production and staging)
-  // Heroku Postgres requires SSL connections
-  ssl: process.env.NODE_ENV !== 'development' ? {
+  // Enable SSL for Heroku Postgres by default
+  // Heroku requires SSL on all paid tiers (Essential, Premium)
+  // Set DATABASE_SSL=false in local .env to disable
+  ssl: process.env.DATABASE_SSL === 'false' ? false : {
     rejectUnauthorized: false
-  } : false,
+  },
 };
