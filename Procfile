@@ -8,8 +8,8 @@ release: npm run migrate:up
 
 # API server (Fastify)
 
-web: node dist/api/server.js
+web: npm start
 
 # Background worker (BullMQ)
 
-worker: node dist/workers/rca-worker.js
+worker: npm run worker
