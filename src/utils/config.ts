@@ -26,7 +26,7 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().default(10),
   DATABASE_SSL: z
     .enum(["true", "false"])
-    .default("true")
+    .default("false")
     .transform((val) => val === "true"),
 
   // Redis
