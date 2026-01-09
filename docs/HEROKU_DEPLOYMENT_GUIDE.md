@@ -1830,21 +1830,55 @@ git push heroku main
 
 **Symptoms**:
 - Error: "ECONNREFUSED" or "Connection timeout"
+- Error: "no pg_hba.conf entry... no encryption"
+- Error: "SSL connection required"
 - Health check shows `"database": "error"`
 
+**Common Cause**: Heroku Postgres **requires SSL** connections. If you see "no encryption" errors, your app isn't configured for SSL.
+
 **Solution via Dashboard**:
-1. **Check database status**:
+1. **Verify SSL is configured** (most common fix):
+   - Check `.node-pg-migraterc.cjs` exists in root with SSL config:
+     ```javascript
+     module.exports = {
+       databaseUrl: process.env.DATABASE_URL,
+       ssl: process.env.NODE_ENV !== 'development' ? {
+         rejectUnauthorized: false
+       } : false,
+     };
+     ```
+   - Check `src/db/client.ts` has SSL configuration:
+     ```typescript
+     new Pool({
+       connectionString: config.DATABASE_URL,
+       ssl: config.NODE_ENV !== "development" ? {
+         rejectUnauthorized: false
+       } : false,
+     });
+     ```
+   - **Commit and redeploy** if these files were missing SSL config
+
+2. **Check database status**:
    - Go to Resources → Click "Heroku Postgres"
    - Settings tab → Status should be "Available"
-2. **Verify DATABASE_URL**:
+
+3. **Verify DATABASE_URL**:
    - Go to Settings → Config Vars
    - `DATABASE_URL` should exist (format: `postgres://...`)
-3. **Check connection limits**:
+
+4. **Verify NODE_ENV is set**:
+   - Settings → Config Vars → Check `NODE_ENV=production` or `NODE_ENV=staging`
+   - If missing, add it: `NODE_ENV=production`
+
+5. **Check connection limits**:
    - In Postgres dashboard → Metrics tab
    - Current connections should be < max connections
-4. **Restart database** (last resort):
+
+6. **Restart database** (last resort):
    - Postgres dashboard → Settings → "Restart Database"
    - **Warning**: Causes ~30s downtime
+
+> **Critical**: Heroku Postgres on paid tiers (Essential, Premium) **always requires SSL**. The error "no encryption" means your connection config is missing SSL settings.
 
 <details>
 <summary><strong>Alternative: Troubleshoot via CLI</strong></summary>
