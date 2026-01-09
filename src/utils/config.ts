@@ -37,7 +37,7 @@ const envSchema = z.object({
   AWS_REGION: z.string().default("us-east-1"),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_BUCKET_NAME: z.string(),
+  S3_BUCKET_NAME: z.string().optional(), // Optional for staging MVP
   S3_ENDPOINT: z.string().url().optional(), // LocalStack endpoint for local dev
   SECRETS_MANAGER_PREFIX: z.string().default("buglens/"),
 
