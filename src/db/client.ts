@@ -10,13 +10,13 @@ export const pool = new Pool({
   max: config.DATABASE_POOL_MAX,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
-  // Heroku Postgres requires SSL in production and staging
-  ssl:
-    config.NODE_ENV !== "development"
-      ? {
-          rejectUnauthorized: false, // Required for Heroku Postgres
-        }
-      : false,
+  // Heroku Postgres requires SSL on all paid tiers
+  // Controlled by DATABASE_SSL env var (default: true)
+  ssl: config.DATABASE_SSL
+    ? {
+        rejectUnauthorized: false, // Required for Heroku Postgres
+      }
+    : false,
 });
 
 // Test connection on startup

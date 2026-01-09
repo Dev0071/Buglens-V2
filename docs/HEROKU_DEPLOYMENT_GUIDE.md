@@ -248,47 +248,48 @@ git push staging-worker staging:main
 
 Click **"Add"** for each variable and enter:
 
-| Key                         | Value                                                    | Notes                                            |
-| --------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
-| `NODE_ENV`                  | `staging`                                                | Environment identifier                           |
-| `APP_BASE_URL`              | `https://buglens-api-staging.herokuapp.com`              | Your staging app URL                             |
-| `JWT_SECRET`                | Generate: `openssl rand -base64 32`                      | Keep this secret! (32+ characters)               |
-| `ENCRYPTION_KEY`            | Generate: `openssl rand -hex 32`                         | 64 character hex string                          |
-| `GITHUB_APP_ID`             | `123456`                                                 | From GitHub App settings                         |
-| `GITHUB_APP_PRIVATE_KEY`    | `-----BEGIN RSA PRIVATE KEY-----\n...`                   | Copy entire PEM file content                     |
-| `GITHUB_APP_WEBHOOK_SECRET` | Your webhook secret                                      | From GitHub App webhook config                   |
-| `SENTRY_DSN`                | `https://...@sentry.io/...`                              | From Sentry project settings                     |
-| `SENTRY_WEBHOOK_SECRET`     | Generate: `openssl rand -hex 20`                         | For validating Sentry webhooks                   |
-| `OPENAI_API_KEY`            | `sk-proj-...`                                            | From OpenAI dashboard                            |
-| `LOG_LEVEL`                 | `debug`                                                  | `debug` for staging, `info` for prod             |
-| `CORS_ORIGINS`              | `http://localhost:5173,https://staging.buglens.com`      | Comma-separated allowed origins                  |
-| `ADMIN_TOKEN`               | Generate: `openssl rand -hex 32`                         | For admin API access (64+ chars)                 |
-| `RATE_LIMIT_ENABLED`        | `true`                                                   | Enable rate limiting                             |
-| `RATE_LIMIT_MAX_REQUESTS`   | `100`                                                    | Max requests per window                          |
-| `RATE_LIMIT_WINDOW_MS`      | `60000`                                                  | Rate limit window (1 minute)                     |
-| `WEBHOOK_TIMEOUT_MS`        | `30000`                                                  | Webhook processing timeout                       |
-| `MAX_STACK_FRAMES`          | `50`                                                     | Max frames to analyze                            |
-| `GITHUB_CACHE_TTL`          | `3600`                                                   | Redis cache TTL (1 hour)                         |
-| `S3_CACHE_BUCKET`           | `buglens-cache-staging`                                  | Optional: S3 bucket for file caching             |
-| `AWS_ACCESS_KEY_ID`         | Your AWS key (if using S3)                               | Optional: For S3 cache                           |
-| `AWS_SECRET_ACCESS_KEY`     | Your AWS secret (if using S3)                            | Optional: For S3 cache                           |
-| `AWS_REGION`                | `us-east-1`                                              | Optional: AWS region                             |
-| `PYTHON_ANALYZER_TIMEOUT`   | `45000`                                                  | Python analyzer timeout (45s)                    |
-| `LLM_TIMEOUT_MS`            | `60000`                                                  | LLM request timeout (60s)                        |
-| `LLM_MODEL`                 | `gpt-4o-mini`                                            | OpenAI model to use                              |
-| `LLM_TEMPERATURE`           | `0.1`                                                    | Low temperature for consistency                  |
-| `LLM_MAX_TOKENS`            | `2000`                                                   | Max tokens per LLM response                      |
-| `LLM_DAILY_TOKEN_LIMIT`     | `1000000`                                                | Daily token limit per org                        |
-| `ENABLE_PROMETHEUS`         | `false`                                                  | Enable Prometheus metrics (optional)             |
-| `ENABLE_HEALTH_CHECKS`      | `true`                                                   | Enable /health endpoint                          |
-| `SLACK_ENABLED`             | `true`                                                   | Enable Slack notifications                       |
-| `SLACK_DEFAULT_CHANNEL`     | `#buglens-alerts`                                        | Default channel for alerts                       |
-| `ENABLE_SOURCE_MAPS`        | `true`                                                   | Enable source map resolution                     |
-| `SOURCE_MAP_CACHE_SIZE`     | `100`                                                    | Number of source maps to cache                   |
-| `ENABLE_COST_TRACKING`      | `true`                                                   | Track LLM/API costs                              |
-| `COST_ALERT_THRESHOLD`      | `10.00`                                                  | USD threshold for cost alerts                    |
+| Key                         | Value                                               | Notes                                |
+| --------------------------- | --------------------------------------------------- | ------------------------------------ |
+| `NODE_ENV`                  | `staging`                                           | Environment identifier               |
+| `APP_BASE_URL`              | `https://buglens-api-staging.herokuapp.com`         | Your staging app URL                 |
+| `JWT_SECRET`                | Generate: `openssl rand -base64 32`                 | Keep this secret! (32+ characters)   |
+| `ENCRYPTION_KEY`            | Generate: `openssl rand -hex 32`                    | 64 character hex string              |
+| `GITHUB_APP_ID`             | `123456`                                            | From GitHub App settings             |
+| `GITHUB_APP_PRIVATE_KEY`    | `-----BEGIN RSA PRIVATE KEY-----\n...`              | Copy entire PEM file content         |
+| `GITHUB_APP_WEBHOOK_SECRET` | Your webhook secret                                 | From GitHub App webhook config       |
+| `SENTRY_DSN`                | `https://...@sentry.io/...`                         | From Sentry project settings         |
+| `SENTRY_WEBHOOK_SECRET`     | Generate: `openssl rand -hex 20`                    | For validating Sentry webhooks       |
+| `OPENAI_API_KEY`            | `sk-proj-...`                                       | From OpenAI dashboard                |
+| `LOG_LEVEL`                 | `debug`                                             | `debug` for staging, `info` for prod |
+| `CORS_ORIGINS`              | `http://localhost:5173,https://staging.buglens.com` | Comma-separated allowed origins      |
+| `ADMIN_TOKEN`               | Generate: `openssl rand -hex 32`                    | For admin API access (64+ chars)     |
+| `RATE_LIMIT_ENABLED`        | `true`                                              | Enable rate limiting                 |
+| `RATE_LIMIT_MAX_REQUESTS`   | `100`                                               | Max requests per window              |
+| `RATE_LIMIT_WINDOW_MS`      | `60000`                                             | Rate limit window (1 minute)         |
+| `WEBHOOK_TIMEOUT_MS`        | `30000`                                             | Webhook processing timeout           |
+| `MAX_STACK_FRAMES`          | `50`                                                | Max frames to analyze                |
+| `GITHUB_CACHE_TTL`          | `3600`                                              | Redis cache TTL (1 hour)             |
+| `S3_CACHE_BUCKET`           | `buglens-cache-staging`                             | Optional: S3 bucket for file caching |
+| `AWS_ACCESS_KEY_ID`         | Your AWS key (if using S3)                          | Optional: For S3 cache               |
+| `AWS_SECRET_ACCESS_KEY`     | Your AWS secret (if using S3)                       | Optional: For S3 cache               |
+| `AWS_REGION`                | `us-east-1`                                         | Optional: AWS region                 |
+| `PYTHON_ANALYZER_TIMEOUT`   | `45000`                                             | Python analyzer timeout (45s)        |
+| `LLM_TIMEOUT_MS`            | `60000`                                             | LLM request timeout (60s)            |
+| `LLM_MODEL`                 | `gpt-4o-mini`                                       | OpenAI model to use                  |
+| `LLM_TEMPERATURE`           | `0.1`                                               | Low temperature for consistency      |
+| `LLM_MAX_TOKENS`            | `2000`                                              | Max tokens per LLM response          |
+| `LLM_DAILY_TOKEN_LIMIT`     | `1000000`                                           | Daily token limit per org            |
+| `ENABLE_PROMETHEUS`         | `false`                                             | Enable Prometheus metrics (optional) |
+| `ENABLE_HEALTH_CHECKS`      | `true`                                              | Enable /health endpoint              |
+| `SLACK_ENABLED`             | `true`                                              | Enable Slack notifications           |
+| `SLACK_DEFAULT_CHANNEL`     | `#buglens-alerts`                                   | Default channel for alerts           |
+| `ENABLE_SOURCE_MAPS`        | `true`                                              | Enable source map resolution         |
+| `SOURCE_MAP_CACHE_SIZE`     | `100`                                               | Number of source maps to cache       |
+| `ENABLE_COST_TRACKING`      | `true`                                              | Track LLM/API costs                  |
+| `COST_ALERT_THRESHOLD`      | `10.00`                                             | USD threshold for cost alerts        |
 
 > **Security Tips**:
+>
 > - Never commit secrets to Git
 > - Use different secrets for staging vs production
 > - Store secrets in a password manager
@@ -319,29 +320,29 @@ Copy each output and paste into the corresponding Config Var in the Heroku Dashb
 1. **Go to** `buglens-worker-staging` → **Settings** → **Config Vars**
 2. **Add these variables**:
 
-| Key                         | Value                                 | Notes                                      |
-| --------------------------- | ------------------------------------- | ------------------------------------------ |
-| `NODE_ENV`                  | `staging`                             | Same as API                                |
-| `WORKER_MODE`               | `true`                                | Enables worker-specific behavior           |
-| `GITHUB_APP_ID`             | Same as API                           | Copy from API app                          |
-| `GITHUB_APP_PRIVATE_KEY`    | Same as API                           | Copy from API app                          |
-| `OPENAI_API_KEY`            | Same as API                           | Copy from API app                          |
-| `LOG_LEVEL`                 | `debug`                               | Same as API                                |
-| `PYTHON_ANALYZER_TIMEOUT`   | `45000`                               | Same as API                                |
-| `LLM_TIMEOUT_MS`            | `60000`                               | Same as API                                |
-| `LLM_MODEL`                 | `gpt-4o-mini`                         | Same as API                                |
-| `LLM_TEMPERATURE`           | `0.1`                                 | Same as API                                |
-| `LLM_MAX_TOKENS`            | `2000`                                | Same as API                                |
-| `GITHUB_CACHE_TTL`          | `3600`                                | Same as API                                |
-| `S3_CACHE_BUCKET`           | `buglens-cache-staging`               | Same as API (if using S3)                  |
-| `AWS_ACCESS_KEY_ID`         | Same as API (if using S3)             | Optional                                   |
-| `AWS_SECRET_ACCESS_KEY`     | Same as API (if using S3)             | Optional                                   |
-| `AWS_REGION`                | `us-east-1`                           | Same as API (if using S3)                  |
-| `ENABLE_COST_TRACKING`      | `true`                                | Same as API                                |
-| `MAX_CONCURRENT_JOBS`       | `5`                                   | Worker-specific: Max concurrent RCA jobs   |
-| `JOB_TIMEOUT_MS`            | `300000`                              | Worker-specific: Job timeout (5 minutes)   |
-| `RETRY_ATTEMPTS`            | `3`                                   | Worker-specific: Failed job retry count    |
-| `RETRY_DELAY_MS`            | `5000`                                | Worker-specific: Delay between retries (5s)|
+| Key                       | Value                     | Notes                                       |
+| ------------------------- | ------------------------- | ------------------------------------------- |
+| `NODE_ENV`                | `staging`                 | Same as API                                 |
+| `WORKER_MODE`             | `true`                    | Enables worker-specific behavior            |
+| `GITHUB_APP_ID`           | Same as API               | Copy from API app                           |
+| `GITHUB_APP_PRIVATE_KEY`  | Same as API               | Copy from API app                           |
+| `OPENAI_API_KEY`          | Same as API               | Copy from API app                           |
+| `LOG_LEVEL`               | `debug`                   | Same as API                                 |
+| `PYTHON_ANALYZER_TIMEOUT` | `45000`                   | Same as API                                 |
+| `LLM_TIMEOUT_MS`          | `60000`                   | Same as API                                 |
+| `LLM_MODEL`               | `gpt-4o-mini`             | Same as API                                 |
+| `LLM_TEMPERATURE`         | `0.1`                     | Same as API                                 |
+| `LLM_MAX_TOKENS`          | `2000`                    | Same as API                                 |
+| `GITHUB_CACHE_TTL`        | `3600`                    | Same as API                                 |
+| `S3_CACHE_BUCKET`         | `buglens-cache-staging`   | Same as API (if using S3)                   |
+| `AWS_ACCESS_KEY_ID`       | Same as API (if using S3) | Optional                                    |
+| `AWS_SECRET_ACCESS_KEY`   | Same as API (if using S3) | Optional                                    |
+| `AWS_REGION`              | `us-east-1`               | Same as API (if using S3)                   |
+| `ENABLE_COST_TRACKING`    | `true`                    | Same as API                                 |
+| `MAX_CONCURRENT_JOBS`     | `5`                       | Worker-specific: Max concurrent RCA jobs    |
+| `JOB_TIMEOUT_MS`          | `300000`                  | Worker-specific: Job timeout (5 minutes)    |
+| `RETRY_ATTEMPTS`          | `3`                       | Worker-specific: Failed job retry count     |
+| `RETRY_DELAY_MS`          | `5000`                    | Worker-specific: Delay between retries (5s) |
 
 > **Note**: `DATABASE_URL` and `REDIS_URL` are already present from the attached add-ons.
 
@@ -565,6 +566,7 @@ To run migrations automatically on every deploy:
 
 1. **Go to** `buglens-api-staging` → **More** → **View logs**
 2. **You should see**:
+
    ```
    2026-01-08T12:34:56.789Z app[web.1]: Server started on port 3000
    2026-01-08T12:34:56.790Z app[web.1]: Database connected
@@ -608,9 +610,11 @@ heroku logs --tail --ps web -a buglens-api-staging
 curl https://buglens-api-staging.herokuapp.com/health
 
 # Check logs
+
 heroku logs --tail -a buglens-api-staging
 heroku logs --tail -a buglens-worker-staging
-```
+
+````
 
 ---
 
@@ -709,7 +713,7 @@ heroku config:set \
   WORKER_MODE=true \
   MAX_CONCURRENT_JOBS=10 \
   -a buglens-worker-prod
-```
+````
 
 </details>
 
@@ -886,6 +890,7 @@ heroku pg:backups:download -a buglens-api-prod
 3. **Click "Deploy Branch"**
 
 > **⚠️ Production Checklist Before Deploy**:
+>
 > - [ ] All secrets are different from staging
 > - [ ] Custom domain configured and SSL verified
 > - [ ] Dynos upgraded to Standard or higher
@@ -1037,14 +1042,14 @@ heroku authorizations:create --description "GitHub Actions"
 3. **Click "New repository secret"**
 4. **Add each secret** (click "Add secret" after each):
 
-| Secret Name                   | Value                         | Example/Notes                     |
-| ----------------------------- | ----------------------------- | --------------------------------- |
-| `HEROKU_API_KEY`              | Your Heroku API key           | `xxxxxxxx-xxxx-...`               |
-| `HEROKU_EMAIL`                | Your Heroku account email     | `you@example.com`                 |
-| `HEROKU_APP_STAGING_API`      | `buglens-api-staging`         | Exact app name                    |
-| `HEROKU_APP_STAGING_WORKER`   | `buglens-worker-staging`      | Exact app name                    |
-| `HEROKU_APP_PROD_API`         | `buglens-api-prod`            | Exact app name                    |
-| `HEROKU_APP_PROD_WORKER`      | `buglens-worker-prod`         | Exact app name                    |
+| Secret Name                 | Value                     | Example/Notes       |
+| --------------------------- | ------------------------- | ------------------- |
+| `HEROKU_API_KEY`            | Your Heroku API key       | `xxxxxxxx-xxxx-...` |
+| `HEROKU_EMAIL`              | Your Heroku account email | `you@example.com`   |
+| `HEROKU_APP_STAGING_API`    | `buglens-api-staging`     | Exact app name      |
+| `HEROKU_APP_STAGING_WORKER` | `buglens-worker-staging`  | Exact app name      |
+| `HEROKU_APP_PROD_API`       | `buglens-api-prod`        | Exact app name      |
+| `HEROKU_APP_PROD_WORKER`    | `buglens-worker-prod`     | Exact app name      |
 
 ---
 
@@ -1137,6 +1142,7 @@ on:
 #### Workflow Fails: "Error: Invalid credentials"
 
 **Solution**: Verify GitHub secrets:
+
 1. Go to Settings → Secrets → Actions
 2. Check `HEROKU_API_KEY` is correct
 3. Re-generate API key if needed
@@ -1144,6 +1150,7 @@ on:
 #### Workflow Fails: "Error: App not found"
 
 **Solution**: Check app names in secrets match Heroku:
+
 1. Go to Heroku Dashboard
 2. Verify exact app names
 3. Update GitHub secrets if misspelled
@@ -1151,6 +1158,7 @@ on:
 #### Deployment Succeeds but App Crashes
 
 **Solution**: Check Heroku logs:
+
 1. Go to Heroku app → More → View logs
 2. Look for error messages
 3. Common issues:
@@ -1274,6 +1282,7 @@ Configure Heroku to run migrations automatically before each deploy.
 #### Enable Release Phase
 
 1. **Ensure** your `Procfile` contains:
+
    ```
    release: npm run migrate:up
    web: node dist/api/server.js
@@ -1281,6 +1290,7 @@ Configure Heroku to run migrations automatically before each deploy.
    ```
 
 2. **Commit and push** `Procfile`:
+
    ```bash
    git add Procfile
    git commit -m "Enable automatic migrations via release phase"
@@ -1356,6 +1366,7 @@ heroku pg:backups:restore b001 DATABASE_URL -a buglens-api-prod
 #### Migration Fails: "Database connection error"
 
 **Solution**:
+
 1. Check `DATABASE_URL` is set:
    - Go to Settings → Config Vars
    - Verify `DATABASE_URL` exists
@@ -1365,6 +1376,7 @@ heroku pg:backups:restore b001 DATABASE_URL -a buglens-api-prod
 #### Migration Fails: "Permission denied"
 
 **Solution**: Verify database credentials:
+
 1. Go to Postgres add-on → Settings → Credentials
 2. Check user has necessary permissions
 3. For Heroku Postgres, default user should have all permissions
@@ -1372,6 +1384,7 @@ heroku pg:backups:restore b001 DATABASE_URL -a buglens-api-prod
 #### Migration Stuck/Timeout
 
 **Solution**:
+
 1. **Cancel** the stuck migration (Ctrl+C in console)
 2. **Check** for locked tables:
    - Run console: `heroku run bash -a APP_NAME`
@@ -1422,6 +1435,7 @@ SELECT * FROM migrations ORDER BY applied_at DESC;
 #### Filter Logs
 
 In the log viewer:
+
 - **Process filter**: Shows only `web`, `worker`, or `release` processes
 - **Time range**: View historical logs (last 1500 lines by default)
 - **Search**: Use browser's find function (Cmd+F / Ctrl+F)
@@ -1478,6 +1492,7 @@ heroku logs -a buglens-api-prod | grep ERROR
    - Swap usage (should be 0 for healthy app)
 
 > **Warning Signs**:
+>
 > - CPU consistently >80%: Consider scaling up dyno size
 > - Memory >80% of limit: Risk of R14 errors (memory quota exceeded)
 > - Response time >1s P95: Performance issue
@@ -1503,6 +1518,7 @@ Heroku retains only ~1500 lines of logs. For production, use a logging add-on.
    - Opens Papertrail dashboard with searchable logs
 
 **Papertrail Features**:
+
 - Search logs with regex
 - Create saved searches
 - Set up alerts (email/Slack on specific log patterns)
@@ -1546,6 +1562,7 @@ curl https://api.buglens.com/health
 ```
 
 **Expected response**:
+
 ```json
 {
   "status": "ok",
@@ -1562,17 +1579,20 @@ curl https://api.buglens.com/health
 Use third-party services to monitor uptime:
 
 **Option 1: UptimeRobot (Free)**
+
 1. Sign up at https://uptimerobot.com
 2. Add monitor: `https://api.buglens.com/health`
 3. Set check interval: 5 minutes
 4. Configure alerts: Email/Slack on downtime
 
 **Option 2: Pingdom (Paid)**
+
 1. More detailed monitoring
 2. Global monitoring locations
 3. Advanced alerting
 
 **Option 3: Heroku's Built-in Monitoring (Threshold Alerts)**
+
 1. Go to app → **Metrics** tab
 2. **Click "..." menu** → **"Create Alert"**
 3. **Configure**:
@@ -1600,6 +1620,7 @@ Use third-party services to monitor uptime:
 6. **Access**: Resources → Click "New Relic APM"
 
 **New Relic Features**:
+
 - Transaction tracing
 - Slow query detection
 - Error analytics
@@ -1648,22 +1669,26 @@ Buglens uses **Sentry** for error tracking (already configured via `SENTRY_DSN`)
 #### Search for Common Issues
 
 **Database connection errors**:
+
 ```
 # In Papertrail or Heroku logs
 search: "database connection" OR "ECONNREFUSED"
 ```
 
 **Memory issues**:
+
 ```
 search: "R14" OR "memory quota exceeded"
 ```
 
 **Slow requests**:
+
 ```
 search: "slow query" OR "timeout"
 ```
 
 **Failed jobs**:
+
 ```
 search: "job failed" OR "retry" in app:buglens-worker-prod
 ```
@@ -1671,6 +1696,7 @@ search: "job failed" OR "retry" in app:buglens-worker-prod
 #### Set Up Log-Based Alerts
 
 **In Papertrail**:
+
 1. **Create search** for critical errors
 2. **Click "Save Search"**
 3. **Add alert**:
@@ -1729,10 +1755,12 @@ heroku pg:diagnose -a buglens-api-prod
 #### 1. Build Fails
 
 **Symptoms**:
+
 - Deployment fails during build phase
 - Error: "Build failed"
 
 **Solution via Dashboard**:
+
 1. **Go to** app → **Activity** tab
 2. **Click** on failed build
 3. **Review build log** for errors
@@ -1742,6 +1770,7 @@ heroku pg:diagnose -a buglens-api-prod
    - Python version issues (specify in `runtime.txt`)
 
 **Fix**:
+
 1. **Check `package.json`**:
    ```json
    "engines": {
@@ -1797,11 +1826,13 @@ git push heroku main
 #### 2. App Crashes on Start (R10 Boot Timeout)
 
 **Symptoms**:
+
 - App crashes immediately after deploy
 - Error: "R10 - Boot timeout"
 - Logs show: "Error R10 (Boot timeout) -> Web process failed to bind to $PORT within 60 seconds"
 
 **Solution**:
+
 1. **Go to** app → **More** → **View logs**
 2. **Look for** error messages
 3. **Common causes**:
@@ -1810,10 +1841,11 @@ git push heroku main
    - Database connection timeout
 
 **Fix**:
+
 1. **Verify** `src/api/server.ts` uses:
    ```typescript
    const PORT = process.env.PORT || 3000;
-   app.listen(PORT, '0.0.0.0', () => {
+   app.listen(PORT, "0.0.0.0", () => {
      console.log(`Server started on port ${PORT}`);
    });
    ```
@@ -1829,6 +1861,7 @@ git push heroku main
 #### 3. Database Connection Issues
 
 **Symptoms**:
+
 - Error: "ECONNREFUSED" or "Connection timeout"
 - Error: "no pg_hba.conf entry... no encryption"
 - Error: "SSL connection required"
@@ -1837,23 +1870,30 @@ git push heroku main
 **Common Cause**: Heroku Postgres **requires SSL** connections. If you see "no encryption" errors, your app isn't configured for SSL.
 
 **Solution via Dashboard**:
+
 1. **Verify SSL is configured** (most common fix):
    - Check `.node-pg-migraterc.cjs` exists in root with SSL config:
      ```javascript
      module.exports = {
        databaseUrl: process.env.DATABASE_URL,
-       ssl: process.env.NODE_ENV !== 'development' ? {
-         rejectUnauthorized: false
-       } : false,
+       ssl:
+         process.env.NODE_ENV !== "development"
+           ? {
+               rejectUnauthorized: false,
+             }
+           : false,
      };
      ```
    - Check `src/db/client.ts` has SSL configuration:
      ```typescript
      new Pool({
        connectionString: config.DATABASE_URL,
-       ssl: config.NODE_ENV !== "development" ? {
-         rejectUnauthorized: false
-       } : false,
+       ssl:
+         config.NODE_ENV !== "development"
+           ? {
+               rejectUnauthorized: false,
+             }
+           : false,
      });
      ```
    - **Commit and redeploy** if these files were missing SSL config
@@ -1907,11 +1947,13 @@ heroku pg:psql -a buglens-api-prod -c "SELECT 1;"
 #### 4. Redis Connection Issues
 
 **Symptoms**:
+
 - Worker not processing jobs
 - Error: "Redis connection refused"
 - Health check shows `"redis": "error"`
 
 **Solution via Dashboard**:
+
 1. **Check Redis status**:
    - Go to Resources → Click "Heroku Data for Redis"
    - Status should be "Available"
@@ -1954,11 +1996,13 @@ heroku redis:cli -a buglens-api-prod
 #### 5. Worker Not Processing Jobs
 
 **Symptoms**:
+
 - Jobs queued but not processed
 - No worker logs in dashboard
 - Worker dyno shows "down"
 
 **Solution via Dashboard**:
+
 1. **Check worker dyno is running**:
    - Go to `buglens-worker-prod` → **Resources** tab
    - Verify `worker` dyno is **toggled ON**
@@ -1974,6 +2018,7 @@ heroku redis:cli -a buglens-api-prod
    - Check Redis for failed jobs (use CLI or Redis dashboard)
 
 **Common Causes**:
+
 - Worker dyno not enabled
 - Missing environment variables on worker app
 - Redis connection issues
@@ -2006,11 +2051,13 @@ heroku redis:cli -a buglens-api-prod
 #### 6. High Memory Usage (R14 Error)
 
 **Symptoms**:
+
 - Error: "R14 - Memory quota exceeded"
 - App slows down or crashes
 - Metrics show memory near 100%
 
 **Solution**:
+
 1. **Check metrics**:
    - Metrics tab → Memory graph
    - Identify when memory spikes
@@ -2030,11 +2077,13 @@ heroku redis:cli -a buglens-api-prod
 #### 7. Slow Performance / High CPU
 
 **Symptoms**:
+
 - Slow response times (>1s P95)
 - Timeout errors
 - Metrics show CPU >80%
 
 **Solution**:
+
 1. **Identify slow endpoints**:
    - Metrics tab → Response Time graph
    - Click on spike to see details
@@ -2058,11 +2107,13 @@ heroku redis:cli -a buglens-api-prod
 #### 8. SSL Certificate Issues (Custom Domain)
 
 **Symptoms**:
+
 - "Not secure" warning in browser
 - SSL certificate not provisioned
 - "ACM Status: Failing" in Domains section
 
 **Solution**:
+
 1. **Check ACM status**:
    - Settings → Domains section
    - Status should be "OK"
@@ -2080,10 +2131,12 @@ heroku redis:cli -a buglens-api-prod
 #### 9. Config Var Changes Not Applied
 
 **Symptoms**:
+
 - Updated config var but app still uses old value
 - Environment variable undefined in app
 
 **Solution**:
+
 1. **Restart app**:
    - Config var changes should auto-restart, but verify:
    - Activity tab → Check for "Config add" event followed by restart
@@ -2110,7 +2163,7 @@ Ensure your app uses compression middleware:
 
 ```typescript
 // In src/api/server.ts
-import compress from '@fastify/compress';
+import compress from "@fastify/compress";
 app.register(compress);
 ```
 
@@ -2128,6 +2181,7 @@ app.register(compress);
 #### Implement Caching
 
 Buglens uses Redis for caching. Verify cache hit rate:
+
 1. Check Redis metrics in dashboard
 2. Increase cache TTL for frequently accessed data
 3. Monitor cache eviction rate
@@ -2206,11 +2260,13 @@ For critical issues:
 ### Getting Help
 
 **Heroku Resources**:
+
 - Dev Center: https://devcenter.heroku.com
 - Status Page: https://status.heroku.com
 - Community Forums: https://discussion.heroku.com
 
 **Buglens Resources**:
+
 - Documentation: `docs/` folder
 - GitHub Issues: Report bugs/issues
 - Team Slack: Internal support channel
@@ -2312,15 +2368,15 @@ Before going live with production:
 
 **With GitHub Student Developer Pack** ($13/month credit × 24 months):
 
-| Resource              | Plan        | Cost/Month | Notes                          |
-| --------------------- | ----------- | ---------- | ------------------------------ |
-| API Dyno (Staging)    | Eco         | $5         | Shared, may sleep              |
-| Worker Dyno (Staging) | Eco         | $5         | Shared, may sleep              |
-| PostgreSQL            | Essential-0 | $5         | 10M rows, 64MB cache           |
-| Redis                 | Mini        | $3         | 25MB max memory                |
-| **Subtotal**          |             | **$18**    |                                |
-| **Student Credit**    |             | **-$13**   | 24 months of $13/month credit  |
-| **Your Cost**         |             | **$5/mo**  | After student credit applied   |
+| Resource              | Plan        | Cost/Month | Notes                         |
+| --------------------- | ----------- | ---------- | ----------------------------- |
+| API Dyno (Staging)    | Eco         | $5         | Shared, may sleep             |
+| Worker Dyno (Staging) | Eco         | $5         | Shared, may sleep             |
+| PostgreSQL            | Essential-0 | $5         | 10M rows, 64MB cache          |
+| Redis                 | Mini        | $3         | 25MB max memory               |
+| **Subtotal**          |             | **$18**    |                               |
+| **Student Credit**    |             | **-$13**   | 24 months of $13/month credit |
+| **Your Cost**         |             | **$5/mo**  | After student credit applied  |
 
 **Total Free Period**: ~17-20 months with student credits
 
@@ -2330,17 +2386,18 @@ Before going live with production:
 
 **For production workload (50-1000 RCAs/day)**:
 
-| Resource           | Plan          | Cost/Month | Notes                                |
-| ------------------ | ------------- | ---------- | ------------------------------------ |
-| API Dyno           | Standard-1X   | $25        | Always-on, 512MB RAM                 |
-| Worker Dyno        | Standard-1X   | $25        | Always-on, 512MB RAM                 |
-| PostgreSQL         | Essential-1   | $15        | 10M rows, 400MB cache, daily backups |
-| Redis              | Premium-0     | $15        | 100MB, high availability             |
-| Papertrail (Logs)  | Fixa          | $7         | 100MB/month, 7-day retention         |
-| New Relic (APM)    | Wayne (Free)  | $0         | 100GB data/month                     |
-| **Total**          |               | **$87/mo** | Production-ready stack               |
+| Resource          | Plan         | Cost/Month | Notes                                |
+| ----------------- | ------------ | ---------- | ------------------------------------ |
+| API Dyno          | Standard-1X  | $25        | Always-on, 512MB RAM                 |
+| Worker Dyno       | Standard-1X  | $25        | Always-on, 512MB RAM                 |
+| PostgreSQL        | Essential-1  | $15        | 10M rows, 400MB cache, daily backups |
+| Redis             | Premium-0    | $15        | 100MB, high availability             |
+| Papertrail (Logs) | Fixa         | $7         | 100MB/month, 7-day retention         |
+| New Relic (APM)   | Wayne (Free) | $0         | 100GB data/month                     |
+| **Total**         |              | **$87/mo** | Production-ready stack               |
 
 **Additional Costs (Variable)**:
+
 - **OpenAI API**: ~$0.10-0.15 per RCA (GPT-4o-mini)
   - 100 RCAs/day = ~$10-15/month
   - 1000 RCAs/day = ~$100-150/month
@@ -2349,6 +2406,7 @@ Before going live with production:
 - **S3 (optional caching)**: ~$1-5/month depending on usage
 
 **Total Monthly Cost Estimate**:
+
 - **Low volume** (100 RCAs/day): ~$100/month
 - **Medium volume** (500 RCAs/day): ~$125/month
 - **High volume** (1000 RCAs/day): ~$200/month
@@ -2359,17 +2417,17 @@ Before going live with production:
 
 #### Scenario 1: 5000 RCAs/day (Enterprise)
 
-| Resource           | Plan          | Quantity | Cost/Month |
-| ------------------ | ------------- | -------- | ---------- |
-| API Dyno           | Standard-2X   | 2        | $100       |
-| Worker Dyno        | Standard-2X   | 3        | $150       |
-| PostgreSQL         | Premium-0     | 1        | $50        |
-| Redis              | Premium-2     | 1        | $60        |
-| Papertrail         | Volym         | 1        | $25        |
-| New Relic          | Starter       | 1        | $99        |
-| **Heroku Total**   |               |          | **$484**   |
-| **OpenAI Costs**   | 5K RCAs/day   |          | **~$750**  |
-| **Monthly Total**  |               |          | **~$1234** |
+| Resource          | Plan        | Quantity | Cost/Month |
+| ----------------- | ----------- | -------- | ---------- |
+| API Dyno          | Standard-2X | 2        | $100       |
+| Worker Dyno       | Standard-2X | 3        | $150       |
+| PostgreSQL        | Premium-0   | 1        | $50        |
+| Redis             | Premium-2   | 1        | $60        |
+| Papertrail        | Volym       | 1        | $25        |
+| New Relic         | Starter     | 1        | $99        |
+| **Heroku Total**  |             |          | **$484**   |
+| **OpenAI Costs**  | 5K RCAs/day |          | **~$750**  |
+| **Monthly Total** |             |          | **~$1234** |
 
 #### Scenario 2: 10K+ RCAs/day (Consider AWS/GCP)
 
@@ -2402,33 +2460,35 @@ At this scale, consider migrating to AWS ECS/Fargate or GCP Cloud Run for better
 
 ### Dashboard Navigation
 
-| Task                          | Path                                                     |
-| ----------------------------- | -------------------------------------------------------- |
-| View app overview             | Dashboard → [App Name]                                   |
-| View/edit config vars         | App → Settings → Config Vars → Reveal Config Vars       |
-| View logs                     | App → More → View logs                                   |
-| Run one-off command           | App → More → Run console                                 |
-| Deploy manually               | App → Deploy → Manual deploy → Deploy Branch            |
-| View metrics                  | App → Metrics                                            |
-| View activity/releases        | App → Activity                                           |
-| Manage add-ons                | App → Resources → Add-ons                                |
-| Scale dynos                   | App → Resources → Dynos → Click pencil icon             |
-| Restart app                   | App → More → Restart all dynos                           |
-| View builds                   | App → Activity → Click on build                          |
-| Rollback release              | App → Activity → Click release → Roll back               |
-| Add custom domain             | App → Settings → Domains → Add domain                    |
-| Enable maintenance mode       | App → Settings → Maintenance Mode → Toggle on            |
-| Manage database               | App → Resources → Heroku Postgres → Opens add-on dash    |
-| Manage Redis                  | App → Resources → Heroku Data for Redis → Opens add-on  |
+| Task                    | Path                                                   |
+| ----------------------- | ------------------------------------------------------ |
+| View app overview       | Dashboard → [App Name]                                 |
+| View/edit config vars   | App → Settings → Config Vars → Reveal Config Vars      |
+| View logs               | App → More → View logs                                 |
+| Run one-off command     | App → More → Run console                               |
+| Deploy manually         | App → Deploy → Manual deploy → Deploy Branch           |
+| View metrics            | App → Metrics                                          |
+| View activity/releases  | App → Activity                                         |
+| Manage add-ons          | App → Resources → Add-ons                              |
+| Scale dynos             | App → Resources → Dynos → Click pencil icon            |
+| Restart app             | App → More → Restart all dynos                         |
+| View builds             | App → Activity → Click on build                        |
+| Rollback release        | App → Activity → Click release → Roll back             |
+| Add custom domain       | App → Settings → Domains → Add domain                  |
+| Enable maintenance mode | App → Settings → Maintenance Mode → Toggle on          |
+| Manage database         | App → Resources → Heroku Postgres → Opens add-on dash  |
+| Manage Redis            | App → Resources → Heroku Data for Redis → Opens add-on |
 
 ### Essential Heroku Concepts
 
 #### Dynos
+
 - **Web Dyno**: Handles HTTP requests (Fastify API)
 - **Worker Dyno**: Processes background jobs (BullMQ)
 - **One-Off Dyno**: Temporary dyno for commands (e.g., migrations)
 
 **Dyno Types**:
+
 - **Eco**: $5/month (shared, sleeps after inactivity)
 - **Basic**: $7/month (always-on, no sleeping)
 - **Standard-1X**: $25/month (512MB RAM, production-ready)
@@ -2436,18 +2496,23 @@ At this scale, consider migrating to AWS ECS/Fargate or GCP Cloud Run for better
 - **Performance**: $250-$500/month (dedicated, high-performance)
 
 #### Config Vars
+
 Environment variables accessible via `process.env.VAR_NAME` in your app.
 
 **Auto-set by add-ons**:
+
 - `DATABASE_URL` (Heroku Postgres)
 - `REDIS_URL` (Heroku Data for Redis)
 - `PORT` (Heroku platform)
 
 #### Add-ons
+
 Third-party services attached to your app (Postgres, Redis, logging, monitoring).
 
 #### Procfile
+
 Defines process types for your app:
+
 ```
 release: npm run migrate:up
 web: node dist/api/server.js
@@ -2455,7 +2520,9 @@ worker: node dist/workers/rca-worker.js
 ```
 
 #### Buildpacks
+
 Scripts that transform your code into a runnable app. Buglens uses:
+
 1. `heroku/python` (for Python analyzers)
 2. `heroku/nodejs` (for Node.js/TypeScript)
 
@@ -2463,29 +2530,30 @@ Scripts that transform your code into a runnable app. Buglens uses:
 
 ### Common Commands (Dashboard Equivalents)
 
-| CLI Command                                      | Dashboard Equivalent                                |
-| ------------------------------------------------ | --------------------------------------------------- |
-| `heroku config -a APP`                           | Settings → Config Vars → Reveal                     |
-| `heroku config:set KEY=value -a APP`             | Settings → Config Vars → Add                        |
-| `heroku logs --tail -a APP`                      | More → View logs                                    |
-| `heroku run COMMAND -a APP`                      | More → Run console → Enter command                  |
-| `heroku ps -a APP`                               | Resources → Dynos section                           |
-| `heroku ps:restart -a APP`                       | More → Restart all dynos                            |
-| `heroku ps:scale web=2 -a APP`                   | Resources → Dynos → Edit dyno count/type            |
-| `heroku releases -a APP`                         | Activity tab                                        |
-| `heroku rollback -a APP`                         | Activity → Click release → Roll back                |
-| `heroku domains:add DOMAIN -a APP`               | Settings → Domains → Add domain                     |
-| `heroku maintenance:on -a APP`                   | Settings → Maintenance Mode → Toggle on             |
-| `heroku addons:create ADDON -a APP`              | Resources → Add-ons → Search and provision          |
-| `heroku pg:info -a APP`                          | Resources → Heroku Postgres → View dashboard        |
-| `heroku pg:backups:capture -a APP`               | Postgres add-on → Durability → Create Manual Backup |
-| `heroku builds:info -a APP`                      | Activity → Click on build                           |
+| CLI Command                          | Dashboard Equivalent                                |
+| ------------------------------------ | --------------------------------------------------- |
+| `heroku config -a APP`               | Settings → Config Vars → Reveal                     |
+| `heroku config:set KEY=value -a APP` | Settings → Config Vars → Add                        |
+| `heroku logs --tail -a APP`          | More → View logs                                    |
+| `heroku run COMMAND -a APP`          | More → Run console → Enter command                  |
+| `heroku ps -a APP`                   | Resources → Dynos section                           |
+| `heroku ps:restart -a APP`           | More → Restart all dynos                            |
+| `heroku ps:scale web=2 -a APP`       | Resources → Dynos → Edit dyno count/type            |
+| `heroku releases -a APP`             | Activity tab                                        |
+| `heroku rollback -a APP`             | Activity → Click release → Roll back                |
+| `heroku domains:add DOMAIN -a APP`   | Settings → Domains → Add domain                     |
+| `heroku maintenance:on -a APP`       | Settings → Maintenance Mode → Toggle on             |
+| `heroku addons:create ADDON -a APP`  | Resources → Add-ons → Search and provision          |
+| `heroku pg:info -a APP`              | Resources → Heroku Postgres → View dashboard        |
+| `heroku pg:backups:capture -a APP`   | Postgres add-on → Durability → Create Manual Backup |
+| `heroku builds:info -a APP`          | Activity → Click on build                           |
 
 ---
 
 ### When to Use CLI vs Dashboard
 
 **Use Dashboard For**:
+
 - ✅ Initial setup and configuration
 - ✅ Visual monitoring (metrics, graphs)
 - ✅ Quick config changes
@@ -2494,6 +2562,7 @@ Scripts that transform your code into a runnable app. Buglens uses:
 - ✅ Viewing logs visually
 
 **Use CLI For**:
+
 - ✅ Automation/scripting
 - ✅ Bulk operations
 - ✅ Advanced database operations
@@ -2502,6 +2571,7 @@ Scripts that transform your code into a runnable app. Buglens uses:
 - ✅ Operations from terminal workflow
 
 **Both Work Equally Well For**:
+
 - Deployments
 - Config var management
 - Restarting apps
@@ -2520,7 +2590,7 @@ Scripts that transform your code into a runnable app. Buglens uses:
    - [ ] Share add-ons with worker apps
    - [ ] Connect GitHub repository
    - [ ] Configure all environment variables
-   
+
 2. **First Deployment to Staging**:
    - [ ] Set buildpacks (Python + Node.js)
    - [ ] Deploy API and Worker apps
@@ -2551,18 +2621,21 @@ Scripts that transform your code into a runnable app. Buglens uses:
 ### Learning Resources
 
 **Heroku Official Documentation**:
+
 - Dev Center: https://devcenter.heroku.com
 - Node.js Guide: https://devcenter.heroku.com/categories/nodejs-support
 - Postgres Guide: https://devcenter.heroku.com/categories/postgres-basics
 - Deploying with Git: https://devcenter.heroku.com/articles/git
 
 **Buglens-Specific Docs**:
+
 - Architecture: `docs/Buglens Architecture UPDATED.md`
 - LLM Strategy: `docs/buglens llm architecture UPDATED.md`
 - Phase 1 Roadmap: `docs/Buglens Roadmap Phase 1 (Week 1-6).md`
 - Integration Guide: `docs/INTEGRATION_GUIDE.md`
 
 **Community & Support**:
+
 - Heroku Status: https://status.heroku.com
 - Heroku Forums: https://discussion.heroku.com
 - Stack Overflow: Tag `heroku`
@@ -2580,6 +2653,7 @@ Scripts that transform your code into a runnable app. Buglens uses:
 5. **Contact support** - https://help.heroku.com/tickets/new
 
 **For Buglens-specific issues**:
+
 - Check `docs/DEBUGGING_GUIDE.md`
 - Review GitHub Issues
 - Contact team via Slack/Discord
@@ -2649,7 +2723,8 @@ heroku maintenance:off -a APP_NAME
 
 ---
 
-**Questions or Issues?** 
+**Questions or Issues?**
+
 - Open an issue in the GitHub repository
 - Check `docs/` for additional guides
 - Contact the Buglens team
