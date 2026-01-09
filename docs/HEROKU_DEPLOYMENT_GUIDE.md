@@ -1749,14 +1749,31 @@ heroku pg:diagnose -a buglens-api-prod
      "npm": "10.x"
    }
    ```
-2. **Check `runtime.txt`**:
+2. **Ensure `requirements.txt` exists in root**:
+   - Heroku's Python buildpack requires `requirements.txt` in the **root directory**
+   - The file should list all Python dependencies
+   - Example:
+     ```
+     tree-sitter==0.21.0
+     openai>=1.50.0,<2.0.0
+     pydantic==2.5.0
+     ```
+3. **Check `runtime.txt`** (specifies Python version):
    ```
    python-3.11.0
    ```
-3. **Clear build cache**:
+4. **Verify files are committed**:
+   ```bash
+   git add requirements.txt runtime.txt
+   git commit -m "Add Python buildpack files"
+   git push origin main
+   ```
+5. **Clear build cache** (if rebuilding):
    - Go to Settings → scroll to "Build Cache"
    - Click "Purge build cache"
    - Re-deploy
+
+> **Note**: Buglens requires both Node.js and Python buildpacks. The `requirements.txt` must be in the root directory even if your Python code is in a subdirectory (`python/`).
 
 <details>
 <summary><strong>Alternative: Troubleshoot via CLI</strong></summary>
