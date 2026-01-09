@@ -1,0 +1,21 @@
+# Python dependencies for Heroku deployment
+# These dependencies are used by the Python analyzers in the python/ directory
+
+# Core
+python-dotenv==1.0.0
+structlog==23.2.0
+
+# LLM
+openai>=1.50.0,<2.0.0
+
+# AST Analysis
+tree-sitter==0.21.0
+tree-sitter-javascript==0.21.0
+tree-sitter-typescript==0.21.0
+
+# Data validation
+pydantic==2.5.0
+jsonschema==4.20.0
+
+# Async
+asyncio==3.4.3
