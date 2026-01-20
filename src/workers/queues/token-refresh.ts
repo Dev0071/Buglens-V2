@@ -45,13 +45,22 @@ export interface TokenRefreshJobData {
 let queue: Queue<TokenRefreshJobData> | null = null;
 
 function resolveQueueConnection(): ConnectionOptions {
-  const parsed = new URL(config.REDIS_URL);
+  const redisUrl = config.REDIS_URL;
+  const isTls = redisUrl.startsWith("rediss://");
+  const parsed = new URL(redisUrl);
   return {
     host: parsed.hostname,
     port: Number(parsed.port || 6379),
     username: parsed.username || undefined,
     password: parsed.password || undefined,
     db: parsed.pathname ? Number(parsed.pathname.replace("/", "")) || 0 : 0,
+    ...(isTls
+      ? {
+          tls: {
+            rejectUnauthorized: false,
+          },
+        }
+      : {}),
   };
 }
 
