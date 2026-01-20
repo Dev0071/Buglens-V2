@@ -36,6 +36,7 @@ if (sentryDsn) {
 
     // Log before sending
     beforeSend(event) {
+      // eslint-disable-next-line no-console
       console.log(
         "📤 Sentry sending event:",
         event.event_id,
@@ -46,8 +47,10 @@ if (sentryDsn) {
   });
 
   // Debug log
+  // eslint-disable-next-line no-console
   console.log("✅ Sentry enabled with tunnel:", tunnelUrl);
 } else {
+  // eslint-disable-next-line no-console
   console.warn(
     "⚠️ Sentry DSN is not set. Add VITE_SENTRY_DSN to web/.env.local to enable error reporting."
   );
@@ -55,7 +58,9 @@ if (sentryDsn) {
 
 // Expose Sentry globally for testing
 if (import.meta.env.DEV) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).Sentry = Sentry;
+  // eslint-disable-next-line no-console
   console.log('💡 Test: window.Sentry.captureException(new Error("test"))');
 }
 
