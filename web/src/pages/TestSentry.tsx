@@ -56,9 +56,9 @@ export default function TestSentry() {
   const testUndefinedAccess = () => {
     addResult("🟣 Attempting to access property of undefined...");
     try {
-    
       const obj = undefined;
       // @ts-expect-error - intentional error for testing
+      // eslint-disable-next-line no-console
       console.log(obj.property.nested);
     } catch (error) {
       Sentry.captureException(error);

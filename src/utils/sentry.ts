@@ -20,7 +20,7 @@ export function initSentry() {
     environment: config.NODE_ENV,
     release: `buglens-backend@${process.env.npm_package_version || "1.0.0"}`,
     enabled: true, // Enabled in all environments for testing (set to NODE_ENV !== 'development' in production)
-    debug: true, // Enable debug mode to see what's happening
+    debug: false, // Disable Sentry Logger debug output
     sendDefaultPii: true, // Include PII for better context
 
     // Performance Monitoring
