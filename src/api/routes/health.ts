@@ -3,6 +3,7 @@ import { pool } from "../../db/client.js";
 import { getRedisClient } from "../../db/redis.js";
 import { config } from "../../utils/config.js";
 import { checkS3Health, getS3CacheStatus } from "../../services/cache.js";
+import { captureException } from "../../utils/sentry.js";
 
 interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "degraded";
@@ -239,4 +240,18 @@ export const healthRoutes: FastifyPluginAsync = async (server) => {
       });
     }
   });
+
+  /**
+   * Test Sentry error reporting (development only)
+   * GET /debug-sentry
+   */
+  if (config.NODE_ENV === "development") {
+    server.get("/debug-sentry", async (_request, _reply) => {
+      const testError = new Error(
+        "Test error from backend - debug-sentry endpoint"
+      );
+      captureException(testError, { test: true, endpoint: "/debug-sentry" });
+      throw testError; // This will be caught by Fastify's error handler
+    });
+  }
 };

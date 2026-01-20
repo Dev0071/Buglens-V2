@@ -113,8 +113,8 @@ export async function storeIntegrationTokens(
       type,
       metadata.displayName,
       metadata.externalId || null,
-      JSON.stringify(encryptedTokens),
-      JSON.stringify(metadata.additionalData || {}),
+      encryptedTokens,
+      metadata.additionalData || {},
       tokens.expiresAt || null,
     ]
   );
@@ -143,9 +143,8 @@ export async function getIntegrationTokens(
     return null;
   }
 
-  const encryptedTokens = JSON.parse(
-    result.rows[0].encrypted_tokens
-  ) as EncryptedData;
+  const encryptedTokens = result.rows[0]
+    .encrypted_tokens as unknown as EncryptedData;
   return decryptJsonForOrg<StoredTokens>(encryptedTokens, orgId);
 }
 
@@ -195,12 +194,7 @@ export async function updateIntegrationTokens(
       expires_at = $2,
       updated_at = NOW()
      WHERE id = $3 AND org_id = $4`,
-    [
-      JSON.stringify(encryptedTokens),
-      tokens.expiresAt || null,
-      integrationId,
-      orgId,
-    ]
+    [encryptedTokens, tokens.expiresAt || null, integrationId, orgId]
   );
 
   logger.debug({ orgId, integrationId }, "Integration tokens updated");
@@ -351,15 +345,15 @@ export async function storeGitHubInstallation(
       orgId,
       `${installation.account.login} (${installation.account.type})`,
       installation.installationId.toString(),
-      JSON.stringify(encryptedData),
-      JSON.stringify({
+      encryptedData,
+      {
         accountId: installation.account.id,
         accountLogin: installation.account.login,
         accountType: installation.account.type,
         avatarUrl: installation.account.avatarUrl,
         permissions: installation.permissions,
         repositorySelection: installation.repositorySelection,
-      }),
+      },
     ]
   );
 
@@ -378,9 +372,7 @@ export async function storeGitHubInstallation(
 /**
  * Get GitHub App installation for an organization
  */
-export async function getGitHubInstallation(
-  orgId: string
-): Promise<{
+export async function getGitHubInstallation(orgId: string): Promise<{
   integrationId: string;
   installationId: number;
   metadata: Record<string, unknown>;
@@ -400,9 +392,8 @@ export async function getGitHubInstallation(
     return null;
   }
 
-  const encryptedData = JSON.parse(
-    result.rows[0].encrypted_tokens
-  ) as EncryptedData;
+  const encryptedData = result.rows[0]
+    .encrypted_tokens as unknown as EncryptedData;
   const data = decryptJsonForOrg<{ installationId: number }>(
     encryptedData,
     orgId
@@ -465,9 +456,8 @@ export async function getSlackWorkspace(
     return null;
   }
 
-  const encryptedTokens = JSON.parse(
-    result.rows[0].encrypted_tokens
-  ) as EncryptedData;
+  const encryptedTokens = result.rows[0]
+    .encrypted_tokens as unknown as EncryptedData;
   const tokens = decryptJsonForOrg<StoredTokens>(encryptedTokens, orgId);
   const metadata = result.rows[0].metadata;
 

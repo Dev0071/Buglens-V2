@@ -100,7 +100,12 @@ export function createAdminAuthHook(context: string) {
     const expectedToken = config.PLATFORM_ADMIN_TOKEN;
 
     if (!expectedToken) {
-      logger.error("PLATFORM_ADMIN_TOKEN not configured");
+      const error = new Error("PLATFORM_ADMIN_TOKEN not configured");
+      logger.error(error.message);
+      // Import captureException to send to Sentry
+      import("../../utils/sentry.js").then(({ captureException }) => {
+        captureException(error, { context: "admin-auth-middleware" });
+      });
       reply.status(500).send({ error: "Server configuration error" });
       return;
     }

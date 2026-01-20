@@ -50,37 +50,54 @@ heroku login
 
 ## Architecture Overview
 
-Buglens runs as two separate Heroku apps:
+Buglens runs as a **single Heroku app** with multiple process types:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Heroku Platform                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌─────────────────┐          ┌─────────────────┐              │
-│  │   buglens-api   │          │  buglens-worker │              │
-│  │   (web dyno)    │◄────────►│  (worker dyno)  │              │
-│  └────────┬────────┘          └────────┬────────┘              │
-│           │                            │                        │
-│           └────────────┬───────────────┘                        │
-│                        │                                        │
-│           ┌────────────▼───────────────┐                        │
-│           │      Heroku Postgres       │                        │
-│           │   (Shared Redis via URL)   │                        │
-│           └────────────────────────────┘                        │
+│                   ┌─────────────────────┐                       │
+│                   │   buglens-staging   │                       │
+│                   │   (Single App)      │                       │
+│                   ├─────────────────────┤                       │
+│                   │  web dyno (API)     │  ← Receives webhooks │
+│                   │  worker dyno (Jobs) │  ← Processes RCAs    │
+│                   └──────────┬──────────┘                       │
+│                              │                                  │
+│                   ┌──────────▼──────────┐                       │
+│                   │   Heroku Postgres   │                       │
+│                   │   Heroku Redis      │                       │
+│                   └─────────────────────┘                       │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Components
 
-| Component  | Heroku Service         | Purpose                       |
-| ---------- | ---------------------- | ----------------------------- |
-| API Server | web dyno               | Fastify API, webhook receiver |
-| Worker     | worker dyno            | BullMQ job processor          |
-| PostgreSQL | Heroku Postgres        | Main database                 |
-| Redis      | Heroku Key-Value Store | Job queue, caching            |
-| Logs       | Heroku Logging         | Application logs              |
+| Component   | Heroku Service         | Purpose                              |
+| ----------- | ---------------------- | ------------------------------------ |
+| web dyno    | Process type: `web`    | Fastify API server, webhook receiver |
+| worker dyno | Process type: `worker` | BullMQ job processor (RCA analysis)  |
+| PostgreSQL  | Heroku Postgres add-on | Main database, multi-tenant          |
+| Redis       | Heroku Redis add-on    | Job queue (BullMQ), caching          |
+| Logs        | Heroku Logging         | Centralized application logs         |
+
+### Process Types (Defined in Procfile)
+
+```
+release: npm run migrate:up   # Runs migrations on each deployment
+web:     npm start            # API server (port $PORT)
+worker:  npm run worker       # Background job processor
+```
+
+**Benefits of Single-App Architecture:**
+
+- ✅ 50% cost savings (one app vs two)
+- ✅ Simplified configuration (single set of env vars)
+- ✅ Easier deployments (one deploy, not two)
+- ✅ Shared buildpack and dependencies
+- ✅ Both processes share same DATABASE_URL and REDIS_URL automatically
 
 ---
 
@@ -88,39 +105,33 @@ Buglens runs as two separate Heroku apps:
 
 ### Step 1: Create Heroku Apps via Dashboard
 
-#### Create Staging Apps
+#### Create Staging App
 
 1. **Go to Heroku Dashboard**: https://dashboard.heroku.com/apps
 2. **Click "New" → "Create new app"**
-3. **Create API app**:
-   - App name: `buglens-api-staging`
+3. **Create staging app**:
+   - App name: `buglens-staging`
    - Region: `United States` (or `Europe` if closer to your users)
    - Click **"Create app"**
-4. **Repeat for Worker app**:
-   - App name: `buglens-worker-staging`
-   - Region: Same as API app
-   - Click **"Create app"**
 
-#### Create Production Apps
+#### Create Production App
 
-5. **Repeat the process for production**:
-   - App name: `buglens-api-prod`
+4. **Repeat for production**:
+   - App name: `buglens-prod`
    - Region: Same as staging
    - Click **"Create app"**
-6. **Create production worker**:
-   - App name: `buglens-worker-prod`
-   - Region: Same as API app
-   - Click **"Create app"**
 
-> **Result**: You should now have 4 apps in your dashboard: `buglens-api-staging`, `buglens-worker-staging`, `buglens-api-prod`, `buglens-worker-prod`
+> **Result**: You should now have 2 apps in your dashboard: `buglens-staging`, `buglens-prod`
+>
+> **Note**: Each app will run **both** web (API) and worker (job processor) dynos using the same codebase.
 
 ---
 
 ### Step 2: Add PostgreSQL Database
 
-#### For Staging API App
+#### For Staging App
 
-1. **Go to** `buglens-api-staging` app page
+1. **Go to** `buglens-staging` app page
 2. **Click "Resources" tab**
 3. **In "Add-ons" search box**, type: `Heroku Postgres`
 4. **Select**: `Heroku Postgres`
@@ -128,72 +139,44 @@ Buglens runs as two separate Heroku apps:
 6. **Click "Submit Order Form"**
 7. **Verify**: You should see `Heroku Postgres` listed under "Add-ons"
 
-#### For Production API App
+#### For Production App
 
-1. **Go to** `buglens-api-prod` app page
+1. **Go to** `buglens-prod` app page
 2. **Click "Resources" tab**
 3. **Add Heroku Postgres**
 4. **Choose plan**: `Essential-1` ($15/month - better performance for production)
 5. **Click "Submit Order Form"**
 
-> **Note**: The `DATABASE_URL` environment variable is automatically set when you add Postgres.
+> **Note**: The `DATABASE_URL` environment variable is automatically set and shared by both web and worker processes.
 
 ---
 
 ### Step 3: Add Redis (Key-Value Store)
 
-#### For Staging API App
+#### For Staging App
 
-1. **Stay on** `buglens-api-staging` → **Resources** tab
+1. **Stay on** `buglens-staging` → **Resources** tab
 2. **In "Add-ons" search box**, type: `Heroku Data for Redis`
 3. **Select**: `Heroku Data for Redis`
 4. **Choose plan**: `Mini` ($3/month)
 5. **Click "Submit Order Form"**
 
-#### For Production API App
+#### For Production App
 
-1. **Go to** `buglens-api-prod` → **Resources** tab
+1. **Go to** `buglens-prod` → **Resources** tab
 2. **Add Heroku Data for Redis**
 3. **Choose plan**: `Premium-0` ($15/month - better for production)
 4. **Click "Submit Order Form"**
 
-> **Note**: The `REDIS_URL` environment variable is automatically set.
+> **Note**: The `REDIS_URL` environment variable is automatically set and shared by both web and worker processes.
 
 ---
 
-### Step 4: Share Add-ons with Worker Apps
+### Step 4: Connect GitHub Repository
 
-Worker apps need access to the same database and Redis as the API apps.
+#### For Staging App
 
-#### Share Staging Add-ons
-
-1. **Go to** `buglens-api-staging` app page
-2. **Click "Resources" tab**
-3. **Click on "Heroku Postgres"** (this opens the add-on dashboard)
-4. **Go to "Settings" tab** in the Postgres add-on
-5. **Scroll to "Attached as"** section
-6. **Click "Attach to another app"**
-7. **Select**: `buglens-worker-staging`
-8. **Click "Attach database"**
-9. **Go back** to `buglens-api-staging` → Resources
-10. **Click on "Heroku Data for Redis"**
-11. **Repeat the attach process** for Redis to `buglens-worker-staging`
-
-#### Share Production Add-ons
-
-1. **Repeat the same process** for production:
-   - Attach `buglens-api-prod` Postgres to `buglens-worker-prod`
-   - Attach `buglens-api-prod` Redis to `buglens-worker-prod`
-
-> **Verification**: Go to `buglens-worker-staging` → Resources. You should see both add-ons listed with a note "(attached as DATABASE)" and "(attached as REDIS)".
-
----
-
-### Step 5: Connect GitHub Repository
-
-#### For Staging Apps
-
-1. **Go to** `buglens-api-staging` app page
+1. **Go to** `buglens-staging` app page
 2. **Click "Deploy" tab**
 3. **Deployment method**: Click **"GitHub"**
 4. **Connect to GitHub**: Click **"Connect to GitHub"** button
@@ -202,29 +185,26 @@ Worker apps need access to the same database and Redis as the API apps.
 7. **Click "Connect"** next to the correct repository
 8. **Enable Automatic Deploys** (optional but recommended):
    - Branch: `staging`
+   - ✅ Check **"Wait for CI to pass before deploy"**
    - Click **"Enable Automatic Deploys"**
-9. **Repeat** for `buglens-worker-staging`
 
-#### For Production Apps
+#### For Production App
 
-1. **Go to** `buglens-api-prod` app page
+1. **Go to** `buglens-prod` app page
 2. **Follow same steps** but use branch: `main`
-3. **Important**: For production, consider enabling **"Wait for CI to pass before deploy"** checkbox
-4. **Repeat** for `buglens-worker-prod`
+3. **Important**: For production, **always** enable **"Wait for CI to pass before deploy"** checkbox
 
 <details>
 <summary><strong>Alternative: Manual Deployment via Git (CLI Required)</strong></summary>
 
 ```bash
 # Add Heroku remotes
-git remote add staging-api https://git.heroku.com/buglens-api-staging.git
-git remote add staging-worker https://git.heroku.com/buglens-worker-staging.git
-git remote add prod-api https://git.heroku.com/buglens-api-prod.git
-git remote add prod-worker https://git.heroku.com/buglens-worker-prod.git
+git remote add staging https://git.heroku.com/buglens-staging.git
+git remote add production https://git.heroku.com/buglens-prod.git
 
 # Deploy manually
-git push staging-api staging:main
-git push staging-worker staging:main
+git push staging staging:main
+git push production main:main
 ```
 
 </details>
@@ -237,56 +217,142 @@ git push staging-worker staging:main
 
 #### Navigate to Settings
 
-1. **Go to** `buglens-api-staging` app page
+1. **Go to** `buglens-staging` app page
 2. **Click "Settings" tab**
 3. **Scroll to "Config Vars" section**
 4. **Click "Reveal Config Vars"**
 
-> **Note**: `DATABASE_URL` and `REDIS_URL` should already be present from add-ons.
+> **Note**: `DATABASE_URL` and `REDIS_URL` should already be present from add-ons. These are automatically shared by both web and worker processes.
 
 #### Add Required Variables for API App
 
 Click **"Add"** for each variable and enter:
 
-| Key                         | Value                                               | Notes                                |
-| --------------------------- | --------------------------------------------------- | ------------------------------------ |
-| `NODE_ENV`                  | `staging`                                           | Environment identifier               |
-| `APP_BASE_URL`              | `https://buglens-api-staging.herokuapp.com`         | Your staging app URL                 |
-| `JWT_SECRET`                | Generate: `openssl rand -base64 32`                 | Keep this secret! (32+ characters)   |
-| `ENCRYPTION_KEY`            | Generate: `openssl rand -hex 32`                    | 64 character hex string              |
-| `GITHUB_APP_ID`             | `123456`                                            | From GitHub App settings             |
-| `GITHUB_APP_PRIVATE_KEY`    | `-----BEGIN RSA PRIVATE KEY-----\n...`              | Copy entire PEM file content         |
-| `GITHUB_APP_WEBHOOK_SECRET` | Your webhook secret                                 | From GitHub App webhook config       |
-| `SENTRY_DSN`                | `https://...@sentry.io/...`                         | From Sentry project settings         |
-| `SENTRY_WEBHOOK_SECRET`     | Generate: `openssl rand -hex 20`                    | For validating Sentry webhooks       |
-| `OPENAI_API_KEY`            | `sk-proj-...`                                       | From OpenAI dashboard                |
-| `LOG_LEVEL`                 | `debug`                                             | `debug` for staging, `info` for prod |
-| `CORS_ORIGINS`              | `http://localhost:5173,https://staging.buglens.com` | Comma-separated allowed origins      |
-| `ADMIN_TOKEN`               | Generate: `openssl rand -hex 32`                    | For admin API access (64+ chars)     |
-| `RATE_LIMIT_ENABLED`        | `true`                                              | Enable rate limiting                 |
-| `RATE_LIMIT_MAX_REQUESTS`   | `100`                                               | Max requests per window              |
-| `RATE_LIMIT_WINDOW_MS`      | `60000`                                             | Rate limit window (1 minute)         |
-| `WEBHOOK_TIMEOUT_MS`        | `30000`                                             | Webhook processing timeout           |
-| `MAX_STACK_FRAMES`          | `50`                                                | Max frames to analyze                |
-| `GITHUB_CACHE_TTL`          | `3600`                                              | Redis cache TTL (1 hour)             |
-| `S3_CACHE_BUCKET`           | `buglens-cache-staging`                             | Optional: S3 bucket for file caching |
-| `AWS_ACCESS_KEY_ID`         | Your AWS key (if using S3)                          | Optional: For S3 cache               |
-| `AWS_SECRET_ACCESS_KEY`     | Your AWS secret (if using S3)                       | Optional: For S3 cache               |
-| `AWS_REGION`                | `us-east-1`                                         | Optional: AWS region                 |
-| `PYTHON_ANALYZER_TIMEOUT`   | `45000`                                             | Python analyzer timeout (45s)        |
-| `LLM_TIMEOUT_MS`            | `60000`                                             | LLM request timeout (60s)            |
-| `LLM_MODEL`                 | `gpt-4o-mini`                                       | OpenAI model to use                  |
-| `LLM_TEMPERATURE`           | `0.1`                                               | Low temperature for consistency      |
-| `LLM_MAX_TOKENS`            | `2000`                                              | Max tokens per LLM response          |
-| `LLM_DAILY_TOKEN_LIMIT`     | `1000000`                                           | Daily token limit per org            |
-| `ENABLE_PROMETHEUS`         | `false`                                             | Enable Prometheus metrics (optional) |
-| `ENABLE_HEALTH_CHECKS`      | `true`                                              | Enable /health endpoint              |
-| `SLACK_ENABLED`             | `true`                                              | Enable Slack notifications           |
-| `SLACK_DEFAULT_CHANNEL`     | `#buglens-alerts`                                   | Default channel for alerts           |
-| `ENABLE_SOURCE_MAPS`        | `true`                                              | Enable source map resolution         |
-| `SOURCE_MAP_CACHE_SIZE`     | `100`                                               | Number of source maps to cache       |
-| `ENABLE_COST_TRACKING`      | `true`                                              | Track LLM/API costs                  |
-| `COST_ALERT_THRESHOLD`      | `10.00`                                             | USD threshold for cost alerts        |
+**Core Configuration:**
+
+| Key            | Value                         | Required | Notes                                                       |
+| -------------- | ----------------------------- | -------- | ----------------------------------------------------------- |
+| `NODE_ENV`     | `staging`                     | ✅       | Environment: `development`, `staging`, `production`, `test` |
+| `PORT`         | `3000`                        | Optional | Port (Heroku sets this automatically)                       |
+| `FRONTEND_URL` | `https://staging.buglens.com` | ✅       | Frontend URL for OAuth redirects                            |
+| `LOG_LEVEL`    | `debug`                       | Optional | `debug`, `info`, `warn`, `error` (default: `info`)          |
+| `CORS_ORIGINS` | `https://staging.buglens.com` | Optional | Comma-separated allowed origins                             |
+
+**Database & Cache (Auto-set by Heroku):**
+
+| Key                 | Value   | Required | Notes                                    |
+| ------------------- | ------- | -------- | ---------------------------------------- |
+| `DATABASE_URL`      | Auto    | ✅       | Set automatically by Heroku Postgres     |
+| `REDIS_URL`         | Auto    | ✅       | Set automatically by Heroku Redis        |
+| `DATABASE_POOL_MIN` | `2`     | Optional | Min database connections (default: 2)    |
+| `DATABASE_POOL_MAX` | `10`    | Optional | Max database connections (default: 10)   |
+| `DATABASE_SSL`      | `false` | Optional | Enable SSL for database (default: false) |
+| `REDIS_MAX_RETRIES` | `3`     | Optional | Redis connection retries (default: 3)    |
+
+**AWS (Optional for S3 caching):**
+
+| Key                      | Value             | Required | Notes                                            |
+| ------------------------ | ----------------- | -------- | ------------------------------------------------ |
+| `AWS_REGION`             | `us-east-1`       | Optional | AWS region (default: us-east-1)                  |
+| `AWS_ACCESS_KEY_ID`      | Your AWS key      | Optional | For S3 file caching                              |
+| `AWS_SECRET_ACCESS_KEY`  | Your AWS secret   | Optional | For S3 file caching                              |
+| `S3_BUCKET_NAME`         | `buglens-staging` | Optional | S3 bucket for file caching                       |
+| `S3_ENDPOINT`            | URL               | Optional | Custom S3 endpoint (LocalStack, etc.)            |
+| `SECRETS_MANAGER_PREFIX` | `buglens/`        | Optional | AWS Secrets Manager prefix (default: `buglens/`) |
+
+**Authentication:**
+
+| Key              | Value                               | Required | Notes                                   |
+| ---------------- | ----------------------------------- | -------- | --------------------------------------- |
+| `JWT_SECRET`     | Generate: `openssl rand -base64 32` | ✅       | Min 32 characters for JWT token signing |
+| `JWT_EXPIRES_IN` | `7d`                                | Optional | JWT expiration (default: 7 days)        |
+
+**LLM Configuration:**
+
+| Key              | Value         | Required | Notes                                       |
+| ---------------- | ------------- | -------- | ------------------------------------------- |
+| `OPENAI_API_KEY` | `sk-proj-...` | Optional | OpenAI API key (or DeepSeek key)            |
+| `LLM_PROVIDER`   | `openai`      | Optional | `openai` or `deepseek` (default: openai)    |
+| `LLM_MODEL`      | `gpt-4o-mini` | Optional | Model override (e.g., `deepseek-chat`)      |
+| `LLM_BASE_URL`   | URL           | Optional | Custom API URL for DeepSeek/other providers |
+
+**Development:**
+
+| Key                | Value  | Required | Notes                                                  |
+| ------------------ | ------ | -------- | ------------------------------------------------------ |
+| `ALLOW_DEV_ERRORS` | `true` | Optional | Allow processing errors from localhost (default: true) |
+
+**Sentry Error Tracking:**
+
+| Key                     | Value                            | Required | Notes                           |
+| ----------------------- | -------------------------------- | -------- | ------------------------------- |
+| `SENTRY_DSN`            | `https://...@sentry.io/...`      | Optional | Sentry project DSN              |
+| `SENTRY_WEBHOOK_SECRET` | Generate: `openssl rand -hex 20` | Optional | HMAC secret for Sentry webhooks |
+
+**OAuth Integration - Slack:**
+
+| Key                    | Value          | Required | Notes                        |
+| ---------------------- | -------------- | -------- | ---------------------------- |
+| `SLACK_CLIENT_ID`      | From Slack app | Optional | Slack OAuth client ID        |
+| `SLACK_CLIENT_SECRET`  | From Slack app | Optional | Slack OAuth client secret    |
+| `SLACK_SIGNING_SECRET` | From Slack app | Optional | Slack webhook signing secret |
+
+**OAuth Integration - GitHub:**
+
+| Key                                | Value                 | Required | Notes                                 |
+| ---------------------------------- | --------------------- | -------- | ------------------------------------- |
+| `GITHUB_APP_ID`                    | From GitHub App       | Optional | GitHub App ID                         |
+| `GITHUB_APP_NAME`                  | Your app name         | Optional | GitHub App name                       |
+| `GITHUB_APP_PRIVATE_KEY_SECRET_ID` | AWS Secret ID         | Optional | AWS Secrets Manager secret ID for key |
+| `GITHUB_WEBHOOK_SECRET`            | From GitHub App       | Optional | GitHub webhook secret                 |
+| `GITHUB_OAUTH_CLIENT_ID`           | From GitHub OAuth app | Optional | GitHub OAuth for user login           |
+| `GITHUB_OAUTH_CLIENT_SECRET`       | From GitHub OAuth app | Optional | GitHub OAuth secret                   |
+
+> **Note:** Either set `GITHUB_APP_PRIVATE_KEY_SECRET_ID` (for AWS Secrets Manager) OR set it directly via Heroku Config Vars as `GITHUB_APP_PRIVATE_KEY`
+
+**OAuth Integration - Google:**
+
+| Key                          | Value               | Required | Notes                      |
+| ---------------------------- | ------------------- | -------- | -------------------------- |
+| `GOOGLE_OAUTH_CLIENT_ID`     | From Google Console | Optional | Google OAuth client ID     |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | From Google Console | Optional | Google OAuth client secret |
+
+**OAuth Integration - Jira:**
+
+| Key                  | Value          | Required | Notes                    |
+| -------------------- | -------------- | -------- | ------------------------ |
+| `JIRA_CLIENT_ID`     | From Atlassian | Optional | Jira OAuth client ID     |
+| `JIRA_CLIENT_SECRET` | From Atlassian | Optional | Jira OAuth client secret |
+
+**OAuth Integration - Microsoft Teams:**
+
+| Key                   | Value         | Required | Notes                                       |
+| --------------------- | ------------- | -------- | ------------------------------------------- |
+| `TEAMS_CLIENT_ID`     | From Azure AD | Optional | Microsoft Teams client ID                   |
+| `TEAMS_CLIENT_SECRET` | From Azure AD | Optional | Microsoft Teams client secret               |
+| `TEAMS_TENANT_ID`     | `common`      | Optional | Azure tenant ID (`common` for multi-tenant) |
+
+**Python Integration:**
+
+| Key                          | Value     | Required | Notes                                        |
+| ---------------------------- | --------- | -------- | -------------------------------------------- |
+| `PYTHON_BIN`                 | `python3` | Optional | Python binary path (default: python3)        |
+| `PYTHON_ANALYZER_TIMEOUT_MS` | `10000`   | Optional | Python analyzer timeout in ms (default: 10s) |
+| `PYTHON_LLM_TIMEOUT_MS`      | `30000`   | Optional | Python LLM timeout in ms (default: 30s)      |
+
+**Rate Limiting:**
+
+| Key                                  | Value    | Required | Notes                                |
+| ------------------------------------ | -------- | -------- | ------------------------------------ |
+| `RATE_LIMIT_FREE_EVENTS_PER_HOUR`    | `100`    | Optional | Max events per hour for free tier    |
+| `RATE_LIMIT_FREE_RCA_JOBS_PER_DAY`   | `50`     | Optional | Max RCA jobs per day for free tier   |
+| `RATE_LIMIT_FREE_LLM_TOKENS_PER_DAY` | `100000` | Optional | Max LLM tokens per day for free tier |
+
+**Admin Security:**
+
+| Key                    | Value                            | Required | Notes                                             |
+| ---------------------- | -------------------------------- | -------- | ------------------------------------------------- |
+| `PLATFORM_ADMIN_TOKEN` | Generate: `openssl rand -hex 32` | Optional | Required for secret management API (min 32 chars) |
 
 > **Security Tips**:
 >
@@ -300,72 +366,33 @@ Click **"Add"** for each variable and enter:
 Open a terminal and run these commands to generate secure random values:
 
 ```bash
-# JWT Secret (32 bytes base64)
+# JWT Secret (32+ characters required)
 openssl rand -base64 32
 
-# Encryption Key (32 bytes hex = 64 chars)
-openssl rand -hex 32
-
-# Webhook Secret (20 bytes hex = 40 chars)
+# Sentry Webhook Secret (optional)
 openssl rand -hex 20
 
-# Admin Token (32 bytes hex = 64 chars)
+# Platform Admin Token (32+ characters, optional, for admin API)
 openssl rand -hex 32
 ```
 
 Copy each output and paste into the corresponding Config Var in the Heroku Dashboard.
 
-#### Configure Worker App Variables
-
-1. **Go to** `buglens-worker-staging` → **Settings** → **Config Vars**
-2. **Add these variables**:
-
-| Key                       | Value                     | Notes                                       |
-| ------------------------- | ------------------------- | ------------------------------------------- |
-| `NODE_ENV`                | `staging`                 | Same as API                                 |
-| `WORKER_MODE`             | `true`                    | Enables worker-specific behavior            |
-| `GITHUB_APP_ID`           | Same as API               | Copy from API app                           |
-| `GITHUB_APP_PRIVATE_KEY`  | Same as API               | Copy from API app                           |
-| `OPENAI_API_KEY`          | Same as API               | Copy from API app                           |
-| `LOG_LEVEL`               | `debug`                   | Same as API                                 |
-| `PYTHON_ANALYZER_TIMEOUT` | `45000`                   | Same as API                                 |
-| `LLM_TIMEOUT_MS`          | `60000`                   | Same as API                                 |
-| `LLM_MODEL`               | `gpt-4o-mini`             | Same as API                                 |
-| `LLM_TEMPERATURE`         | `0.1`                     | Same as API                                 |
-| `LLM_MAX_TOKENS`          | `2000`                    | Same as API                                 |
-| `GITHUB_CACHE_TTL`        | `3600`                    | Same as API                                 |
-| `S3_CACHE_BUCKET`         | `buglens-cache-staging`   | Same as API (if using S3)                   |
-| `AWS_ACCESS_KEY_ID`       | Same as API (if using S3) | Optional                                    |
-| `AWS_SECRET_ACCESS_KEY`   | Same as API (if using S3) | Optional                                    |
-| `AWS_REGION`              | `us-east-1`               | Same as API (if using S3)                   |
-| `ENABLE_COST_TRACKING`    | `true`                    | Same as API                                 |
-| `MAX_CONCURRENT_JOBS`     | `5`                       | Worker-specific: Max concurrent RCA jobs    |
-| `JOB_TIMEOUT_MS`          | `300000`                  | Worker-specific: Job timeout (5 minutes)    |
-| `RETRY_ATTEMPTS`          | `3`                       | Worker-specific: Failed job retry count     |
-| `RETRY_DELAY_MS`          | `5000`                    | Worker-specific: Delay between retries (5s) |
-
-> **Note**: `DATABASE_URL` and `REDIS_URL` are already present from the attached add-ons.
+> **Security Note:** Never commit these values to Git. Store them in a password manager.
 
 <details>
 <summary><strong>Alternative: Set Variables via CLI</strong></summary>
 
 ```bash
-# Set variables for API
+# Set variables for staging
 heroku config:set \
   NODE_ENV=staging \
-  APP_BASE_URL=https://buglens-api-staging.herokuapp.com \
+  FRONTEND_URL=https://staging.buglens.com \
   JWT_SECRET="$(openssl rand -base64 32)" \
-  ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  -a buglens-api-staging
-
-# Set variables for Worker
-heroku config:set \
-  NODE_ENV=staging \
-  WORKER_MODE=true \
-  -a buglens-worker-staging
+  -a buglens-staging
 
 # View all variables
-heroku config -a buglens-api-staging
+heroku config -a buglens-staging
 ```
 
 </details>
@@ -376,9 +403,9 @@ heroku config -a buglens-api-staging
 
 Buglens requires both Node.js and Python.
 
-#### For API App
+#### For Staging App
 
-1. **Go to** `buglens-api-staging` → **Settings** tab
+1. **Go to** `buglens-staging` → **Settings** tab
 2. **Scroll to "Buildpacks" section**
 3. **Click "Add buildpack"**
 4. **Add Python buildpack**:
@@ -394,22 +421,25 @@ Buglens requires both Node.js and Python.
 
 > **Why this order?** Python must be installed first so Node.js can call Python scripts.
 
-#### For Worker App
+#### For Production App
 
-1. **Repeat the same process** for `buglens-worker-staging`
+1. **Repeat the same process** for `buglens-prod`
 2. **Buildpack order**:
    - 1. `heroku/python`
    - 2. `heroku/nodejs`
 
 <details>
-<summary><strong>Alternative: Use Docker Container (Advanced)</strong></summary>
+<summary><strong>Alternative: Set Buildpacks via CLI</strong></summary>
 
-If you prefer Docker:
+```bash
+# For staging
+heroku buildpacks:add heroku/python -a buglens-staging
+heroku buildpacks:add heroku/nodejs -a buglens-staging
 
-1. **Go to** `buglens-api-staging` → **Settings**
-2. **Stack**: Change to `container`
-3. **Ensure** you have `heroku.yml` or `Dockerfile` in your repository
-4. **Heroku will automatically detect and use container deployment**
+# For production
+heroku buildpacks:add heroku/python -a buglens-prod
+heroku buildpacks:add heroku/nodejs -a buglens-prod
+```
 
 </details>
 
@@ -419,43 +449,37 @@ If you prefer Docker:
 
 #### Trigger Manual Deploy
 
-1. **Go to** `buglens-api-staging` → **Deploy** tab
+1. **Go to** `buglens-staging` → **Deploy** tab
 2. **Scroll to "Manual deploy" section**
 3. **Select branch**: `staging` (or `main` if you haven't created a staging branch)
 4. **Click "Deploy Branch"**
 5. **Wait for build** - You'll see real-time logs in the browser
 6. **Watch for**:
    ```
-   -----> Building on the Heroku-20 stack
+   -----> Building on the Heroku-22 stack
    -----> Using buildpacks:
           1. heroku/python
           2. heroku/nodejs
    -----> Python app detected
    -----> Node.js app detected
+   -----> Running release command: npm run migrate:up
    -----> Build succeeded!
    -----> Launching...
           Released v3
-          https://buglens-api-staging.herokuapp.com/ deployed to Heroku
+          https://buglens-staging.herokuapp.com/ deployed to Heroku
    ```
 
-#### Deploy Worker App
-
-1. **Go to** `buglens-worker-staging` → **Deploy** tab
-2. **Manual deploy** → Select branch: `staging`
-3. **Click "Deploy Branch"**
-4. **Wait for build**
-
-> **Automatic Deploys**: If you enabled automatic deploys in Step 5 of Initial Setup, every push to the `staging` branch will auto-deploy.
+> **Automatic Deploys**: If you enabled automatic deploys in Step 4 of Initial Setup, every push to the `staging` branch will auto-deploy.
 
 <details>
 <summary><strong>Alternative: Deploy via Git Push (CLI)</strong></summary>
 
 ```bash
-# Deploy API
-git push staging-api staging:main
+# Deploy to staging
+git push staging staging:main
 
-# Deploy Worker
-git push staging-worker staging:main
+# Deploy to production
+git push production main:main
 ```
 
 </details>
@@ -464,38 +488,49 @@ git push staging-worker staging:main
 
 ### Step 4: Configure Dyno Formation
 
-By default, Heroku starts a `web` dyno but not a `worker` dyno.
+Heroku starts the `web` dyno by default but not the `worker` dyno. You need to enable both.
 
-#### For API App
+#### For Staging App
 
-1. **Go to** `buglens-api-staging` → **Resources** tab
+1. **Go to** `buglens-staging` → **Resources** tab
 2. **Under "Dynos"**, you should see:
    - `web npm start` - Toggle **ON** (should be on by default)
-3. **If you see** `release` process:
-   - Toggle **OFF** (release is for one-time migrations, not continuous running)
+   - `worker npm run worker` - Toggle **ON** (enable this manually)
+3. **Click pencil icon** next to `worker` if needed, then click **"Confirm"**
 
-#### For Worker App
+> **Verify**: You should see:
+>
+> - `web: 1 dyno` (running)
+> - `worker: 1 dyno` (running)
 
-1. **Go to** `buglens-worker-staging` → **Resources** tab
-2. **Under "Dynos"**, you should see:
-   - `worker node dist/workers/rca-worker.js`
-3. **Toggle worker to "ON"** (click the pencil icon or toggle switch)
-4. **Click "Confirm"**
+#### For Production App
 
-> **Verify**: Both apps should show "1 dyno" running in the overview.
+1. **Go to** `buglens-prod` → **Resources** tab
+2. **Enable both dynos**:
+   - `web npm start` - ON
+   - `worker npm run worker` - ON
 
 <details>
 <summary><strong>Alternative: Scale via CLI</strong></summary>
 
 ```bash
-# Scale API
-heroku ps:scale web=1 -a buglens-api-staging
+# Scale staging
+heroku ps:scale web=1 worker=1 -a buglens-staging
 
-# Scale Worker
-heroku ps:scale worker=1 -a buglens-worker-staging
+# Scale production
+heroku ps:scale web=1 worker=1 -a buglens-prod
+
+# View dyno status
+heroku ps -a buglens-staging
 ```
 
 </details>
+
+**Cost Note:**
+
+- Free tier: 1000 dyno hours/month (enough for 1 dyno running 24/7)
+- With 2 dynos (web + worker), you'll need a paid plan (~$7/month per app)
+- Student pack provides $13/month credit
 
 ---
 

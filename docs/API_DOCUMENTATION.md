@@ -176,6 +176,31 @@ X-RateLimit-Reset: 1705320000
 | `/api/v1/webhooks/sentry` | POST   | HMAC | Receive Sentry error events |
 | `/api/v1/webhooks/github` | POST   | HMAC | Receive GitHub events       |
 
+### 11. Sentry Tunnel
+
+| Endpoint             | Method | Auth | Description                               |
+| -------------------- | ------ | ---- | ----------------------------------------- |
+| `/api/sentry-tunnel` | POST   | None | Proxy frontend Sentry events (bypass ads) |
+
+**Purpose:** Routes frontend Sentry events through the backend to bypass ad blockers.
+
+**Content-Type:** `application/x-sentry-envelope`
+
+**Request Body:** Sentry envelope format (automatically handled by Sentry SDK)
+
+**Response:** Proxied response from Sentry (200 on success)
+
+**Frontend Configuration:**
+
+```typescript
+Sentry.init({
+  dsn: VITE_SENTRY_DSN,
+  tunnel: `${API_URL}/api/sentry-tunnel`, // Routes through backend
+});
+```
+
+**Testing:** See `docs/SENTRY_TESTING_GUIDE.md` for comprehensive testing instructions.
+
 ## 🔒 Security
 
 ### Webhook Signatures

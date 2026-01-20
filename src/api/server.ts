@@ -2,6 +2,10 @@ import { server } from "./app.js";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
 import { pool } from "../db/client.js";
+import { initSentry } from "../utils/sentry.js";
+
+// Initialize Sentry FIRST (before any other imports)
+initSentry();
 
 async function start() {
   try {

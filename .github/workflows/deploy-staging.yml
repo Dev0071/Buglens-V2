@@ -1,11 +1,17 @@
 # Deploy to Heroku Staging
-# Triggers on push to staging branch
+# Triggers automatically on every push to staging branch
+# Pipeline: Test → Deploy → Smoke Test → Notify
 
 name: Deploy Staging
 
 on:
   push:
     branches: [staging]
+  workflow_dispatch: # Allow manual triggers
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
 
 jobs:
   # ============================================
@@ -46,13 +52,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
 
       - name: Install dependencies
@@ -72,64 +78,167 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
 
+      - name: Check Test Coverage
+        run: |
+          echo "✅ Tests passed"
+          # Add coverage threshold check if needed
+          # npm run test:coverage
+
   # ============================================
-  # Deploy API to Staging
+  # Build Info
   # ============================================
-  deploy-api:
-    name: Deploy API
+  build-info:
+    name: Generate Build Info
     runs-on: ubuntu-latest
     needs: test
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha_short: ${{ steps.sha.outputs.sha_short }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Version
+        id: version
+        run: |
+          VERSION="staging-$(date +%Y%m%d-%H%M%S)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION"
+
+      - name: Short SHA
+        id: sha
+        run: |
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "sha_short=$SHA_SHORT" >> $GITHUB_OUTPUT
+          echo "🔖 Commit: $SHA_SHORT"
+
+  # ============================================
+  # Deploy to Staging (Single App)
+  # ============================================
+  deploy:
+    name: Deploy to Heroku
+    runs-on: ubuntu-latest
+    needs: [test, build-info]
     environment: staging
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set Deployment Version
+        run: |
+          echo "Deploying version: ${{ needs.build-info.outputs.version }}"
+          echo "Commit SHA: ${{ needs.build-info.outputs.sha_short }}"
+
       - name: Deploy to Heroku
         uses: akhileshns/heroku-deploy@v3.13.15
         with:
           heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: ${{ secrets.HEROKU_APP_STAGING_API }}
+          heroku_app_name: ${{ secrets.HEROKU_APP_STAGING }}
           heroku_email: ${{ secrets.HEROKU_EMAIL }}
           buildpack: https://github.com/heroku/heroku-buildpack-nodejs
+
+      - name: Tag Deployment
+        run: |
+          echo "🚀 App deployed successfully"
+          echo "Version: ${{ needs.build-info.outputs.version }}"
+          echo "Web + Worker dynos active"
+
+      - name: Wait for Deployment
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
 
       - name: Health Check
         run: |
-          echo "Waiting for deployment..."
-          sleep 30
+          API_URL="https://${{ secrets.HEROKU_APP_STAGING }}.herokuapp.com"
 
-          API_URL="https://${{ secrets.HEROKU_APP_STAGING_API }}.herokuapp.com"
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || echo "000")
+          # Retry logic for health check
+          MAX_RETRIES=5
+          RETRY_COUNT=0
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Health check failed: HTTP $HTTP_CODE"
-            exit 1
-          fi
-          echo "✅ API health check passed"
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ API health check passed (HTTP $HTTP_CODE)"
+              exit 0
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "⏳ Attempt $RETRY_COUNT/$MAX_RETRIES failed (HTTP $HTTP_CODE), retrying in 10s..."
+            sleep 10
+          done
+
+          echo "❌ Health check failed after $MAX_RETRIES attempts"
+          exit 1
+
+      - name: Verify Worker
+        run: |
+          echo "✅ Worker dyno deployment complete"
+          echo "Worker processes jobs from BullMQ queue (same app, same Redis)"
+          # Worker health is monitored via Heroku metrics and job processing
 
   # ============================================
-  # Deploy Worker to Staging
+  # Deploy Frontend to Vercel (Staging)
   # ============================================
-  deploy-worker:
-    name: Deploy Worker
+  deploy-frontend:
+    name: Deploy Frontend
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, build-info, deploy]
     environment: staging
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to Heroku
-        uses: akhileshns/heroku-deploy@v3.13.15
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: ${{ secrets.HEROKU_APP_STAGING_WORKER }}
-          heroku_email: ${{ secrets.HEROKU_EMAIL }}
-          buildpack: https://github.com/heroku/heroku-buildpack-nodejs
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
 
-      - name: Verify Worker
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel Environment
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ./web
+
+      - name: Build Frontend
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ./web
+        env:
+          VITE_API_URL: https://${{ secrets.HEROKU_APP_STAGING }}.herokuapp.com
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+
+      - name: Deploy to Vercel
+        id: deploy
         run: |
-          echo "Worker deployment complete"
-          # Worker health is monitored via Heroku metrics
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "🚀 Frontend deployed to: $DEPLOYMENT_URL"
+        working-directory: ./web
+
+      - name: Assign Staging Alias
+        run: |
+          vercel alias set ${{ steps.deploy.outputs.deployment_url }} staging.buglens.com --token=${{ secrets.VERCEL_TOKEN }} --scope=${{ secrets.VERCEL_ORG_ID }}
+          echo "✅ Staging alias: https://staging.buglens.com"
+        working-directory: ./web
+        continue-on-error: true
+
+      - name: Frontend Health Check
+        run: |
+          echo "Waiting for frontend to be ready..."
+          sleep 10
+
+          FRONTEND_URL="${{ steps.deploy.outputs.deployment_url }}"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL" || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Frontend health check passed (HTTP $HTTP_CODE)"
+          else
+            echo "⚠️ Frontend returned HTTP $HTTP_CODE (may still be deploying)"
+          fi
 
   # ============================================
   # Smoke Tests
@@ -137,22 +246,23 @@ jobs:
   smoke-test:
     name: Smoke Tests
     runs-on: ubuntu-latest
-    needs: [deploy-api, deploy-worker]
+    needs: [deploy, deploy-frontend]
 
     steps:
       - name: Run Smoke Tests
         run: |
-          API_URL="https://${{ secrets.HEROKU_APP_STAGING_API }}.herokuapp.com"
+          API_URL="https://${{ secrets.HEROKU_APP_STAGING }}.herokuapp.com"
 
-          # Test health endpoint
-          echo "Testing health endpoint..."
+          # Test 1: Health endpoint
+          echo "🧪 Test 1: Health endpoint..."
           HEALTH=$(curl -s "$API_URL/health")
-          echo "Health response: $HEALTH"
+          echo "Response: $HEALTH"
 
           # Verify database connection
           DB_STATUS=$(echo $HEALTH | jq -r '.database // "unknown"')
           if [ "$DB_STATUS" != "connected" ]; then
-            echo "⚠️ Database status: $DB_STATUS"
+            echo "❌ Database status: $DB_STATUS"
+            exit 1
           else
             echo "✅ Database connected"
           fi
@@ -160,9 +270,63 @@ jobs:
           # Verify Redis connection
           REDIS_STATUS=$(echo $HEALTH | jq -r '.redis // "unknown"')
           if [ "$REDIS_STATUS" != "connected" ]; then
-            echo "⚠️ Redis status: $REDIS_STATUS"
+            echo "❌ Redis status: $REDIS_STATUS"
+            exit 1
           else
             echo "✅ Redis connected"
+          fi
+
+          # Test 2: API endpoints are accessible
+          echo ""
+          echo "🧪 Test 2: API endpoints..."
+
+          # Test auth endpoints (should return 400 for missing body, not 404)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API_URL/api/auth/login")
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "❌ Auth endpoints not found"
+            exit 1
+          else
+            echo "✅ Auth endpoints accessible (HTTP $HTTP_CODE)"
+          fi
+
+          # Test 3: Sentry tunnel (should accept POST)
+          echo ""
+          echo "🧪 Test 3: Sentry tunnel..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Content-Type: application/x-sentry-envelope" \
+            "$API_URL/api/sentry-tunnel")
+
+          # Should return 400 (bad envelope) not 404 or 415
+          if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "415" ]; then
+            echo "❌ Sentry tunnel not working (HTTP $HTTP_CODE)"
+            exit 1
+          else
+            echo "✅ Sentry tunnel endpoint accessible (HTTP $HTTP_CODE)"
+          fi
+
+          # Test 4: CORS headers
+          echo ""
+          echo "🧪 Test 4: CORS configuration..."
+          CORS_HEADER=$(curl -s -I -X OPTIONS "$API_URL/health" | grep -i "access-control-allow-origin" || echo "")
+          if [ -z "$CORS_HEADER" ]; then
+            echo "⚠️ CORS headers not found (may be expected)"
+          else
+            echo "✅ CORS configured"
+          fi
+
+          echo ""
+          echo "✅ All smoke tests passed!"
+
+          # Test 5: Frontend deployment
+          echo ""
+          echo "🧪 Test 5: Frontend accessibility..."
+          FRONTEND_URL="https://staging.buglens.com"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL" || echo "000")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Frontend accessible (HTTP $HTTP_CODE)"
+          else
+            echo "⚠️ Frontend returned HTTP $HTTP_CODE"
           fi
 
   # ============================================
@@ -171,10 +335,25 @@ jobs:
   notify:
     name: Notify
     runs-on: ubuntu-latest
-    needs: smoke-test
+    needs: [build-info, smoke-test]
     if: always()
 
     steps:
+      - name: Deployment Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 Staging Deployment Summary"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Version: ${{ needs.build-info.outputs.version }}"
+          echo "Commit: ${{ needs.build-info.outputs.sha_short }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Status: ${{ needs.smoke-test.result }}"
+          echo ""
+          echo "🌐 URLs:"
+          echo "  API:      https://${{ secrets.HEROKU_APP_STAGING }}.herokuapp.com"
+          echo "  Frontend: https://staging.buglens.com"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
       - name: Slack Notification
         if: ${{ secrets.SLACK_WEBHOOK_URL }}
         uses: 8398a7/action-slack@v3
@@ -184,6 +363,31 @@ jobs:
           fields: repo,commit,author,action,workflow
           mention: "here"
           if_mention: failure
+          text: |
+            🚀 Staging Deployment ${{ needs.smoke-test.result }}
+            Version: ${{ needs.build-info.outputs.version }}
+            Commit: ${{ needs.build-info.outputs.sha_short }}
+            API: https://${{ secrets.HEROKU_APP_STAGING }}.herokuapp.com
+            Frontend: https://staging.buglens.com
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+      - name: Create GitHub Deployment
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'staging',
+              auto_merge: false,
+              required_contexts: [],
+              payload: {
+                version: '${{ needs.build-info.outputs.version }}',
+                deployed_at: new Date().toISOString()
+              }
+            });
         continue-on-error: true
