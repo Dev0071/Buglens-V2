@@ -143,7 +143,7 @@ function AdminUnlockScreen() {
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <NavLink
-              to="/"
+              to="/dashboard"
               className="flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-brand-600"
             >
               <ChevronLeftIcon className="w-4 h-4" />
@@ -233,7 +233,7 @@ function AdminLayoutContent() {
           </div>
           <div className="flex gap-2">
             <NavLink
-              to="/"
+              to="/dashboard"
               className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
             >
               <ChevronLeftIcon className="w-4 h-4" />
@@ -295,7 +295,7 @@ export default function AdminLayout() {
             You don't have permission to access the admin panel.
           </p>
           <NavLink
-            to="/"
+            to="/dashboard"
             className="text-brand-600 hover:text-brand-700 font-medium"
           >
             Return to Dashboard

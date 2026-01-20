@@ -20,7 +20,7 @@ interface SidebarProps {
 }
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: HomeIcon },
+  { name: "Dashboard", href: "/dashboard", icon: HomeIcon },
   { name: "Events", href: "/events", icon: ExclamationCircleIcon },
   { name: "Analytics", href: "/analytics", icon: ChartBarIcon },
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
@@ -118,7 +118,7 @@ function Sidebar({
  */
 function SidebarLogo({ collapsed }: { collapsed: boolean }) {
   return (
-    <NavLink to="/" className="flex items-center gap-2">
+    <NavLink to="/dashboard" className="flex items-center gap-2">
       {collapsed ? <LogoIcon size="md" /> : <Logo size="md" showText={true} />}
     </NavLink>
   );

@@ -26,6 +26,7 @@ const EventDetailPage = lazy(() => import("@/pages/events/EventDetailPage"));
 const RCADetailPage = lazy(() => import("@/pages/rca/RCADetailPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
 const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
+const TestSentryPage = lazy(() => import("@/pages/TestSentry"));
 
 // Admin pages (lazy loaded)
 const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
@@ -88,8 +89,8 @@ function OAuthCallbackHandler() {
             isAuthenticated: true,
             isLoading: false,
           });
-          // Clear URL params
-          navigate("/", { replace: true });
+          // Clear URL params and go to dashboard
+          navigate("/dashboard", { replace: true });
         })
         .catch(() => {
           useAuthStore.setState({
@@ -133,7 +134,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
@@ -152,8 +153,11 @@ function App() {
             <OAuthCallbackHandler />
             <Suspense fallback={<LoadingSpinner fullScreen />}>
               <Routes>
-                {/* Landing page - public marketing page */}
-                <Route path="/landing" element={<LandingPage />} />
+                {/* Landing page - public marketing page (default) */}
+                <Route path="/" element={<LandingPage />} />
+
+                {/* Test Sentry page - public for testing */}
+                <Route path="/test-sentry" element={<TestSentryPage />} />
 
                 {/* Public routes */}
                 <Route element={<AuthLayout />}>
@@ -183,7 +187,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
-                  <Route index element={<DashboardPage />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/events" element={<EventsPage />} />
                   <Route
                     path="/events/:eventId"
@@ -229,7 +233,7 @@ function App() {
                   <Route path="analytics" element={<AnalyticsPage />} />
                 </Route>
 
-                {/* Catch all - redirect to dashboard */}
+                {/* Catch all - redirect to landing */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>

@@ -6,6 +6,7 @@ import jwt from "@fastify/jwt";
 import cookie from "@fastify/cookie";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
+import { Sentry, captureException } from "../utils/sentry.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
@@ -26,6 +27,7 @@ import { adminOrganizationRoutes } from "./routes/admin/organizations.js";
 import { adminUserRoutes } from "./routes/admin/users.js";
 import { adminSystemRoutes } from "./routes/admin/system.js";
 import { adminAuditRoutes } from "./routes/admin/audit.js";
+import { sentryTunnelRoutes } from "./routes/sentry-tunnel.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -62,6 +64,15 @@ server.addContentTypeParser(
   }
 );
 
+// Sentry envelope parser - handles application/x-sentry-envelope
+server.addContentTypeParser(
+  "application/x-sentry-envelope",
+  { parseAs: "string" },
+  (request, body, done) => {
+    done(null, body);
+  }
+);
+
 // Organization context helpers (multi-tenancy)
 setupOrgDecorators(server);
 server.addHook("preHandler", orgContextMiddleware);
@@ -76,7 +87,12 @@ await server.register(cors, {
         ? config.CORS_ORIGINS
         : config.NODE_ENV === "production"
           ? ["https://app.buglens.com", "https://buglens.com"]
-          : ["http://localhost:3000", "http://localhost:5173"], // Fallback dev origins
+          : [
+              "http://localhost:3000",
+              "http://localhost:3001",
+              "http://localhost:3002",
+              "http://localhost:5173",
+            ], // Fallback dev origins
   credentials: true,
 });
 
@@ -178,6 +194,7 @@ await server.register(adminOrganizationRoutes, {
 await server.register(adminUserRoutes, { prefix: "/api/admin/users" });
 await server.register(adminSystemRoutes, { prefix: "/api/admin/system" });
 await server.register(adminAuditRoutes, { prefix: "/api/admin/audit" });
+await server.register(sentryTunnelRoutes, { prefix: "/api" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {
@@ -195,6 +212,17 @@ server.setErrorHandler((error, request, reply) => {
     return reply.status(429).send({
       error: "Rate Limit Exceeded",
       message: "Too many requests, please try again later",
+    });
+  }
+
+  // Capture 5xx errors in Sentry
+  if (!error.statusCode || error.statusCode >= 500) {
+    captureException(error, {
+      request: {
+        url: request.url,
+        method: request.method,
+        headers: request.headers,
+      },
     });
   }
 

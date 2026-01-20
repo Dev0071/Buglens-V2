@@ -800,6 +800,39 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "Sentry Tunnel",
+			"description": "Frontend Sentry event proxy to bypass ad blockers",
+			"item": [
+				{
+					"name": "Sentry Tunnel (POST)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-sentry-envelope",
+								"description": "Sentry envelope format"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"dsn\":\"https://YOUR_KEY@o4510676293517312.ingest.us.sentry.io/4510691114287104\",\"sdk\":{\"name\":\"sentry.javascript.browser\",\"version\":\"7.0.0\"}}\n{\"type\":\"event\"}\n{\"event_id\":\"test123\",\"message\":\"Test error from Postman\"}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sentry-tunnel",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sentry-tunnel"]
+						},
+						"description": "Proxy frontend Sentry events through the backend to bypass ad blockers.\n\n**Purpose:**\n- Routes frontend Sentry SDK events through the backend\n- Bypasses ad blockers that block sentry.io domains\n- Preserves all Sentry functionality (breadcrumbs, session replay, etc.)\n\n**Content-Type:** `application/x-sentry-envelope`\n\n**Request Body:** Sentry envelope format (3 lines):\n1. Header (JSON) - Contains DSN and SDK info\n2. Item header (JSON) - Event type\n3. Item payload (JSON) - Event data\n\n**Frontend Configuration:**\n```typescript\nSentry.init({\n  dsn: VITE_SENTRY_DSN,\n  tunnel: `${API_URL}/api/sentry-tunnel`, // Route through backend\n});\n```\n\n**Response:**\n- `200`: Event successfully forwarded to Sentry\n- `400`: Invalid envelope format (missing DSN)\n- `500`: Failed to forward to Sentry\n\n**Testing:**\n- Frontend: Navigate to `/test-sentry` page\n- Backend: Run `npx tsx scripts/test-sentry.ts`\n- See `docs/SENTRY_TESTING_GUIDE.md` for full guide\n\n**Security:**\n- No authentication required (public endpoint)\n- Validates DSN in envelope\n- Forwards to Sentry's servers for processing\n- Does not store events locally"
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"variable": [

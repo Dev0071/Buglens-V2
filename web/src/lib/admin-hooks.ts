@@ -711,7 +711,7 @@ export function useGlobalAnalytics() {
   return useQuery({
     queryKey: adminQueryKeys.analytics.global(),
     queryFn: async (): Promise<GlobalAnalytics> => {
-      return adminRequest<GlobalAnalytics>("GET", "/admin/analytics/global");
+      return adminRequest<GlobalAnalytics>("GET", "/admin/system/analytics");
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
