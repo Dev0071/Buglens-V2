@@ -6,7 +6,7 @@ import jwt from "@fastify/jwt";
 import cookie from "@fastify/cookie";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
-import { Sentry, captureException } from "../utils/sentry.js";
+import { captureException } from "../utils/sentry.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { githubWebhooksRoutes } from "./routes/github-webhooks.js";
 import { healthRoutes } from "./routes/health.js";
@@ -68,7 +68,7 @@ server.addContentTypeParser(
 server.addContentTypeParser(
   "application/x-sentry-envelope",
   { parseAs: "string" },
-  (request, body, done) => {
+  (_request, body, done) => {
     done(null, body);
   }
 );

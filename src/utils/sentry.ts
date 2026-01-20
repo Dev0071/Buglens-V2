@@ -37,12 +37,15 @@ export function initSentry() {
     integrations: [nodeProfilingIntegration()],
 
     // Log when events are sent
-    beforeSend(event, hint) {
-      logger.info("📤 Sentry sending event:", {
-        eventId: event.event_id,
-        message: event.message,
-        exception: event.exception?.values?.[0]?.value,
-      });
+    beforeSend(event, _hint) {
+      logger.info(
+        {
+          eventId: event.event_id,
+          message: event.message,
+          exception: event.exception?.values?.[0]?.value,
+        },
+        "📤 Sentry sending event"
+      );
 
       // Remove sensitive headers
       if (event.request?.headers) {
@@ -60,10 +63,13 @@ export function initSentry() {
     },
   });
 
-  logger.info("✅ Sentry initialized", {
-    environment: config.NODE_ENV,
-    dsn: dsn.substring(0, 50) + "...",
-  });
+  logger.info(
+    {
+      environment: config.NODE_ENV,
+      dsn: dsn.substring(0, 50) + "...",
+    },
+    "✅ Sentry initialized"
+  );
 }
 
 /**
@@ -73,18 +79,22 @@ export function captureException(
   error: Error,
   context?: Record<string, unknown>
 ) {
-  logger.info("🔴 captureException called:", {
-    errorMessage: error.message,
-    context,
-    sentryClient: !!Sentry.getClient(),
-  });
+  logger.info(
+    {
+      errorMessage: error.message,
+      context,
+      sentryClient: !!Sentry.getClient(),
+    },
+    "🔴 captureException called"
+  );
 
   if (Sentry.getClient()) {
     const eventId = Sentry.captureException(error, { extra: context });
-    logger.info("✅ Sentry event captured:", { eventId });
+    logger.info({ eventId }, "✅ Sentry event captured");
     return eventId;
   } else {
     logger.warn("⚠️ Sentry client not available");
+    return undefined;
   }
 }
 

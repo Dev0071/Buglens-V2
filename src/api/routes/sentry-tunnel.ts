@@ -14,9 +14,7 @@ export async function sentryTunnelRoutes(server: FastifyInstance) {
         // Skip auth for Sentry tunnel
         skipAuth: true,
       },
-      schema: {
-        hide: true, // Hide from OpenAPI docs
-      },
+      // Schema omitted - raw envelope handling
     },
     async (request, reply) => {
       try {
@@ -47,7 +45,7 @@ export async function sentryTunnelRoutes(server: FastifyInstance) {
 
         return reply.status(response.status).send(await response.text());
       } catch (error) {
-        server.log.error("Sentry tunnel error:", error);
+        server.log.error({ err: error }, "Sentry tunnel error");
         return reply.status(500).send({ error: "Tunnel error" });
       }
     }
