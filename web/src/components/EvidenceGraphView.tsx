@@ -141,10 +141,10 @@ const NODE_STYLES: Record<
     icon: "🔍",
   },
   timeline_event: {
-    bgColor: "bg-gray-50 dark:bg-gray-800/50",
-    borderColor: "border-gray-300 dark:border-gray-700",
-    textColor: "text-gray-700 dark:text-gray-300",
-    iconBgColor: "bg-gray-100 dark:bg-gray-800",
+    bgColor: "bg-gray-50 dark:bg-zinc-900/50",
+    borderColor: "border-gray-300 dark:border-zinc-700",
+    textColor: "text-gray-700 dark:text-zinc-300",
+    iconBgColor: "bg-gray-100 dark:bg-zinc-900",
     icon: "📅",
   },
 };
@@ -311,7 +311,7 @@ function SimpleGraphLayout({
       })}
 
       {/* Edge Legend */}
-      <div className="mt-8 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+      <div className="mt-8 p-4 bg-gray-50 dark:bg-zinc-900/50 rounded-lg">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
           Relationship Types
         </h3>
@@ -361,7 +361,7 @@ function NodeDetailPanel({
   );
 
   return (
-    <div className="absolute right-4 top-4 w-80 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-10">
+    <div className="absolute right-4 top-4 w-80 bg-white dark:bg-zinc-900 rounded-lg shadow-xl border border-gray-200 dark:border-zinc-800 z-10">
       {/* Header */}
       <div className={cn("p-4 rounded-t-lg", style.bgColor)}>
         <div className="flex items-center justify-between">
@@ -464,7 +464,7 @@ function NodeDetailPanel({
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
               Details
             </label>
-            <div className="mt-2 bg-gray-50 dark:bg-gray-800 rounded p-2 text-xs font-mono overflow-auto max-h-32">
+            <div className="mt-2 bg-gray-50 dark:bg-zinc-900 rounded p-2 text-xs font-mono overflow-auto max-h-32">
               <pre>{JSON.stringify(node.data, null, 2)}</pre>
             </div>
           </div>
@@ -584,15 +584,15 @@ export function EvidenceGraphView({
   if (!graph || graph.nodes.length === 0) {
     return (
       <div
-        className={cn("bg-gray-50 dark:bg-gray-800 rounded-lg p-8", className)}
+        className={cn("bg-gray-50 dark:bg-zinc-900 rounded-lg p-8", className)}
       >
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
-            <ChartBarIcon className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 mb-2">
+            <ChartBarIcon className="w-16 h-16 text-gray-300 dark:text-zinc-600 mx-auto mb-4" />
+            <p className="text-gray-500 dark:text-zinc-400 mb-2">
               No evidence graph available
             </p>
-            <p className="text-sm text-gray-400 dark:text-gray-500">
+            <p className="text-sm text-gray-400 dark:text-zinc-500">
               The RCA analysis did not generate a visual evidence graph.
             </p>
           </div>
@@ -620,7 +620,7 @@ export function EvidenceGraphView({
             onClick={() => setSelectedNode(null)}
             className={cn(
               "px-3 py-1.5 text-sm rounded-md transition-colors",
-              "bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700",
+              "bg-gray-100 dark:bg-zinc-900 hover:bg-gray-200 dark:hover:bg-zinc-800",
               "text-gray-700 dark:text-gray-300"
             )}
           >
@@ -631,7 +631,7 @@ export function EvidenceGraphView({
       </div>
 
       {/* Graph Container */}
-      <div className="relative bg-gray-50 dark:bg-gray-800/50 rounded-lg p-6 min-h-[500px] overflow-auto">
+      <div className="relative bg-gray-50 dark:bg-zinc-900/50 rounded-lg p-6 min-h-[500px] overflow-auto">
         <SimpleGraphLayout
           graph={graph}
           selectedNode={selectedNode}

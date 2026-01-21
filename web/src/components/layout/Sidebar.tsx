@@ -47,18 +47,18 @@ function Sidebar({
       {/* Mobile sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800
-          border-r border-gray-200 dark:border-gray-700
+          fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-zinc-900
+          border-r border-gray-200 dark:border-zinc-800
           transform transition-transform duration-300 ease-in-out
           lg:hidden
           ${isOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-zinc-800">
           <SidebarLogo collapsed={false} />
           <button
             onClick={onClose}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="p-2 text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             <XMarkIcon className="w-6 h-6" />
           </button>
@@ -75,18 +75,18 @@ function Sidebar({
       <aside
         className={`
           hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-50 lg:flex lg:flex-col
-          bg-white dark:bg-gray-800
-          border-r border-gray-200 dark:border-gray-700
+          bg-white dark:bg-zinc-900
+          border-r border-gray-200 dark:border-zinc-800
           transition-all duration-300
           ${isCollapsed ? "lg:w-20" : "lg:w-64"}
         `}
       >
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-zinc-800">
           <SidebarLogo collapsed={isCollapsed} />
           {!isCollapsed && (
             <button
               onClick={onToggleCollapse}
-              className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800"
             >
               <ChevronLeftIcon className="w-5 h-5" />
             </button>
@@ -96,7 +96,7 @@ function Sidebar({
         {isCollapsed && (
           <button
             onClick={onToggleCollapse}
-            className="absolute -right-3 top-20 p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="absolute -right-3 top-20 p-1 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-full shadow-sm hover:bg-gray-50 dark:hover:bg-zinc-800"
           >
             <ChevronRightIcon className="w-4 h-4 text-gray-500" />
           </button>
@@ -151,13 +151,13 @@ function SidebarContent({
     <div className="flex flex-col flex-1 overflow-y-auto">
       {/* Organization selector */}
       {organization && !collapsed && (
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
+          <div className="text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
             Organization
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+            <div className="w-8 h-8 bg-gray-200 dark:bg-zinc-800 rounded-lg flex items-center justify-center">
+              <span className="text-sm font-medium text-gray-600 dark:text-zinc-300">
                 {organization.name.charAt(0).toUpperCase()}
               </span>
             </div>
@@ -165,7 +165,7 @@ function SidebarContent({
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {organization.name}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+              <p className="text-xs text-gray-500 dark:text-zinc-400 capitalize">
                 {organization.plan} plan
               </p>
             </div>
@@ -201,14 +201,14 @@ function SidebarContent({
         {/* Admin link - only shown to admin/owner users */}
         {isAdminOrOwner && (
           <>
-            <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+            <div className="my-2 border-t border-gray-200 dark:border-zinc-800" />
             <NavLink
               to={adminNavItem.href}
               className={`
                 sidebar-link
                 ${currentPath.startsWith("/admin") ? "active" : ""}
                 ${collapsed ? "justify-center px-2" : ""}
-                text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20
+                text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10
               `}
               title={collapsed ? adminNavItem.name : undefined}
             >
@@ -223,20 +223,20 @@ function SidebarContent({
       {user && (
         <div
           className={`
-          border-t border-gray-200 dark:border-gray-700 p-4
+          border-t border-gray-200 dark:border-zinc-800 p-4
           ${collapsed ? "flex justify-center" : ""}
         `}
         >
           {collapsed ? (
-            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center">
-              <span className="text-white text-sm font-medium">
+            <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+              <span className="text-zinc-900 text-sm font-medium">
                 {user.name.charAt(0).toUpperCase()}
               </span>
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center">
-                <span className="text-white text-sm font-medium">
+              <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center">
+                <span className="text-zinc-900 text-sm font-medium">
                   {user.name.charAt(0).toUpperCase()}
                 </span>
               </div>
@@ -244,7 +244,7 @@ function SidebarContent({
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                   {user.name}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                <p className="text-xs text-gray-500 dark:text-zinc-400 truncate">
                   {user.email}
                 </p>
               </div>

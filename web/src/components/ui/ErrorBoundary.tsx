@@ -49,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       // Default error UI
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-950">
           <div className="text-center p-8 max-w-md">
             <div className="mb-4">
               <svg

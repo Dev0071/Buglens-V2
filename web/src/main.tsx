@@ -12,10 +12,10 @@ const sentryDsn =
 
 if (sentryDsn) {
   // Use tunnel to bypass ad blockers
-  // VITE_API_URL should be base URL (e.g., https://api.staging.buglens.co)
-  // Backend routes are registered with /api prefix
-  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  const tunnelUrl = `${apiUrl}/api/sentry-tunnel`;
+  // VITE_API_URL should be base URL without /api (e.g., https://api.staging.buglens.co)
+  // We add /api here since all backend routes are registered with /api prefix
+  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
+  const tunnelUrl = `${baseUrl}/api/sentry-tunnel`;
 
   Sentry.init({
     dsn: sentryDsn,

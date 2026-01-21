@@ -109,7 +109,7 @@ function AdminUnlockScreen() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder="Enter your admin token"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                   autoFocus
                 />
                 <LockClosedIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -169,9 +169,9 @@ function AdminLayoutContent() {
   const { lock } = useAdminStore();
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950">
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
+      <aside className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-zinc-900 border-r border-gray-200 dark:border-zinc-800">
         {/* Header */}
         <div className="h-16 flex items-center gap-3 px-4 border-b border-gray-200 dark:border-gray-700">
           <LogoIcon size="md" />
@@ -199,7 +199,7 @@ function AdminLayoutContent() {
                   "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                   isActive
                     ? "bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    : "text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800"
                 )}
               >
                 <item.icon
@@ -219,7 +219,7 @@ function AdminLayoutContent() {
         {/* User & Lock */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 bg-brand-100 dark:bg-brand-900/30 rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-amber-100 dark:bg-amber-500/10 rounded-full flex items-center justify-center">
               <span className="text-sm font-medium text-brand-600">
                 {user?.name.charAt(0).toUpperCase()}
               </span>
@@ -234,7 +234,7 @@ function AdminLayoutContent() {
           <div className="flex gap-2">
             <NavLink
               to="/dashboard"
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-lg"
             >
               <ChevronLeftIcon className="w-4 h-4" />
               Exit Admin
@@ -285,7 +285,7 @@ export default function AdminLayout() {
   // Check admin role
   if (role !== "admin" && role !== "owner") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 flex items-center justify-center p-4">
         <div className="text-center">
           <ShieldCheckIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">

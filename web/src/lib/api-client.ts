@@ -1,16 +1,17 @@
 /**
  * API client for making authenticated HTTP requests
  * Handles authentication headers, error responses, and base URL configuration
- * 
- * VITE_API_URL should be the base URL without /api suffix
+ *
+ * VITE_API_URL should be the base URL WITHOUT /api suffix
  * (e.g., https://api.staging.buglens.co NOT https://api.staging.buglens.co/api)
- * All backend routes are registered with /api prefix in app.ts
+ * This function adds /api automatically since all backend routes are registered with /api prefix
  */
 
 import { useAuthStore } from "@/store/auth";
 
-// Base URL for API requests (backend adds /api prefix to all routes)
-const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+// Base URL for API requests - automatically adds /api suffix
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_BASE_URL = `${BASE_URL}/api`;
 
 /**
  * Custom error class for API errors with status codes

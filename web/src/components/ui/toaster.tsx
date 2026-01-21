@@ -140,7 +140,7 @@ function ToasterContent() {
             key={toast.id}
             className={cn(
               "flex items-start gap-3 p-4 rounded-lg shadow-lg",
-              "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700",
+              "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800",
               "animate-in slide-in-from-right-full duration-300",
               "min-w-[300px] max-w-[400px]"
             )}
