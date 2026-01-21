@@ -25,7 +25,7 @@ function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuthStore();
 
   return (
-    <header className="sticky top-0 z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <header className="sticky top-0 z-40 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800">
       <div className="flex items-center justify-between h-16 px-4 sm:px-6">
         {/* Left: Menu button (mobile) and search */}
         <div className="flex items-center gap-4">

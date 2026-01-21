@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Light mode variables */
+    /* Light mode variables (keeping for compatibility, but Buglens is dark-first) */
     --color-bg-primary: 255 255 255;
     --color-bg-secondary: 249 250 251;
     --color-bg-tertiary: 243 244 246;
@@ -16,15 +16,15 @@
   }
 
   .dark {
-    /* Dark mode variables */
-    --color-bg-primary: 17 24 39;
-    --color-bg-secondary: 31 41 55;
-    --color-bg-tertiary: 55 65 81;
-    --color-text-primary: 249 250 251;
-    --color-text-secondary: 156 163 175;
-    --color-text-tertiary: 107 114 128;
-    --color-border: 55 65 81;
-    --color-border-hover: 75 85 99;
+    /* Buglens dark theme - matching landing page (zinc scale) */
+    --color-bg-primary: 9 9 11;      /* zinc-950 */
+    --color-bg-secondary: 24 24 27;  /* zinc-900 */
+    --color-bg-tertiary: 39 39 42;   /* zinc-800 */
+    --color-text-primary: 250 250 250;   /* zinc-100 */
+    --color-text-secondary: 161 161 170; /* zinc-400 */
+    --color-text-tertiary: 113 113 122;  /* zinc-500 */
+    --color-border: 39 39 42;        /* zinc-800 */
+    --color-border-hover: 63 63 70;  /* zinc-700 */
   }
 
   html {
@@ -32,7 +32,7 @@
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-50;
+    @apply bg-gray-50 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100;
     @apply font-sans;
     @apply transition-colors duration-200;
   }
@@ -43,15 +43,15 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-gray-100 dark:bg-gray-800;
+    @apply bg-gray-100 dark:bg-zinc-900;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+    @apply bg-gray-300 dark:bg-zinc-700 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-400 dark:bg-gray-500;
+    @apply bg-gray-400 dark:bg-zinc-600;
   }
 
   /* Code blocks */
@@ -60,11 +60,11 @@
   }
 
   pre {
-    @apply bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto;
+    @apply bg-gray-100 dark:bg-zinc-900 p-4 rounded-lg overflow-x-auto border dark:border-zinc-800;
   }
 
   code:not(pre code) {
-    @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm;
+    @apply bg-gray-100 dark:bg-zinc-900 dark:border dark:border-zinc-800 px-1.5 py-0.5 rounded text-sm;
   }
 }
 
@@ -79,10 +79,10 @@
 
   .btn-primary {
     @apply btn;
-    @apply bg-brand-600 text-white;
-    @apply hover:bg-brand-700;
-    @apply focus:ring-brand-500;
-    @apply dark:bg-brand-500 dark:hover:bg-brand-600;
+    @apply bg-amber-500 text-zinc-900;
+    @apply hover:bg-amber-400;
+    @apply focus:ring-amber-500;
+    @apply dark:bg-amber-500 dark:hover:bg-amber-400 dark:text-zinc-900;
   }
 
   .btn-secondary {
@@ -90,13 +90,13 @@
     @apply bg-gray-100 text-gray-700;
     @apply hover:bg-gray-200;
     @apply focus:ring-gray-500;
-    @apply dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+    @apply dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700;
   }
 
   .btn-ghost {
     @apply btn;
     @apply text-gray-600 hover:bg-gray-100;
-    @apply dark:text-gray-300 dark:hover:bg-gray-800;
+    @apply dark:text-zinc-400 dark:hover:bg-zinc-800;
   }
 
   .btn-danger {
@@ -108,12 +108,12 @@
 
   /* Card component */
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm;
-    @apply border border-gray-200 dark:border-gray-700;
+    @apply bg-white dark:bg-zinc-900 rounded-xl shadow-sm;
+    @apply border border-gray-200 dark:border-zinc-800;
   }
 
   .card-header {
-    @apply px-6 py-4 border-b border-gray-200 dark:border-gray-700;
+    @apply px-6 py-4 border-b border-gray-200 dark:border-zinc-800;
   }
 
   .card-body {
@@ -123,11 +123,11 @@
   /* Input component */
   .input {
     @apply w-full px-3 py-2 text-sm rounded-lg;
-    @apply bg-white dark:bg-gray-800;
-    @apply border border-gray-300 dark:border-gray-600;
-    @apply text-gray-900 dark:text-gray-100;
-    @apply placeholder:text-gray-400 dark:placeholder:text-gray-500;
-    @apply focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply bg-white dark:bg-zinc-900;
+    @apply border border-gray-300 dark:border-zinc-700;
+    @apply text-gray-900 dark:text-zinc-100;
+    @apply placeholder:text-gray-400 dark:placeholder:text-zinc-500;
+    @apply focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent;
     @apply transition-colors duration-150;
   }
 
@@ -185,14 +185,14 @@
   /* Sidebar navigation */
   .sidebar-link {
     @apply flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg;
-    @apply text-gray-600 dark:text-gray-300;
-    @apply hover:bg-gray-100 dark:hover:bg-gray-800;
+    @apply text-gray-600 dark:text-zinc-300;
+    @apply hover:bg-gray-100 dark:hover:bg-zinc-800;
     @apply transition-colors duration-150;
   }
 
   .sidebar-link.active {
-    @apply bg-brand-50 text-brand-700;
-    @apply dark:bg-brand-900/20 dark:text-brand-400;
+    @apply bg-amber-50 text-amber-700;
+    @apply dark:bg-amber-500/10 dark:text-amber-400;
   }
 
   /* Table component */
@@ -201,28 +201,28 @@
   }
 
   .table {
-    @apply min-w-full divide-y divide-gray-200 dark:divide-gray-700;
+    @apply min-w-full divide-y divide-gray-200 dark:divide-zinc-800;
   }
 
   .table th {
     @apply px-6 py-3 text-left text-xs font-medium uppercase tracking-wider;
-    @apply text-gray-500 dark:text-gray-400;
-    @apply bg-gray-50 dark:bg-gray-800/50;
+    @apply text-gray-500 dark:text-zinc-400;
+    @apply bg-gray-50 dark:bg-zinc-900/50;
   }
 
   .table td {
     @apply px-6 py-4 whitespace-nowrap text-sm;
-    @apply text-gray-900 dark:text-gray-100;
+    @apply text-gray-900 dark:text-zinc-100;
   }
 
   .table tbody tr {
-    @apply hover:bg-gray-50 dark:hover:bg-gray-800/50;
+    @apply hover:bg-gray-50 dark:hover:bg-zinc-900/50;
     @apply transition-colors duration-150;
   }
 
   /* Loading skeleton */
   .skeleton {
-    @apply animate-pulse bg-gray-200 dark:bg-gray-700 rounded;
+    @apply animate-pulse bg-gray-200 dark:bg-zinc-800 rounded;
   }
 
   /* Toast container */
@@ -232,15 +232,15 @@
 
   /* Dropdown menu */
   .dropdown-menu {
-    @apply absolute z-50 min-w-[180px] bg-white dark:bg-gray-800;
-    @apply border border-gray-200 dark:border-gray-700;
+    @apply absolute z-50 min-w-[180px] bg-white dark:bg-zinc-900;
+    @apply border border-gray-200 dark:border-zinc-800;
     @apply rounded-lg shadow-lg py-1;
   }
 
   .dropdown-item {
     @apply w-full px-4 py-2 text-left text-sm;
-    @apply text-gray-700 dark:text-gray-200;
-    @apply hover:bg-gray-100 dark:hover:bg-gray-700;
+    @apply text-gray-700 dark:text-zinc-200;
+    @apply hover:bg-gray-100 dark:hover:bg-zinc-800;
     @apply transition-colors duration-150;
   }
 
@@ -251,13 +251,13 @@
   }
 
   .modal-content {
-    @apply bg-white dark:bg-gray-800 rounded-xl shadow-xl;
+    @apply bg-white dark:bg-zinc-900 rounded-xl shadow-xl;
     @apply max-w-lg w-full max-h-[90vh] overflow-y-auto;
   }
 
   /* Timeline component for RCA */
   .timeline {
-    @apply relative pl-8 border-l-2 border-gray-200 dark:border-gray-700;
+    @apply relative pl-8 border-l-2 border-gray-200 dark:border-zinc-800;
   }
 
   .timeline-item {
@@ -267,18 +267,18 @@
   .timeline-item::before {
     @apply content-[''] absolute -left-[25px] top-1;
     @apply w-3 h-3 rounded-full;
-    @apply bg-gray-300 dark:bg-gray-600;
+    @apply bg-gray-300 dark:bg-zinc-700;
   }
 
   .timeline-item.active::before {
-    @apply bg-brand-500;
+    @apply bg-amber-500;
   }
 }
 
 @layer utilities {
   /* Gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-brand-500 to-brand-700 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-amber-500 to-amber-600 bg-clip-text text-transparent;
   }
 
   /* Truncate with ellipsis */
@@ -313,6 +313,6 @@
 
   /* Glass effect */
   .glass {
-    @apply bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm;
+    @apply bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm;
   }
 }
