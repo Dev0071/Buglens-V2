@@ -138,12 +138,15 @@ export const useAuthStore = create<AuthStore>()(
 
       /**
        * Login with Google OAuth
+       * Redirects to backend API server for OAuth flow initiation.
+       * Uses VITE_API_URL environment variable to ensure correct domain.
        */
       loginWithGoogle: async () => {
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to Google OAuth endpoint - MUST use API domain directly
+          // Redirect to Google OAuth endpoint using configured API URL
+          // Must use API domain directly (not frontend proxy) for OAuth to work correctly
           window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
         } catch (error) {
           const message =
@@ -155,12 +158,15 @@ export const useAuthStore = create<AuthStore>()(
 
       /**
        * Login with GitHub OAuth
+       * Redirects to backend API server for OAuth flow initiation.
+       * Uses VITE_API_URL environment variable to ensure correct domain.
        */
       loginWithGitHub: async () => {
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to GitHub OAuth endpoint - MUST use API domain directly
+          // Redirect to GitHub OAuth endpoint using configured API URL
+          // Must use API domain directly (not frontend proxy) for OAuth to work correctly
           window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/github`;
         } catch (error) {
           const message =

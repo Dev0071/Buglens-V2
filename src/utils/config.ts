@@ -12,6 +12,10 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default("http://localhost:3002"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 
+  // Base URLs (validated for OAuth callbacks and notifications)
+  API_BASE_URL: z.string().url().optional(), // Backend API URL (e.g., https://api.buglens.com)
+  APP_BASE_URL: z.string().url().optional(), // Frontend app URL (e.g., https://app.buglens.com)
+
   // CORS (comma-separated origins, e.g., "https://app.buglens.com,https://buglens.com")
   CORS_ORIGINS: z
     .string()
