@@ -147,7 +147,10 @@ export const useAuthStore = create<AuthStore>()(
         try {
           // Redirect to Google OAuth endpoint using configured API URL
           // Must use API domain directly (not frontend proxy) for OAuth to work correctly
-          window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
+          // Fallback to localhost for development if VITE_API_URL is not set
+          const apiUrl =
+            import.meta.env.VITE_API_URL || "http://localhost:3000";
+          window.location.href = `${apiUrl}/api/auth/google`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Google login failed";
@@ -167,7 +170,10 @@ export const useAuthStore = create<AuthStore>()(
         try {
           // Redirect to GitHub OAuth endpoint using configured API URL
           // Must use API domain directly (not frontend proxy) for OAuth to work correctly
-          window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/github`;
+          // Fallback to localhost for development if VITE_API_URL is not set
+          const apiUrl =
+            import.meta.env.VITE_API_URL || "http://localhost:3000";
+          window.location.href = `${apiUrl}/api/auth/github`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "GitHub login failed";

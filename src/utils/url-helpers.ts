@@ -10,11 +10,13 @@
 
 import type { FastifyRequest } from "fastify";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 
 /**
  * Trusted domains for URL validation (prevents open redirect attacks)
+ * Using Set for O(1) lookup performance
  */
-const TRUSTED_DOMAINS = [
+const TRUSTED_DOMAINS = new Set([
   "localhost",
   "buglens.com",
   "buglens.co",
@@ -23,7 +25,7 @@ const TRUSTED_DOMAINS = [
   "api.staging.buglens.co",
   "app.buglens.com",
   "app.staging.buglens.co",
-];
+]);
 
 /**
  * Validate that a URL belongs to a trusted domain
@@ -35,9 +37,20 @@ function isTrustedDomain(url: string): boolean {
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
-    return TRUSTED_DOMAINS.some(
-      (trusted) => hostname === trusted || hostname.endsWith(`.${trusted}`)
-    );
+
+    // Direct match
+    if (TRUSTED_DOMAINS.has(hostname)) {
+      return true;
+    }
+
+    // Check if hostname is a subdomain of a trusted domain
+    for (const trusted of TRUSTED_DOMAINS) {
+      if (hostname.endsWith(`.${trusted}`)) {
+        return true;
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -52,9 +65,17 @@ function isTrustedDomain(url: string): boolean {
  * @returns API base URL (e.g., https://api.buglens.com or http://localhost:3000)
  */
 export function getApiBaseUrl(): string {
-  if (config.NODE_ENV === "production" || config.NODE_ENV === "staging") {
-    // Use validated config values, fallback to hardcoded default
-    return config.API_BASE_URL || "https://api.buglens.com";
+  // Use validated config values first
+  if (config.API_BASE_URL) {
+    return config.API_BASE_URL;
+  }
+
+  // Fallback based on environment
+  if (config.NODE_ENV === "production") {
+    return "https://api.buglens.com";
+  }
+  if (config.NODE_ENV === "staging") {
+    return "https://api.staging.buglens.co";
   }
   return `http://localhost:${config.PORT}`;
 }
@@ -92,8 +113,10 @@ export function getAppBaseUrl(): string {
  * For OAuth callbacks, prefer using getApiBaseUrl() instead.
  *
  * @param request - Fastify request object
- * @returns Constructed base URL from request headers, or null if untrusted
- * @throws Error if the resulting URL is from an untrusted domain
+ * @returns Constructed base URL from request headers, or fallback to getApiBaseUrl()
+ *
+ * Note: Returns fallback URL for untrusted domains (does not throw).
+ * Security events are logged for monitoring.
  */
 export function getBaseUrlFromRequest(request: FastifyRequest): string {
   const protocol = request.headers["x-forwarded-proto"] || "http";
@@ -111,6 +134,15 @@ export function getBaseUrlFromRequest(request: FastifyRequest): string {
     }
     // In production/staging, log warning and fall back to configured API URL
     // This prevents attackers from manipulating headers to redirect to malicious sites
+    logger.warn(
+      {
+        untrustedUrl: url,
+        host,
+        forwardedHost: request.headers["x-forwarded-host"],
+        remoteIp: request.ip,
+      },
+      "Blocked URL from untrusted domain, falling back to API base URL"
+    );
     return getApiBaseUrl();
   }
 
