@@ -13,9 +13,9 @@
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "migrate:create": "node-pg-migrate create",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "npx node-pg-migrate create",
+    "migrate:up": "npx node-pg-migrate up",
+    "migrate:down": "npx node-pg-migrate down",
     "db:seed": "psql $DATABASE_URL",
     "db:reset": "npm run migrate:down && npm run migrate:up && npm run db:seed",
     "worker": "tsx src/workers/index.ts"
