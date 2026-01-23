@@ -280,10 +280,14 @@ export function decryptJson<T>(
   scope: DecryptionScope,
   orgId?: string
 ): T {
-  const decrypted =
-    scope === "org"
-      ? decrypt(encrypted, "org", orgId!)
-      : decrypt(encrypted, "platform");
+  if (scope === "org") {
+    if (!orgId) {
+      throw new Error("orgId is required for org-level decryption");
+    }
+    const decrypted = decryptForOrg(encrypted, orgId);
+    return JSON.parse(decrypted) as T;
+  }
+  const decrypted = decryptPlatformSecret(encrypted);
   return JSON.parse(decrypted) as T;
 }
 
