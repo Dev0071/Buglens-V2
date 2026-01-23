@@ -30,6 +30,7 @@ import {
   type SlackWorkspace,
 } from "./integration-tokens.js";
 import { encryptJsonForOrg } from "./crypto.js";
+import { getOAuthCallbackUrl } from "../utils/url-helpers.js";
 
 // ============================================
 // Types
@@ -196,7 +197,7 @@ export function getGitHubAuthUrl(stateId: string): string | null {
 
   const params = new URLSearchParams({
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/github/callback`,
+    redirect_uri: getOAuthCallbackUrl("github"),
     scope: "read:user repo",
     state: stateId,
   });
@@ -433,7 +434,7 @@ export function getTeamsAuthUrl(stateId: string): string | null {
 
   const params = new URLSearchParams({
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/teams/callback`,
+    redirect_uri: getOAuthCallbackUrl("teams"),
     response_type: "code",
     scope: "https://graph.microsoft.com/.default offline_access",
     state: stateId,
@@ -465,7 +466,7 @@ export async function exchangeTeamsCode(
         client_id: credentials.clientId,
         client_secret: credentials.clientSecret,
         code,
-        redirect_uri: `${getBaseUrl()}/api/integrations/teams/callback`,
+        redirect_uri: getOAuthCallbackUrl("teams"),
         grant_type: "authorization_code",
       }),
     }
@@ -853,7 +854,7 @@ export function isIntegrationProviderAvailable(
  * Get base URL for OAuth callbacks
  */
 function getBaseUrl(): string {
-  if (config.NODE_ENV === "production") {
+  if (config.NODE_ENV === "production" || config.NODE_ENV === "staging") {
     return (
       process.env.API_BASE_URL ||
       process.env.BASE_URL ||

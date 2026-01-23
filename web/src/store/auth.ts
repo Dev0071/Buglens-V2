@@ -143,8 +143,8 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to Google OAuth endpoint
-          window.location.href = "/api/auth/google";
+          // Redirect to Google OAuth endpoint - MUST use API domain directly
+          window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/google`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Google login failed";
@@ -160,8 +160,8 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to GitHub OAuth endpoint
-          window.location.href = "/api/auth/github";
+          // Redirect to GitHub OAuth endpoint - MUST use API domain directly
+          window.location.href = `${import.meta.env.VITE_API_URL}/api/auth/github`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "GitHub login failed";

@@ -40,6 +40,7 @@ import {
   logSignup,
   logOrgCreated,
 } from "../../services/audit.js";
+import { getBaseUrlFromRequest } from "../../utils/url-helpers.js";
 
 // ============================================
 // Helper Functions
@@ -49,12 +50,7 @@ import {
  * Get the base URL from the request for OAuth redirects
  */
 function getBaseUrl(request: FastifyRequest): string {
-  const protocol = request.headers["x-forwarded-proto"] || "http";
-  const host =
-    request.headers["x-forwarded-host"] ||
-    request.headers.host ||
-    "localhost:3000";
-  return `${protocol}://${host}`;
+  return getBaseUrlFromRequest(request);
 }
 
 // ============================================

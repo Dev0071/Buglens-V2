@@ -16,6 +16,7 @@
 import { logger } from "../utils/logger.js";
 import { getIntegrationTokensByType } from "./integration-tokens.js";
 import { query } from "../db/client.js";
+import { getAppBaseUrl } from "../utils/url-helpers.js";
 
 // ============================================
 // Types
@@ -366,7 +367,7 @@ export interface JiraServiceConfig {
 }
 
 const DEFAULT_CONFIG: JiraServiceConfig = {
-  baseUrl: process.env.APP_BASE_URL || "https://app.buglens.com",
+  baseUrl: getAppBaseUrl(),
   defaultIssueType: "Bug",
   autoCreateOnHighSeverity: false,
   autoCreateConfidenceThreshold: 0.8,

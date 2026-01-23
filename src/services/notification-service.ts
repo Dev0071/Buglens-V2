@@ -18,6 +18,7 @@ import {
   getSlackWorkspace,
   getIntegrationTokensByType,
 } from "./integration-tokens.js";
+import { getAppBaseUrl } from "../utils/url-helpers.js";
 import { query } from "../db/client.js";
 
 // ============================================
@@ -460,7 +461,7 @@ export interface NotificationServiceConfig {
 }
 
 const DEFAULT_CONFIG: NotificationServiceConfig = {
-  baseUrl: process.env.APP_BASE_URL || "https://app.buglens.com",
+  baseUrl: getAppBaseUrl(),
 };
 
 /**
