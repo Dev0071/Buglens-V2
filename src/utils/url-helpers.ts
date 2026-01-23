@@ -20,11 +20,6 @@ const TRUSTED_DOMAINS = new Set([
   "localhost",
   "buglens.com",
   "buglens.co",
-  "staging.buglens.co",
-  "api.buglens.com",
-  "api.staging.buglens.co",
-  "app.buglens.com",
-  "app.staging.buglens.co",
 ]);
 
 /**
