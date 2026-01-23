@@ -24,6 +24,7 @@
 
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
+import { getOAuthCallbackUrl } from "../utils/url-helpers.js";
 
 // ============================================
 // Types
@@ -258,14 +259,7 @@ class PlatformCredentialsService {
     provider: ProviderType,
     type: "auth" | "integration" = "auth"
   ): string {
-    const baseUrl =
-      process.env.API_BASE_URL || `http://localhost:${config.PORT}`;
-
-    if (type === "auth") {
-      return `${baseUrl}/api/auth/${provider}/callback`;
-    } else {
-      return `${baseUrl}/api/integrations/${provider}/callback`;
-    }
+    return getOAuthCallbackUrl(provider, type);
   }
 
   /**

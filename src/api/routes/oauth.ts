@@ -532,7 +532,7 @@ async function sentryConfigureHandler(
   try {
     // Generate webhook URL and secret for this org
     const webhookSecret = crypto.randomUUID();
-    const webhookUrl = `${getBaseUrl()}/api/v1/webhooks/sentry/${orgId}`;
+    const webhookUrl = getWebhookUrl("sentry", orgId);
 
     await saveIntegration(orgId, "sentry", {
       dsn,
@@ -567,13 +567,7 @@ async function sentryConfigureHandler(
 // ============================================
 
 import crypto from "crypto";
-
-function getBaseUrl(): string {
-  if (config.NODE_ENV === "production") {
-    return process.env.BASE_URL || "https://api.buglens.com";
-  }
-  return `http://localhost:${config.PORT}`;
-}
+import { getWebhookUrl } from "../../utils/url-helpers.js";
 
 export async function oauthRoutes(server: FastifyInstance): Promise<void> {
   // GitHub OAuth

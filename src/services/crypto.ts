@@ -215,6 +215,82 @@ export function decryptPlatformSecret(encrypted: EncryptedData): string {
   return decrypted.toString("utf8");
 }
 
+// ============================================
+// Unified Decryption Interface
+// ============================================
+
+/**
+ * Decryption target type
+ */
+export type DecryptionScope = "org" | "platform";
+
+/**
+ * Unified decrypt function that handles both org-level and platform-level encryption.
+ *
+ * This provides a single entry point for all decryption operations:
+ * - Use scope="org" for tenant-specific data (OAuth tokens, integration configs)
+ * - Use scope="platform" for system-wide secrets
+ *
+ * @param encrypted - Encrypted data object
+ * @param scope - "org" for organization-specific, "platform" for system-wide
+ * @param orgId - Required when scope is "org"
+ * @returns Decrypted string
+ *
+ * @example
+ * // Org-level decryption
+ * const token = decrypt(encryptedData, "org", "org-123");
+ *
+ * // Platform-level decryption
+ * const apiKey = decrypt(encryptedData, "platform");
+ */
+export function decrypt(
+  encrypted: EncryptedData,
+  scope: "org",
+  orgId: string
+): string;
+export function decrypt(encrypted: EncryptedData, scope: "platform"): string;
+export function decrypt(
+  encrypted: EncryptedData,
+  scope: DecryptionScope,
+  orgId?: string
+): string {
+  if (scope === "org") {
+    if (!orgId) {
+      throw new Error("orgId is required for org-level decryption");
+    }
+    return decryptForOrg(encrypted, orgId);
+  }
+  return decryptPlatformSecret(encrypted);
+}
+
+/**
+ * Unified decrypt and parse JSON
+ *
+ * @example
+ * const config = decryptJson<IntegrationConfig>(encryptedData, "org", orgId);
+ */
+export function decryptJson<T>(
+  encrypted: EncryptedData,
+  scope: "org",
+  orgId: string
+): T;
+export function decryptJson<T>(encrypted: EncryptedData, scope: "platform"): T;
+export function decryptJson<T>(
+  encrypted: EncryptedData,
+  scope: DecryptionScope,
+  orgId?: string
+): T {
+  if (scope === "org") {
+    if (!orgId) {
+      throw new Error("orgId is required for org-level decryption");
+    }
+    const decrypted = decryptForOrg(encrypted, orgId);
+    return JSON.parse(decrypted) as T;
+  }
+  const decrypted = decryptPlatformSecret(encrypted);
+  return JSON.parse(decrypted) as T;
+}
+
 /**
  * Generate a cryptographically secure random token
  */

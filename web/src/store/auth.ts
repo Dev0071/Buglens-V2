@@ -52,6 +52,30 @@ interface AuthActions {
 
 type AuthStore = AuthState & AuthActions;
 
+/**
+ * Get the API URL for OAuth redirects.
+ *
+ * Uses the same base URL as the API client to avoid config drift between
+ * frontend and backend. Falls back to window.location.origin in the browser,
+ * and finally to http://localhost:3000 for local development or SSR.
+ */
+function getApiUrlForOAuth(): string {
+  const clientWithBaseUrl: { defaults?: { baseURL?: string } } = apiClient as {
+    defaults?: { baseURL?: string };
+  };
+
+  const configuredBaseUrl = clientWithBaseUrl.defaults?.baseURL;
+  if (typeof configuredBaseUrl === "string" && configuredBaseUrl.length > 0) {
+    return configuredBaseUrl;
+  }
+
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  return "http://localhost:3000";
+}
+
 const initialState: AuthState = {
   user: null,
   organization: null,
@@ -138,13 +162,16 @@ export const useAuthStore = create<AuthStore>()(
 
       /**
        * Login with Google OAuth
+       * Redirects to backend API server for OAuth flow initiation.
+       * Uses VITE_API_URL environment variable to ensure correct domain.
        */
       loginWithGoogle: async () => {
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to Google OAuth endpoint
-          window.location.href = "/api/auth/google";
+          // Redirect to Google OAuth endpoint using configured API URL
+          // Must use API domain directly (not frontend proxy) for OAuth to work correctly
+          window.location.href = `${getApiUrlForOAuth()}/api/auth/google`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Google login failed";
@@ -155,13 +182,16 @@ export const useAuthStore = create<AuthStore>()(
 
       /**
        * Login with GitHub OAuth
+       * Redirects to backend API server for OAuth flow initiation.
+       * Uses VITE_API_URL environment variable to ensure correct domain.
        */
       loginWithGitHub: async () => {
         set({ isLoading: true, error: null });
 
         try {
-          // Redirect to GitHub OAuth endpoint
-          window.location.href = "/api/auth/github";
+          // Redirect to GitHub OAuth endpoint using configured API URL
+          // Must use API domain directly (not frontend proxy) for OAuth to work correctly
+          window.location.href = `${getApiUrlForOAuth()}/api/auth/github`;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "GitHub login failed";

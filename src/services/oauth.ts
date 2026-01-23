@@ -17,7 +17,6 @@
 
 import crypto from "crypto";
 import { logger } from "../utils/logger.js";
-import { config } from "../utils/config.js";
 import { query, transaction } from "../db/client.js";
 import {
   platformCredentials,
@@ -30,6 +29,7 @@ import {
   type SlackWorkspace,
 } from "./integration-tokens.js";
 import { encryptJsonForOrg } from "./crypto.js";
+import { getOAuthCallbackUrl } from "../utils/url-helpers.js";
 
 // ============================================
 // Types
@@ -196,7 +196,7 @@ export function getGitHubAuthUrl(stateId: string): string | null {
 
   const params = new URLSearchParams({
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/github/callback`,
+    redirect_uri: getOAuthCallbackUrl("github"),
     scope: "read:user repo",
     state: stateId,
   });
@@ -311,7 +311,7 @@ export function getSlackAuthUrl(stateId: string): string | null {
 
   const params = new URLSearchParams({
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/slack/callback`,
+    redirect_uri: getOAuthCallbackUrl("slack"),
     scope: "chat:write,chat:write.public,channels:read,incoming-webhook",
     state: stateId,
   });
@@ -340,7 +340,7 @@ export async function exchangeSlackCode(
       client_id: credentials.clientId,
       client_secret: credentials.clientSecret,
       code,
-      redirect_uri: `${getBaseUrl()}/api/integrations/slack/callback`,
+      redirect_uri: getOAuthCallbackUrl("slack"),
     }),
   });
 
@@ -433,7 +433,7 @@ export function getTeamsAuthUrl(stateId: string): string | null {
 
   const params = new URLSearchParams({
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/teams/callback`,
+    redirect_uri: getOAuthCallbackUrl("teams"),
     response_type: "code",
     scope: "https://graph.microsoft.com/.default offline_access",
     state: stateId,
@@ -465,7 +465,7 @@ export async function exchangeTeamsCode(
         client_id: credentials.clientId,
         client_secret: credentials.clientSecret,
         code,
-        redirect_uri: `${getBaseUrl()}/api/integrations/teams/callback`,
+        redirect_uri: getOAuthCallbackUrl("teams"),
         grant_type: "authorization_code",
       }),
     }
@@ -511,7 +511,7 @@ export function getJiraAuthUrl(stateId: string): string | null {
   const params = new URLSearchParams({
     audience: "api.atlassian.com",
     client_id: credentials.clientId,
-    redirect_uri: `${getBaseUrl()}/api/integrations/jira/callback`,
+    redirect_uri: getOAuthCallbackUrl("jira"),
     scope: "read:jira-work write:jira-work read:jira-user offline_access",
     response_type: "code",
     state: stateId,
@@ -543,7 +543,7 @@ export async function exchangeJiraCode(
       client_id: credentials.clientId,
       client_secret: credentials.clientSecret,
       code,
-      redirect_uri: `${getBaseUrl()}/api/integrations/jira/callback`,
+      redirect_uri: getOAuthCallbackUrl("jira"),
     }),
   });
 
@@ -843,22 +843,4 @@ export function isIntegrationProviderAvailable(
   provider: IntegrationProvider
 ): boolean {
   return platformCredentials.isConfigured(provider);
-}
-
-// ============================================
-// Helpers
-// ============================================
-
-/**
- * Get base URL for OAuth callbacks
- */
-function getBaseUrl(): string {
-  if (config.NODE_ENV === "production") {
-    return (
-      process.env.API_BASE_URL ||
-      process.env.BASE_URL ||
-      "https://api.buglens.com"
-    );
-  }
-  return `http://localhost:${config.PORT}`;
 }
