@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, BASE_URL } from "@/lib/api-client";
 
 /**
  * User interface representing authenticated user data
@@ -54,26 +54,10 @@ type AuthStore = AuthState & AuthActions;
 
 /**
  * Get the API URL for OAuth redirects.
- *
- * Uses the same base URL as the API client to avoid config drift between
- * frontend and backend. Falls back to window.location.origin in the browser,
- * and finally to http://localhost:3000 for local development or SSR.
+ * Uses VITE_API_URL environment variable with localhost fallback for development.
  */
 function getApiUrlForOAuth(): string {
-  const clientWithBaseUrl: { defaults?: { baseURL?: string } } = apiClient as {
-    defaults?: { baseURL?: string };
-  };
-
-  const configuredBaseUrl = clientWithBaseUrl.defaults?.baseURL;
-  if (typeof configuredBaseUrl === "string" && configuredBaseUrl.length > 0) {
-    return configuredBaseUrl;
-  }
-
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-
-  return "http://localhost:3000";
+  return BASE_URL;
 }
 
 const initialState: AuthState = {

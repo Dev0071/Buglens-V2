@@ -23,7 +23,7 @@ import {
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, BASE_URL } from "@/lib/api-client";
 import { useAuthStore } from "@/store/auth";
 import {
   useOrganizationSettings,
@@ -848,11 +848,17 @@ function IntegrationsSettings() {
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        const response = await fetch("/api/integrations/available");
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableProviders(data.allProviders || []);
-        }
+        const data = await apiClient.get<{
+          allProviders: Array<{
+            id: string;
+            name: string;
+            description: string;
+            available: boolean;
+            oauthRequired: boolean;
+            icon: string;
+          }>;
+        }>("/integrations/available");
+        setAvailableProviders(data.allProviders || []);
       } catch {
         // Fallback to defaults if fetch fails
         setAvailableProviders([
@@ -1257,7 +1263,7 @@ function SentryConfigModal({
 
   // Get orgId from auth store for webhook URL
   const user = useAuthStore((state) => state.user);
-  const webhookUrl = `${window.location.origin}/api/v1/webhooks/sentry/${user?.orgId || "{YOUR_ORG_ID}"}`;
+  const webhookUrl = `${BASE_URL}/api/v1/webhooks/sentry/${user?.orgId || "{YOUR_ORG_ID}"}`;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

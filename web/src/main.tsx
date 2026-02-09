@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import App from "./App";
 import "./index.css";
 import * as Sentry from "@sentry/react";
+import { BASE_URL } from "@/lib/api-client";
 
 const sentryDsn =
   import.meta.env.VITE_SENTRY_DSN ||
@@ -12,10 +13,8 @@ const sentryDsn =
 
 if (sentryDsn) {
   // Use tunnel to bypass ad blockers
-  // VITE_API_URL should be base URL without /api (e.g., https://api.staging.buglens.co)
-  // We add /api here since all backend routes are registered with /api prefix
-  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  const tunnelUrl = `${baseUrl}/api/sentry-tunnel`;
+  // BASE_URL is configured via VITE_API_URL environment variable
+  const tunnelUrl = `${BASE_URL}/api/sentry-tunnel`;
 
   Sentry.init({
     dsn: sentryDsn,
