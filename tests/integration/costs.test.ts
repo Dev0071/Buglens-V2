@@ -236,7 +236,15 @@ describe("Costs API", () => {
       });
 
       it("should isolate cost data by organization", async () => {
-        // Create second org with cost data
+        // Capture org1 baseline before adding org2 data
+        const baselineResponse = await server.inject({
+          method: "GET",
+          url: "/api/costs/summary",
+          headers: createAuthHeaders(TEST_ORG_ID),
+        });
+        const baselineTokens = baselineResponse.json().currentMonth.tokenCount;
+
+        // Create second org with a large distinctive token count
         await ensureSecondTestOrg();
 
         await insertCostMetric(
@@ -247,7 +255,7 @@ describe("Costs API", () => {
           })
         );
 
-        // Query with test org
+        // Query with test org — count must be unchanged after adding org2 data
         const response = await server.inject({
           method: "GET",
           url: "/api/costs/summary",
@@ -257,8 +265,8 @@ describe("Costs API", () => {
         expect(response.statusCode).toBe(200);
         const body = response.json();
 
-        // Should NOT include the 999999 tokens from second org
-        expect(body.currentMonth.tokenCount).toBeLessThan(999999);
+        // org1 count must not have changed: proves org2's 999999 tokens are not leaking in
+        expect(body.currentMonth.tokenCount).toBe(baselineTokens);
 
         // Cleanup
         await cleanupSecondTestOrg();

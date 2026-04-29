@@ -1,0 +1,241 @@
+# DigitalOcean App Platform Specification
+# Production Environment
+
+name: buglens-production
+region: nyc
+
+features:
+  - buildpack-stack=ubuntu-22
+
+# ===========================================
+# API Service
+# ===========================================
+services:
+  - name: api
+    github:
+      repo: Dev0071/Buglens-V2
+      branch: main
+      deploy_on_push: false  # Controlled by GitHub Actions with approval gate
+
+    dockerfile_path: Dockerfile
+    run_command: npm run migrate:up && node dist/src/api/server.js  # override combined CMD
+
+    instance_count: 2
+    instance_size_slug: professional-s
+
+    http_port: 3000
+
+    routes:
+      - path: /
+
+    health_check:
+      http_path: /api/v1/health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      # Core
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: LOG_LEVEL
+        value: info
+
+      # URLs — update these to your actual production domains
+      - key: API_BASE_URL
+        value: https://api.buglens.co
+      - key: APP_BASE_URL
+        value: https://app.buglens.co
+      - key: FRONTEND_URL
+        value: https://app.buglens.co
+      - key: CORS_ORIGINS
+        value: https://app.buglens.co,https://buglens.co
+
+      # Database (injected from managed DB)
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${buglens-db-production.DATABASE_URL}
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_POOL_MIN
+        value: "5"
+      - key: DATABASE_POOL_MAX
+        value: "20"
+
+      # Redis (injected from managed Redis)
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${buglens-redis-production.DATABASE_URL}
+
+      # DO Spaces (S3-compatible)
+      - key: S3_ENDPOINT
+        value: https://nyc3.digitaloceanspaces.com
+      - key: S3_BUCKET_NAME
+        value: buglens-cache-production
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # GitHub App Integration
+      - key: GITHUB_APP_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_APP_NAME
+        value: buglens
+      - key: GITHUB_APP_PRIVATE_KEY_SECRET_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # GitHub OAuth (social login)
+      - key: GITHUB_OAUTH_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_OAUTH_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # Google OAuth (social login)
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+      # Sentry
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SENTRY_ENVIRONMENT
+        value: production
+
+      # Slack
+      - key: SLACK_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: SLACK_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # Auth
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      # Admin
+      - key: PLATFORM_ADMIN_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+
+  # ===========================================
+  # Worker Service (BullMQ)
+  # ===========================================
+  - name: worker
+    github:
+      repo: Dev0071/Buglens-V2
+      branch: main
+      deploy_on_push: false
+
+    dockerfile_path: Dockerfile.worker
+
+    instance_count: 1
+    instance_size_slug: professional-s
+
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: WORKER_MODE
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+
+      # Database
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${buglens-db-production.DATABASE_URL}
+      - key: DATABASE_SSL
+        value: "true"
+
+      # Redis
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${buglens-redis-production.DATABASE_URL}
+
+      # DO Spaces
+      - key: S3_ENDPOINT
+        value: https://nyc3.digitaloceanspaces.com
+      - key: S3_BUCKET_NAME
+        value: buglens-cache-production
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # GitHub
+      - key: GITHUB_APP_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITHUB_APP_PRIVATE_KEY_SECRET_ID
+        scope: RUN_TIME
+        type: SECRET
+
+      # OpenAI
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      # Sentry
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+      - key: SENTRY_ENVIRONMENT
+        value: production
+
+      # Auth
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+# ===========================================
+# Managed PostgreSQL Database
+# ===========================================
+databases:
+  - name: buglens-db-production
+    engine: PG
+    version: "15"
+    size: db-s-1vcpu-2gb
+    num_nodes: 1
+    production: true
+
+  # ===========================================
+  # Managed Redis
+  # ===========================================
+  - name: buglens-redis-production
+    engine: REDIS
+    version: "7"
+    size: db-s-1vcpu-1gb
+    num_nodes: 1
+    production: true

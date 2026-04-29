@@ -70,4 +70,4 @@ ENV NODE_ENV=production
 ENV WORKER_MODE=true
 
 # Start worker
-CMD ["node", "dist/workers/rca-worker.js"]
+CMD ["node", "dist/src/workers/index.js"]

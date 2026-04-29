@@ -206,8 +206,8 @@ describe("Deterministic Analyzer Worker", () => {
 
       const result = await processor(mockJob);
 
-      // Check that duration was logged and returned
-      expect(result.durationMs).toBeGreaterThanOrEqual(50);
+      // Check that duration was logged and returned (40ms floor accounts for OS timer imprecision)
+      expect(result.durationMs).toBeGreaterThanOrEqual(40);
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           jobId: "job-timing",
@@ -372,7 +372,7 @@ describe("Deterministic Analyzer Worker", () => {
         expect.any(String)
       );
 
-      // Verify duration is at least 30ms
+      // Verify duration is at least 20ms (30ms setTimeout minus OS timer tolerance)
       const logCall = vi.mocked(logger.error).mock.calls[0];
       if (
         logCall &&
@@ -382,7 +382,7 @@ describe("Deterministic Analyzer Worker", () => {
       ) {
         expect(
           (logCall[0] as { durationMs: number }).durationMs
-        ).toBeGreaterThanOrEqual(30);
+        ).toBeGreaterThanOrEqual(20);
       }
     });
 

@@ -89,5 +89,6 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Start application
-CMD ["node", "dist/index.js"]
+# Run migrations then start API + workers in one process (staging)
+# For production, override with: node dist/src/api/server.js (separate worker container)
+CMD ["sh", "-c", "npm run migrate:up && node dist/src/main.js"]

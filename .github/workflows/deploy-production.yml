@@ -1,6 +1,3 @@
-# Deploy to Heroku Production
-# Triggers on push to main branch with manual approval
-
 name: Deploy Production
 
 on:
@@ -13,6 +10,12 @@ on:
         required: false
         default: "false"
         type: boolean
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  API_BASE_URL: "https://api.buglens.co"
+  FRONTEND_URL: "https://app.buglens.co"
 
 jobs:
   # ============================================
@@ -54,13 +57,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
 
       - name: Install dependencies
@@ -94,19 +97,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
-    environment: production
+    environment: production  # Requires a reviewer in GitHub environment settings
 
     steps:
-      - name: Approval Checkpoint
+      - name: Approval checkpoint
         run: |
           echo "✅ Production deployment approved"
           echo "Deploying commit: ${{ github.sha }}"
 
   # ============================================
-  # Deploy to Production (Single App)
+  # Deploy to DigitalOcean App Platform
   # ============================================
   deploy:
-    name: Deploy to Heroku
+    name: Deploy to DigitalOcean (Production)
     runs-on: ubuntu-latest
     needs: approve
     environment: production
@@ -114,82 +117,74 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to Heroku
-        uses: akhileshns/heroku-deploy@v3.13.15
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
         with:
-          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: ${{ secrets.HEROKU_APP_PROD }}
-          heroku_email: ${{ secrets.HEROKU_EMAIL }}
-          buildpack: https://github.com/heroku/heroku-buildpack-nodejs
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Wait for Deployment
-        run: sleep 45
-
-      - name: Health Check
-        id: health
+      # First-time setup: create the app from the spec.
+      - name: Create app if it doesn't exist
         run: |
-          API_URL="https://${{ secrets.HEROKU_APP_PROD }}.herokuapp.com"
-
-          for i in {1..5}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || echo "000")
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ API health check passed"
-              exit 0
-            fi
-
-            echo "Attempt $i: HTTP $HTTP_CODE, retrying..."
-            sleep 10
-          done
-
-          echo "❌ Health check failed after 5 attempts"
-          exit 1
-
-      - name: Verify Worker
-        run: |
-          echo "✅ Worker dyno active (same app)"
-          echo "Both web and worker processes deployed successfully"
-
-  # ============================================
-  # Production Verification
-  # ============================================
-  verify:
-    name: Verify Production
-    runs-on: ubuntu-latest
-    needs: [deploy]
-
-    steps:
-      - name: Run Production Checks
-        run: |
-          API_URL="https://${{ secrets.HEROKU_APP_PROD }}.herokuapp.com"
-
-          echo "=== Production Verification ==="
-
-          # Health endpoint
-          echo "Checking health..."
-          HEALTH=$(curl -s "$API_URL/health")
-          echo "Response: $HEALTH"
-
-          # Extract statuses
-          STATUS=$(echo $HEALTH | jq -r '.status // "unknown"')
-          DB=$(echo $HEALTH | jq -r '.database // "unknown"')
-          REDIS=$(echo $HEALTH | jq -r '.redis // "unknown"')
-
-          echo ""
-          echo "Status: $STATUS"
-          echo "Database: $DB"
-          echo "Redis: $REDIS"
-
-          if [ "$STATUS" = "ok" ] && [ "$DB" = "connected" ] && [ "$REDIS" = "connected" ]; then
-            echo ""
-            echo "✅ Production verification passed"
+          if ! doctl apps list --format "Spec.Name" --no-header | grep -q "^buglens-production$"; then
+            echo "Creating production app..."
+            doctl apps create --spec .do/app.production.yaml --wait
           else
-            echo ""
-            echo "⚠️ Some checks may need attention"
+            echo "App already exists, skipping create."
           fi
 
-      - name: Create Sentry Release
-        if: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      - name: Get app ID
+        id: app
+        run: |
+          APP_ID=$(doctl apps list --format "ID,Spec.Name" --no-header | grep "buglens-production" | awk '{print $1}')
+          echo "id=$APP_ID" >> $GITHUB_OUTPUT
+
+      - name: Deploy latest spec
+        run: doctl apps update ${{ steps.app.outputs.id }} --spec .do/app.production.yaml --wait
+
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Health check
+        id: health
+        run: |
+          echo "Checking $API_BASE_URL/api/v1/health"
+          for i in {1..8}; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$API_BASE_URL/api/v1/health" || echo "000")
+            if [ "$HTTP" = "200" ]; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP, retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 8 attempts"
+          exit 1
+
+      - name: Assert health payload
+        run: |
+          HEALTH=$(curl -s "$API_BASE_URL/api/v1/health")
+          echo "Health: $HEALTH"
+
+          DB=$(echo "$HEALTH" | jq -r '.database // "unknown"')
+          REDIS=$(echo "$HEALTH" | jq -r '.redis // "unknown"')
+
+          [ "$DB" = "connected" ] || { echo "❌ DB: $DB"; exit 1; }
+          [ "$REDIS" = "connected" ] || { echo "❌ Redis: $REDIS"; exit 1; }
+          echo "✅ DB + Redis healthy"
+
+  # ============================================
+  # Create Sentry Release
+  # ============================================
+  sentry:
+    name: Create Sentry Release
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: success()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Sentry release
         uses: getsentry/action-release@v1
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -201,61 +196,65 @@ jobs:
         continue-on-error: true
 
   # ============================================
-  # Rollback on Failure
+  # Rollback hint on failure
   # ============================================
   rollback:
-    name: Rollback
+    name: Rollback hint
     runs-on: ubuntu-latest
-    needs: verify
+    needs: deploy
     if: failure()
 
     steps:
-      - name: Rollback
-        run: |
-          echo "⚠️ Deployment verification failed"
-          echo "Manual rollback may be required"
-          echo ""
-          echo "To rollback, run:"
-          echo "  heroku rollback -a ${{ secrets.HEROKU_APP_PROD }}"
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-          # Optionally auto-rollback (uncomment if desired)
-          # curl -X POST "https://api.heroku.com/apps/${{ secrets.HEROKU_APP_PROD }}/releases" \
-          #   -H "Authorization: Bearer ${{ secrets.HEROKU_API_KEY }}" \
-          #   -H "Content-Type: application/json" \
-          #   -d '{"rollback": true}'
+      - name: Print rollback instructions
+        run: |
+          APP_ID=$(doctl apps list --format "ID,Spec.Name" --no-header | grep "buglens-production" | awk '{print $1}')
+          echo "❌ Deployment failed. To roll back to the previous deployment:"
+          echo ""
+          echo "  doctl apps list-deployments $APP_ID"
+          echo "  doctl apps create-deployment $APP_ID --force-rebuild"
+          echo ""
+          echo "Or roll back via the DigitalOcean console:"
+          echo "  https://cloud.digitalocean.com/apps"
 
   # ============================================
-  # Notify Team
+  # Notify
   # ============================================
   notify:
     name: Notify
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [deploy, sentry]
     if: always()
 
     steps:
-      - name: Slack Notification
-        if: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Print summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 Production Deployment"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor:  ${{ github.actor }}"
+          echo "API:    ${{ env.API_BASE_URL }}"
+          echo "Status: ${{ needs.deploy.result }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Slack notification
+        if: ${{ always() && secrets.SLACK_WEBHOOK_URL != '' }}
         uses: 8398a7/action-slack@v3
         with:
-          status: ${{ needs.verify.result }}
+          status: ${{ needs.deploy.result }}
           channel: "#deployments"
-          fields: repo,commit,author,action,workflow
+          fields: repo,commit,author,workflow
           mention: "here"
           if_mention: failure
           text: |
-            Production deployment ${{ needs.verify.result == 'success' && '✅ successful' || '❌ failed' }}
+            Production deploy ${{ needs.deploy.result == 'success' && '✅' || '❌' }}: ${{ needs.deploy.result }}
             Commit: ${{ github.sha }}
+            API: ${{ env.API_BASE_URL }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         continue-on-error: true
-
-      - name: Log Summary
-        run: |
-          echo "=== Deployment Summary ==="
-          echo "Environment: production"
-          echo "Commit: ${{ github.sha }}"
-          echo "Author: ${{ github.actor }}"
-          echo "Status: ${{ needs.verify.result }}"
-          echo ""
-          echo "API: https://${{ secrets.HEROKU_APP_PROD }}.herokuapp.com"
