@@ -102,21 +102,24 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      # First-time setup: create the app from the spec.
-      # After that, this step is skipped and the update step takes over.
-      - name: Create app if it doesn't exist
-        run: |
-          if ! doctl apps list --format "Spec.Name" --no-header | grep -q "^buglens-staging$"; then
-            echo "Creating staging app..."
-            doctl apps create --spec .do/app.yaml --wait
-          else
-            echo "App already exists, skipping create."
-          fi
-
       - name: Get app ID
         id: app
         run: |
           APP_ID=$(doctl apps list --format "ID,Spec.Name" --no-header | grep "buglens-staging" | awk '{print $1}')
+          if [ -z "$APP_ID" ]; then
+            echo ""
+            echo "❌ App 'buglens-staging' not found in your DigitalOcean account."
+            echo ""
+            echo "First-time setup required:"
+            echo "  1. Go to https://cloud.digitalocean.com/apps → Create App"
+            echo "  2. Choose GitHub as source and authorize access to Dev0071/Buglens-V2"
+            echo "  3. Select branch: staging"
+            echo "  4. On the 'Resources' page, click 'Edit Plan' and set to Basic / 512 MB"
+            echo "  5. Skip all other settings and click 'Create Resources'"
+            echo "  6. Wait for first deploy, then re-run this workflow — it will take over from here"
+            echo ""
+            exit 1
+          fi
           echo "id=$APP_ID" >> $GITHUB_OUTPUT
 
       - name: Deploy latest spec
