@@ -80,6 +80,10 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/buglens_test
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-minimum-32-characters-long
+          SENTRY_WEBHOOK_SECRET: test-sentry-secret-32-chars-minimum
+          GITHUB_WEBHOOK_SECRET: test-github-secret-32-chars-ok
+          S3_BUCKET_NAME: test-bucket
 
   # ============================================
   # Deploy to DigitalOcean App Platform
