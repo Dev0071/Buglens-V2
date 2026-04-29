@@ -1,7 +1,7 @@
 # DigitalOcean App Platform Specification
-# Staging Environment
+# Production Environment
 
-name: buglens-staging
+name: buglens-production
 region: nyc
 
 features:
@@ -14,13 +14,13 @@ services:
   - name: api
     github:
       repo: Dev0071/Buglens-V2
-      branch: staging
-      deploy_on_push: true
+      branch: main
+      deploy_on_push: false  # Controlled by GitHub Actions with approval gate
 
     dockerfile_path: Dockerfile
 
-    instance_count: 1
-    instance_size_slug: professional-xs
+    instance_count: 2
+    instance_size_slug: professional-s
 
     http_port: 3000
 
@@ -38,41 +38,43 @@ services:
     envs:
       # Core
       - key: NODE_ENV
-        value: staging
+        value: production
       - key: PORT
         value: "3000"
       - key: LOG_LEVEL
         value: info
 
-      # URLs — update these once your DO app is created and you have a domain
+      # URLs — update these to your actual production domains
       - key: API_BASE_URL
-        value: https://buglens-staging-api.ondigitalocean.app
+        value: https://api.buglens.co
       - key: APP_BASE_URL
-        value: https://staging.buglens.co
+        value: https://app.buglens.co
       - key: FRONTEND_URL
-        value: https://staging.buglens.co
-      # Comma-separated list of allowed CORS origins
+        value: https://app.buglens.co
       - key: CORS_ORIGINS
-        value: https://staging.buglens.co,http://localhost:5173
+        value: https://app.buglens.co,https://buglens.co
 
       # Database (injected from managed DB)
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${buglens-db-staging.DATABASE_URL}
+        value: ${buglens-db-production.DATABASE_URL}
       - key: DATABASE_SSL
         value: "true"
+      - key: DATABASE_POOL_MIN
+        value: "5"
+      - key: DATABASE_POOL_MAX
+        value: "20"
 
       # Redis (injected from managed Redis)
       - key: REDIS_URL
         scope: RUN_TIME
-        value: ${buglens-redis-staging.DATABASE_URL}
+        value: ${buglens-redis-production.DATABASE_URL}
 
-      # DO Spaces (S3-compatible) — use Spaces access keys here, NOT AWS keys
-      # Create a Spaces access key at: https://cloud.digitalocean.com/account/api/spaces
+      # DO Spaces (S3-compatible)
       - key: S3_ENDPOINT
         value: https://nyc3.digitaloceanspaces.com
       - key: S3_BUCKET_NAME
-        value: buglens-cache-staging
+        value: buglens-cache-production
       - key: AWS_REGION
         value: us-east-1
       - key: AWS_ACCESS_KEY_ID
@@ -83,14 +85,11 @@ services:
         type: SECRET
 
       # GitHub App Integration
-      # GITHUB_APP_PRIVATE_KEY_SECRET_ID: if using AWS Secrets Manager, set this to
-      # the secret path (e.g. "buglens/github-app-private-key"). If you store the raw
-      # PEM directly in DO secrets, you'll need a small code change in github.ts.
       - key: GITHUB_APP_ID
         scope: RUN_TIME
         type: SECRET
       - key: GITHUB_APP_NAME
-        value: buglens-staging
+        value: buglens
       - key: GITHUB_APP_PRIVATE_KEY_SECRET_ID
         scope: RUN_TIME
         type: SECRET
@@ -126,7 +125,7 @@ services:
         scope: RUN_TIME
         type: SECRET
       - key: SENTRY_ENVIRONMENT
-        value: staging
+        value: production
 
       # Slack
       - key: SLACK_CLIENT_ID
@@ -146,31 +145,23 @@ services:
         scope: RUN_TIME
         type: SECRET
 
-      # Feature Flags
-      - key: FEATURE_LLM_ENABLED
-        value: "true"
-      - key: FEATURE_SLACK_ENABLED
-        value: "true"
-      - key: FEATURE_SOURCE_MAPS_ENABLED
-        value: "true"
-
   # ===========================================
   # Worker Service (BullMQ)
   # ===========================================
   - name: worker
     github:
       repo: Dev0071/Buglens-V2
-      branch: staging
-      deploy_on_push: true
+      branch: main
+      deploy_on_push: false
 
     dockerfile_path: Dockerfile.worker
 
     instance_count: 1
-    instance_size_slug: professional-xs
+    instance_size_slug: professional-s
 
     envs:
       - key: NODE_ENV
-        value: staging
+        value: production
       - key: WORKER_MODE
         value: "true"
       - key: LOG_LEVEL
@@ -179,20 +170,20 @@ services:
       # Database
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${buglens-db-staging.DATABASE_URL}
+        value: ${buglens-db-production.DATABASE_URL}
       - key: DATABASE_SSL
         value: "true"
 
       # Redis
       - key: REDIS_URL
         scope: RUN_TIME
-        value: ${buglens-redis-staging.DATABASE_URL}
+        value: ${buglens-redis-production.DATABASE_URL}
 
       # DO Spaces
       - key: S3_ENDPOINT
         value: https://nyc3.digitaloceanspaces.com
       - key: S3_BUCKET_NAME
-        value: buglens-cache-staging
+        value: buglens-cache-production
       - key: AWS_REGION
         value: us-east-1
       - key: AWS_ACCESS_KEY_ID
@@ -220,7 +211,7 @@ services:
         scope: RUN_TIME
         type: SECRET
       - key: SENTRY_ENVIRONMENT
-        value: staging
+        value: production
 
       # Auth
       - key: JWT_SECRET
@@ -231,19 +222,19 @@ services:
 # Managed PostgreSQL Database
 # ===========================================
 databases:
-  - name: buglens-db-staging
+  - name: buglens-db-production
     engine: PG
     version: "15"
-    size: db-s-1vcpu-1gb
+    size: db-s-1vcpu-2gb
     num_nodes: 1
-    production: false
+    production: true
 
   # ===========================================
   # Managed Redis
   # ===========================================
-  - name: buglens-redis-staging
+  - name: buglens-redis-production
     engine: REDIS
     version: "7"
     size: db-s-1vcpu-1gb
     num_nodes: 1
-    production: false
+    production: true

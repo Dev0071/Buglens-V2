@@ -89,5 +89,5 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Start application
-CMD ["node", "dist/index.js"]
+# Run migrations then start application
+CMD ["sh", "-c", "npm run migrate:up && node dist/src/api/server.js"]
