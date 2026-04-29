@@ -62,5 +62,9 @@
   },
   "engines": {
     "node": "20.x"
+  },
+  "overrides": {
+    "fast-jwt": "6.2.4",
+    "fast-xml-parser": "5.7.2"
   }
 }
