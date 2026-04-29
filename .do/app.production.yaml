@@ -18,6 +18,7 @@ services:
       deploy_on_push: false  # Controlled by GitHub Actions with approval gate
 
     dockerfile_path: Dockerfile
+    run_command: npm run migrate:up && node dist/src/api/server.js  # override combined CMD
 
     instance_count: 2
     instance_size_slug: professional-s

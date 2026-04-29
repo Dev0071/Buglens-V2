@@ -1,5 +1,11 @@
 # DigitalOcean App Platform Specification
-# Staging Environment
+# Staging Environment — minimum cost (~$12/mo)
+#
+# Uses external free-tier services instead of DO managed databases:
+#   Postgres: https://neon.tech  (free tier, 512MB)
+#   Redis:    https://upstash.com (free tier, 10K commands/day)
+#
+# Single service runs API + BullMQ workers in one container.
 
 name: buglens-staging
 region: nyc
@@ -7,9 +13,6 @@ region: nyc
 features:
   - buildpack-stack=ubuntu-22
 
-# ===========================================
-# API Service
-# ===========================================
 services:
   - name: api
     github:
@@ -20,7 +23,7 @@ services:
     dockerfile_path: Dockerfile
 
     instance_count: 1
-    instance_size_slug: professional-xs
+    instance_size_slug: professional-xs  # $12/mo — 1GB RAM, enough for API + workers + Python
 
     http_port: 3000
 
@@ -44,31 +47,33 @@ services:
       - key: LOG_LEVEL
         value: info
 
-      # URLs — update these once your DO app is created and you have a domain
+      # URLs — update API_BASE_URL after DO gives you an app URL
       - key: API_BASE_URL
         value: https://buglens-staging-api.ondigitalocean.app
       - key: APP_BASE_URL
         value: https://staging.buglens.co
       - key: FRONTEND_URL
         value: https://staging.buglens.co
-      # Comma-separated list of allowed CORS origins
       - key: CORS_ORIGINS
         value: https://staging.buglens.co,http://localhost:5173
 
-      # Database (injected from managed DB)
+      # Database — paste your Neon connection string as a secret
+      # Get it from: https://neon.tech → project → Connection Details → Connection string
       - key: DATABASE_URL
         scope: RUN_TIME
-        value: ${buglens-db-staging.DATABASE_URL}
+        type: SECRET
       - key: DATABASE_SSL
         value: "true"
 
-      # Redis (injected from managed Redis)
+      # Redis — paste your Upstash connection string as a secret
+      # Get it from: https://upstash.com → database → Details → REDIS_URL
       - key: REDIS_URL
         scope: RUN_TIME
-        value: ${buglens-redis-staging.DATABASE_URL}
+        type: SECRET
 
-      # DO Spaces (S3-compatible) — use Spaces access keys here, NOT AWS keys
-      # Create a Spaces access key at: https://cloud.digitalocean.com/account/api/spaces
+      # DO Spaces (S3-compatible) for source map / artifact cache
+      # Create a Space at: https://cloud.digitalocean.com/spaces
+      # Then generate a Spaces key at: https://cloud.digitalocean.com/account/api/spaces
       - key: S3_ENDPOINT
         value: https://nyc3.digitaloceanspaces.com
       - key: S3_BUCKET_NAME
@@ -83,9 +88,6 @@ services:
         type: SECRET
 
       # GitHub App Integration
-      # GITHUB_APP_PRIVATE_KEY_SECRET_ID: if using AWS Secrets Manager, set this to
-      # the secret path (e.g. "buglens/github-app-private-key"). If you store the raw
-      # PEM directly in DO secrets, you'll need a small code change in github.ts.
       - key: GITHUB_APP_ID
         scope: RUN_TIME
         type: SECRET
@@ -121,14 +123,14 @@ services:
       - key: OPENAI_MODEL
         value: gpt-4o-mini
 
-      # Sentry
+      # Sentry (optional for staging)
       - key: SENTRY_DSN
         scope: RUN_TIME
         type: SECRET
       - key: SENTRY_ENVIRONMENT
         value: staging
 
-      # Slack
+      # Slack (optional for staging)
       - key: SLACK_CLIENT_ID
         scope: RUN_TIME
         type: SECRET
@@ -145,105 +147,3 @@ services:
       - key: PLATFORM_ADMIN_TOKEN
         scope: RUN_TIME
         type: SECRET
-
-      # Feature Flags
-      - key: FEATURE_LLM_ENABLED
-        value: "true"
-      - key: FEATURE_SLACK_ENABLED
-        value: "true"
-      - key: FEATURE_SOURCE_MAPS_ENABLED
-        value: "true"
-
-  # ===========================================
-  # Worker Service (BullMQ)
-  # ===========================================
-  - name: worker
-    github:
-      repo: Dev0071/Buglens-V2
-      branch: staging
-      deploy_on_push: true
-
-    dockerfile_path: Dockerfile.worker
-
-    instance_count: 1
-    instance_size_slug: professional-xs
-
-    envs:
-      - key: NODE_ENV
-        value: staging
-      - key: WORKER_MODE
-        value: "true"
-      - key: LOG_LEVEL
-        value: info
-
-      # Database
-      - key: DATABASE_URL
-        scope: RUN_TIME
-        value: ${buglens-db-staging.DATABASE_URL}
-      - key: DATABASE_SSL
-        value: "true"
-
-      # Redis
-      - key: REDIS_URL
-        scope: RUN_TIME
-        value: ${buglens-redis-staging.DATABASE_URL}
-
-      # DO Spaces
-      - key: S3_ENDPOINT
-        value: https://nyc3.digitaloceanspaces.com
-      - key: S3_BUCKET_NAME
-        value: buglens-cache-staging
-      - key: AWS_REGION
-        value: us-east-1
-      - key: AWS_ACCESS_KEY_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: AWS_SECRET_ACCESS_KEY
-        scope: RUN_TIME
-        type: SECRET
-
-      # GitHub
-      - key: GITHUB_APP_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: GITHUB_APP_PRIVATE_KEY_SECRET_ID
-        scope: RUN_TIME
-        type: SECRET
-
-      # OpenAI
-      - key: OPENAI_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-
-      # Sentry
-      - key: SENTRY_DSN
-        scope: RUN_TIME
-        type: SECRET
-      - key: SENTRY_ENVIRONMENT
-        value: staging
-
-      # Auth
-      - key: JWT_SECRET
-        scope: RUN_TIME
-        type: SECRET
-
-# ===========================================
-# Managed PostgreSQL Database
-# ===========================================
-databases:
-  - name: buglens-db-staging
-    engine: PG
-    version: "15"
-    size: db-s-1vcpu-1gb
-    num_nodes: 1
-    production: false
-
-  # ===========================================
-  # Managed Redis
-  # ===========================================
-  - name: buglens-redis-staging
-    engine: REDIS
-    version: "7"
-    size: db-s-1vcpu-1gb
-    num_nodes: 1
-    production: false
