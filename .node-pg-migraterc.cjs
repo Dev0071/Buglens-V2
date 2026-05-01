@@ -5,6 +5,15 @@ if (!url) {
   process.exit(1);
 }
 
+// Log the host only (no credentials) so we can verify which DB is being targeted
+try {
+  const parsed = new URL(url);
+  console.log(`🔍 Migration target: ${parsed.hostname}:${parsed.port || 5432}${parsed.pathname}`);
+} catch {
+  console.error('❌ DATABASE_URL is set but is not a valid URL:', url.slice(0, 30) + '...');
+  process.exit(1);
+}
+
 // Parse SSL from the URL itself (?sslmode=require) or the DATABASE_SSL flag.
 // Cloud databases (Neon, RDS, DO managed) require SSL.
 // Local dev URLs (localhost) should not force SSL.
