@@ -14,9 +14,6 @@ import {
   BuildingOfficeIcon,
   UsersIcon,
   PuzzlePieceIcon,
-  KeyIcon,
-  CreditCardIcon,
-  BellIcon,
   CheckCircleIcon,
   XCircleIcon,
   ClipboardDocumentIcon,
@@ -31,8 +28,6 @@ import {
   useIntegrations,
   useConnectIntegration,
   useDisconnectIntegration,
-  useBillingUsage,
-  useUpgradePlan,
   useTeamMembers,
   useInviteMember,
   useUpdateMemberRole,
@@ -40,7 +35,6 @@ import {
   useProfile,
   useUpdateProfile,
   useChangePassword,
-  useNotificationPreferences,
   useDeleteAccount,
 } from "@/lib/hooks";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -71,24 +65,6 @@ const settingsNav = [
     href: "/settings/integrations",
     icon: PuzzlePieceIcon,
     description: "Configure Sentry, GitHub, and Slack",
-  },
-  {
-    name: "API Keys",
-    href: "/settings/api-keys",
-    icon: KeyIcon,
-    description: "Manage API access tokens",
-  },
-  {
-    name: "Notifications",
-    href: "/settings/notifications",
-    icon: BellIcon,
-    description: "Configure alerts and notifications",
-  },
-  {
-    name: "Billing",
-    href: "/settings/billing",
-    icon: CreditCardIcon,
-    description: "Subscription and payment settings",
   },
 ];
 
@@ -160,12 +136,6 @@ function SettingsPage() {
             <TeamSettings />
           ) : location.pathname === "/settings/integrations" ? (
             <IntegrationsSettings />
-          ) : location.pathname === "/settings/api-keys" ? (
-            <APIKeysSettings />
-          ) : location.pathname === "/settings/notifications" ? (
-            <NotificationSettings />
-          ) : location.pathname === "/settings/billing" ? (
-            <BillingSettings />
           ) : (
             <Outlet />
           )}
@@ -930,13 +900,6 @@ function IntegrationsSettings() {
     { id: "sentry", type: "sentry", name: "Sentry", status: "disconnected" },
     { id: "github", type: "github", name: "GitHub", status: "disconnected" },
     { id: "slack", type: "slack", name: "Slack", status: "disconnected" },
-    { id: "jira", type: "jira", name: "Jira", status: "disconnected" },
-    {
-      id: "teams",
-      type: "teams",
-      name: "Microsoft Teams",
-      status: "disconnected",
-    },
   ];
 
   const displayIntegrations = integrations ?? defaultIntegrations;
@@ -1107,30 +1070,7 @@ function IntegrationsSettings() {
         </h2>
         <div className="space-y-4">
           {displayIntegrations
-            .filter((i) => i.type === "slack" || i.type === "teams")
-            .map((integration) => (
-              <IntegrationCard
-                key={integration.id}
-                type={integration.type}
-                name={integration.name}
-                description={getIntegrationDescription(integration.type)}
-                status={integration.status}
-                available={isProviderAvailable(integration.type)}
-                onConnect={() => handleConnect(integration.type)}
-                onDisconnect={() => handleDisconnect(integration.id)}
-              />
-            ))}
-        </div>
-      </section>
-
-      {/* Issue Tracking */}
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Issue Tracking
-        </h2>
-        <div className="space-y-4">
-          {displayIntegrations
-            .filter((i) => i.type === "jira")
+            .filter((i) => i.type === "slack")
             .map((integration) => (
               <IntegrationCard
                 key={integration.id}
@@ -1381,320 +1321,12 @@ function SentryConfigModal({
 }
 
 // ============================================================================
-// API Keys Settings Section
-// ============================================================================
-
-function APIKeysSettings() {
-  const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
-
-  // Mock API keys
-  const apiKeys = [
-    {
-      id: "key-1",
-      name: "Production API Key",
-      prefix: "blk_prod_",
-      createdAt: "2024-01-10T10:00:00Z",
-      lastUsed: "2024-01-15T14:30:00Z",
-      scopes: ["read:events", "read:rca"],
-    },
-    {
-      id: "key-2",
-      name: "CI/CD Pipeline",
-      prefix: "blk_ci_",
-      createdAt: "2024-01-05T09:00:00Z",
-      lastUsed: null,
-      scopes: ["read:events"],
-    },
-  ];
-
-  const handleCreateKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Generate a mock key
-    const key = `blk_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    setNewKeyValue(key);
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Create New Key Card */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            API Keys
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Manage API access for programmatic integrations
-          </p>
-        </div>
-        <div className="card-body">
-          {newKeyValue ? (
-            <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-              <p className="text-sm font-medium text-green-800 dark:text-green-300 mb-2">
-                ✅ API Key Created! Copy it now - you won't see it again.
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 bg-white dark:bg-gray-800 rounded-lg text-sm font-mono break-all">
-                  {newKeyValue}
-                </code>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    navigator.clipboard.writeText(newKeyValue);
-                  }}
-                >
-                  Copy
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    setNewKeyValue(null);
-                    setNewKeyName("");
-                  }}
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleCreateKey} className="flex gap-4">
-              <input
-                type="text"
-                value={newKeyName}
-                onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="Key name (e.g., Production API Key)"
-                className="input flex-1"
-                required
-              />
-              <button type="submit" className="btn btn-primary">
-                Create API Key
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
-
-      {/* Existing Keys List */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Active Keys
-          </h2>
-        </div>
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {apiKeys.map((key) => (
-            <div key={key.id} className="p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    {key.name}
-                  </p>
-                  <code className="text-sm text-gray-500 dark:text-gray-400 font-mono">
-                    {key.prefix}••••••••
-                  </code>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    <span>
-                      Created: {new Date(key.createdAt).toLocaleDateString()}
-                    </span>
-                    <span>
-                      Last used:{" "}
-                      {key.lastUsed
-                        ? new Date(key.lastUsed).toLocaleDateString()
-                        : "Never"}
-                    </span>
-                  </div>
-                </div>
-                <button className="btn btn-ghost text-red-600 dark:text-red-400 text-sm">
-                  Revoke
-                </button>
-              </div>
-              <div className="mt-2 flex gap-2">
-                {key.scopes.map((scope) => (
-                  <span
-                    key={scope}
-                    className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-600 dark:text-gray-400"
-                  >
-                    {scope}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* API Documentation Link */}
-      <div className="card bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800">
-        <div className="card-body">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-medium text-brand-900 dark:text-brand-100">
-                API Documentation
-              </h3>
-              <p className="text-sm text-brand-700 dark:text-brand-300">
-                Learn how to use the Buglens API for custom integrations
-              </p>
-            </div>
-            <a
-              href="/docs/api"
-              className="btn bg-brand-600 hover:bg-brand-700 text-white"
-            >
-              View Docs →
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Notification Settings Section
-// ============================================================================
-
-function NotificationSettings() {
-  const { data: settings } = useOrganizationSettings();
-
-  return (
-    <div className="space-y-6">
-      {/* Email Notifications */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Email Notifications
-          </h2>
-        </div>
-        <div className="card-body space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900 dark:text-white">
-                Enable Email Notifications
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Receive RCA summaries via email
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                defaultChecked={settings?.notifications?.email?.enabled}
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-brand-300 dark:peer-focus:ring-brand-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-brand-600" />
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Email Recipients
-            </label>
-            <input
-              type="text"
-              placeholder="Enter email addresses, separated by commas"
-              className="input"
-              defaultValue={settings?.notifications?.email?.addresses?.join(
-                ", "
-              )}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Slack Notifications */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Slack Notifications
-          </h2>
-        </div>
-        <div className="card-body space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900 dark:text-white">
-                Enable Slack Notifications
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Post RCA results to a Slack channel
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                defaultChecked={settings?.notifications?.slack?.enabled}
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-brand-300 dark:peer-focus:ring-brand-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-brand-600" />
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Default Channel
-            </label>
-            <input
-              type="text"
-              placeholder="#bugs"
-              className="input max-w-xs"
-              defaultValue={settings?.notifications?.slack?.channel}
-            />
-          </div>
-
-          <div className="pt-4 space-y-3">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Notify when:
-            </p>
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded border-gray-300"
-                defaultChecked={
-                  settings?.notifications?.slack?.notifyOnComplete
-                }
-              />
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                RCA analysis completes
-              </span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded border-gray-300"
-                defaultChecked={settings?.notifications?.slack?.notifyOnError}
-              />
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                Analysis fails or encounters an error
-              </span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded border-gray-300"
-                defaultChecked
-              />
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                Critical severity event received
-              </span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <button className="btn btn-primary">Save Notification Settings</button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // Profile Settings Section
 // ============================================================================
 
 function ProfileSettings() {
   const toast = useToast();
   const { data: profileData, isLoading: profileLoading } = useProfile();
-  const { isLoading: notifLoading } = useNotificationPreferences();
   const updateProfileMutation = useUpdateProfile();
   const changePasswordMutation = useChangePassword();
   // TODO: Add notification preferences UI using useUpdateNotificationPreferences
@@ -1766,7 +1398,7 @@ function ProfileSettings() {
     }
   };
 
-  if (profileLoading || notifLoading) {
+  if (profileLoading) {
     return (
       <div className="flex items-center justify-center h-48">
         <LoadingSpinner size="lg" />
@@ -2050,323 +1682,6 @@ function ProfileSettings() {
   );
 }
 
-// ============================================================================
-// Billing Settings Section
-// ============================================================================
 
-function BillingSettings() {
-  const toast = useToast();
-  const { data: billingData, isLoading, error } = useBillingUsage();
-  const upgradeMutation = useUpgradePlan();
-
-  const handleUpgrade = async (plan: "free" | "pro" | "enterprise") => {
-    if (plan === "enterprise") {
-      // Open contact sales page or modal
-      window.open(
-        "mailto:sales@buglens.io?subject=Enterprise%20Plan%20Inquiry",
-        "_blank"
-      );
-      return;
-    }
-
-    try {
-      await upgradeMutation.mutateAsync(plan);
-      toast.success(
-        "Plan Updated",
-        `Successfully switched to ${plan.toUpperCase()} plan`
-      );
-    } catch (err) {
-      toast.error(
-        "Upgrade Failed",
-        "Failed to upgrade plan. Please try again."
-      );
-    }
-  };
-
-  const currentPlan = billingData?.plan || "free";
-
-  const plans = [
-    {
-      id: "free" as const,
-      name: "Free",
-      price: 0,
-      features: [
-        `${billingData?.limits?.eventsPerDay || 100} events/day`,
-        `${((billingData?.limits?.llmTokensPerDay || 50000) / 1000).toFixed(0)}K LLM tokens/day`,
-        `${billingData?.limits?.usersAllowed || 3} team members`,
-        "7-day history",
-      ],
-      current: currentPlan === "free",
-    },
-    {
-      id: "pro" as const,
-      name: "Pro",
-      price: 49,
-      features: [
-        "1,000 events/day",
-        "500K LLM tokens/day",
-        "10 team members",
-        "30-day history",
-        "Priority support",
-      ],
-      current: currentPlan === "pro",
-      recommended: true,
-    },
-    {
-      id: "enterprise" as const,
-      name: "Enterprise",
-      price: null,
-      features: [
-        "Unlimited events",
-        "Unlimited LLM tokens",
-        "Unlimited team members",
-        "Unlimited history",
-        "SLA guarantee",
-        "Dedicated support",
-      ],
-      current: currentPlan === "enterprise",
-    },
-  ];
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="card">
-        <div className="card-body text-center py-8">
-          <p className="text-red-500">Failed to load billing information</p>
-        </div>
-      </div>
-    );
-  }
-
-  const priceMap: Record<string, number> = { free: 0, pro: 49, enterprise: 0 };
-
-  return (
-    <div className="space-y-6">
-      {/* Current Plan */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Current Plan
-          </h2>
-        </div>
-        <div className="card-body">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {currentPlan.toUpperCase()} Plan
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {currentPlan === "free"
-                  ? "No billing"
-                  : "Billed monthly • Next billing date: Feb 1, 2024"}
-              </p>
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {currentPlan === "enterprise"
-                ? "Custom"
-                : `$${priceMap[currentPlan]}`}
-              {currentPlan !== "enterprise" && currentPlan !== "free" && (
-                <span className="text-sm font-normal">/month</span>
-              )}
-            </p>
-          </div>
-
-          {/* Usage Stats */}
-          {billingData?.usage && billingData?.limits && (
-            <div className="mt-6 grid grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {billingData.usage.eventsToday?.toLocaleString() || 0}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Events Today /{" "}
-                  {billingData.limits.eventsPerDay?.toLocaleString() || "100"}
-                </p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {((billingData.usage.llmTokensToday || 0) / 1000).toFixed(1)}K
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Tokens Today /{" "}
-                  {(
-                    (billingData.limits.llmTokensPerDay || 50000) / 1000
-                  ).toFixed(0)}
-                  K
-                </p>
-              </div>
-              <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {billingData.usage.teamMembers || 0}
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Team Members / {billingData.limits.usersAllowed || 3}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Plan Comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {plans.map((plan) => (
-          <div
-            key={plan.name}
-            className={cn(
-              "card relative",
-              plan.recommended && "ring-2 ring-brand-500",
-              plan.current && "bg-brand-50 dark:bg-brand-900/20"
-            )}
-          >
-            {plan.recommended && (
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="bg-brand-500 text-white text-xs font-medium px-2 py-1 rounded-full">
-                  Recommended
-                </span>
-              </div>
-            )}
-            <div className="card-body">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {plan.name}
-              </h3>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                {plan.price === null ? (
-                  "Custom"
-                ) : plan.price === 0 ? (
-                  "Free"
-                ) : (
-                  <>
-                    ${plan.price}
-                    <span className="text-sm font-normal text-gray-500">
-                      /mo
-                    </span>
-                  </>
-                )}
-              </p>
-              <ul className="mt-4 space-y-2">
-                {plan.features.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
-                  >
-                    <span className="text-green-500">✓</span>
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <button
-                className={cn(
-                  "btn w-full mt-6",
-                  plan.current
-                    ? "btn-secondary"
-                    : plan.recommended
-                      ? "btn-primary"
-                      : "btn-secondary"
-                )}
-                disabled={plan.current || upgradeMutation.isPending}
-                onClick={() => handleUpgrade(plan.id)}
-              >
-                {upgradeMutation.isPending ? (
-                  <LoadingSpinner size="sm" />
-                ) : plan.current ? (
-                  "Current Plan"
-                ) : plan.price === null ? (
-                  "Contact Sales"
-                ) : (
-                  "Upgrade"
-                )}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Payment Method */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Payment Method
-          </h2>
-        </div>
-        <div className="card-body">
-          {currentPlan === "free" ? (
-            <p className="text-gray-500 dark:text-gray-400">
-              No payment method required for free plan
-            </p>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded flex items-center justify-center">
-                  <span className="text-white text-xs font-bold">VISA</span>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    •••• •••• •••• 4242
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Expires 12/25
-                  </p>
-                </div>
-              </div>
-              <button className="btn btn-secondary">Update Card</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Billing History */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Billing History
-          </h2>
-        </div>
-        {currentPlan === "free" ? (
-          <div className="card-body">
-            <p className="text-gray-500 dark:text-gray-400">
-              No billing history for free plan
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {[
-              { date: "Jan 1, 2024", amount: 49.0, status: "Paid" },
-              { date: "Dec 1, 2023", amount: 49.0, status: "Paid" },
-              { date: "Nov 1, 2023", amount: 49.0, status: "Paid" },
-            ].map((invoice, i) => (
-              <div key={i} className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    {invoice.date}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}{" "}
-                    Plan
-                  </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="badge badge-success">{invoice.status}</span>
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    ${invoice.amount.toFixed(2)}
-                  </span>
-                  <button className="btn btn-ghost text-sm">Download</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default SettingsPage;
