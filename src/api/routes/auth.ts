@@ -534,21 +534,23 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       // Clear the state cookie
       reply.clearCookie("oauth_state", { path: "/" });
 
+      const frontendUrl = config.FRONTEND_URL;
+
       // Validate state
       if (!state || state !== savedState) {
         logger.warn({ state, savedState }, "OAuth state mismatch");
-        return reply.redirect("/login?error=invalid_state");
+        return reply.redirect(`${frontendUrl}/login?error=invalid_state`);
       }
 
       if (!code) {
-        return reply.redirect("/login?error=no_code");
+        return reply.redirect(`${frontendUrl}/login?error=no_code`);
       }
 
       try {
         const credentials = platformCredentials.getGitHubOAuth();
 
         if (!credentials) {
-          return reply.redirect("/login?error=oauth_not_configured");
+          return reply.redirect(`${frontendUrl}/login?error=oauth_not_configured`);
         }
 
         // Exchange code for access token using platform credentials
@@ -578,7 +580,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             { error: tokenData.error },
             "GitHub token exchange failed"
           );
-          return reply.redirect("/login?error=token_exchange_failed");
+          return reply.redirect(`${frontendUrl}/login?error=token_exchange_failed`);
         }
 
         // Get user info from GitHub
@@ -619,7 +621,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         }
 
         if (!email) {
-          return reply.redirect("/login?error=no_email");
+          return reply.redirect(`${frontendUrl}/login?error=no_email`);
         }
 
         // Login or signup with OAuth
@@ -646,11 +648,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 30 * 24 * 60 * 60,
         });
 
-        // Redirect to app with token in URL (will be extracted by frontend)
-        return reply.redirect(`/?token=${accessToken}&provider=github`);
+        // Redirect to frontend with token in URL (will be extracted by frontend)
+        return reply.redirect(`${frontendUrl}/?token=${accessToken}&provider=github`);
       } catch (error) {
         logger.error(error, "GitHub OAuth callback error");
-        return reply.redirect("/login?error=oauth_failed");
+        return reply.redirect(`${frontendUrl}/login?error=oauth_failed`);
       }
     }
   );
@@ -737,20 +739,22 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       reply.clearCookie("oauth_state", { path: "/" });
       reply.clearCookie("oauth_verifier", { path: "/" });
 
+      const frontendUrl = config.FRONTEND_URL;
+
       if (!state || state !== savedState) {
         logger.warn({ state, savedState }, "OAuth state mismatch");
-        return reply.redirect("/login?error=invalid_state");
+        return reply.redirect(`${frontendUrl}/login?error=invalid_state`);
       }
 
       if (!code) {
-        return reply.redirect("/login?error=no_code");
+        return reply.redirect(`${frontendUrl}/login?error=no_code`);
       }
 
       try {
         const credentials = platformCredentials.getGoogleOAuth();
 
         if (!credentials) {
-          return reply.redirect("/login?error=oauth_not_configured");
+          return reply.redirect(`${frontendUrl}/login?error=oauth_not_configured`);
         }
 
         const redirectUri = `${getBaseUrlFromRequest(request)}/api/auth/google/callback`;
@@ -791,7 +795,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             { error: tokenData.error },
             "Google token exchange failed"
           );
-          return reply.redirect("/login?error=token_exchange_failed");
+          return reply.redirect(`${frontendUrl}/login?error=token_exchange_failed`);
         }
 
         // Get user info from Google
@@ -813,7 +817,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         };
 
         if (!googleUser.email || !googleUser.verified_email) {
-          return reply.redirect("/login?error=email_not_verified");
+          return reply.redirect(`${frontendUrl}/login?error=email_not_verified`);
         }
 
         // Login or signup with OAuth
@@ -840,10 +844,10 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 30 * 24 * 60 * 60,
         });
 
-        return reply.redirect(`/?token=${accessToken}&provider=google`);
+        return reply.redirect(`${frontendUrl}/?token=${accessToken}&provider=google`);
       } catch (error) {
         logger.error(error, "Google OAuth callback error");
-        return reply.redirect("/login?error=oauth_failed");
+        return reply.redirect(`${frontendUrl}/login?error=oauth_failed`);
       }
     }
   );
