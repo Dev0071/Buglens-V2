@@ -93,7 +93,7 @@ function LoginPage() {
         </button>
 
         {/* Test Sentry - onClick error (manual capture) */}
-        <button
+        {/* <button
           type="button"
          onClick={() => {
   const error = new Error("Test error from onClick handler");
@@ -108,7 +108,7 @@ function LoginPage() {
           className="btn btn-danger w-full"
         >
           Test Sentry (onClick)
-        </button>
+        </button> */}
       </div>
 
       {/* Divider */}
