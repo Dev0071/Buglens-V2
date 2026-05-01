@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/ui/toaster";
-import * as Sentry from "@sentry/react";
+// import * as Sentry from "@sentry/react";
 
 /**
  * Login page component with email/password and OAuth options
@@ -93,7 +93,7 @@ function LoginPage() {
         </button>
 
         {/* Test Sentry - onClick error (manual capture) */}
-        <button
+        {/* <button
           type="button"
          onClick={() => {
   const error = new Error("Test error from onClick handler");
@@ -108,7 +108,7 @@ function LoginPage() {
           className="btn btn-danger w-full"
         >
           Test Sentry (onClick)
-        </button>
+        </button> */}
       </div>
 
       {/* Divider */}

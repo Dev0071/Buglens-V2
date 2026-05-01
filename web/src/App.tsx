@@ -25,9 +25,6 @@ const EventsPage = lazy(() => import("@/pages/events/EventsPage"));
 const EventDetailPage = lazy(() => import("@/pages/events/EventDetailPage"));
 const RCADetailPage = lazy(() => import("@/pages/rca/RCADetailPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
-const AnalyticsPage = lazy(() => import("@/pages/analytics/AnalyticsPage"));
-const TestSentryPage = lazy(() => import("@/pages/TestSentry"));
-
 // Admin pages (lazy loaded)
 const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
 const AdminDashboardPage = lazy(
@@ -156,9 +153,6 @@ function App() {
                 {/* Landing page - public marketing page (default) */}
                 <Route path="/" element={<LandingPage />} />
 
-                {/* Test Sentry page - public for testing */}
-                <Route path="/test-sentry" element={<TestSentryPage />} />
-
                 {/* Public routes */}
                 <Route element={<AuthLayout />}>
                   <Route
@@ -201,18 +195,11 @@ function App() {
                     path="/settings/integrations"
                     element={<SettingsPage />}
                   />
-                  <Route path="/settings/api-keys" element={<SettingsPage />} />
-                  <Route
-                    path="/settings/notifications"
-                    element={<SettingsPage />}
-                  />
-                  <Route path="/settings/billing" element={<SettingsPage />} />
                   {/* Redirect old /integrations route to settings */}
                   <Route
                     path="/integrations"
                     element={<Navigate to="/settings/integrations" replace />}
                   />
-                  <Route path="/analytics" element={<AnalyticsPage />} />
                 </Route>
 
                 {/* Admin routes - protected with role check and admin token */}
@@ -230,7 +217,6 @@ function App() {
                   <Route path="users" element={<UsersPage />} />
                   <Route path="system" element={<SystemHealthPage />} />
                   <Route path="audit" element={<AuditLogsPage />} />
-                  <Route path="analytics" element={<AnalyticsPage />} />
                 </Route>
 
                 {/* Catch all - redirect to landing */}

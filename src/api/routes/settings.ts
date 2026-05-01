@@ -7,6 +7,7 @@ import {
   logOrgDelete,
   logPlanChange,
 } from "../../services/audit.js";
+import { createAdminAuthHook } from "../middleware/admin-auth.js";
 
 // ============================================
 // Request/Response Schemas
@@ -497,12 +498,12 @@ async function getBillingUsageHandler(
  * Upgrades organization plan
  */
 async function upgradePlanHandler(
-  request: FastifyRequest<{ Body: { plan: string } }>,
+  request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
   const orgId = request.getOrgId();
   const userId = request.getUserId();
-  const { plan } = request.body;
+  const { plan } = request.body as { plan: string };
 
   if (!orgId || !userId) {
     reply.status(401).send({
@@ -619,10 +620,11 @@ export async function settingsRoutes(server: FastifyInstance): Promise<void> {
   // GET /api/settings/billing/usage
   server.get("/settings/billing/usage", getBillingUsageHandler);
 
-  // POST /api/settings/billing/upgrade
+  // POST /api/settings/billing/upgrade — platform admin only (no self-promotion without payment)
   server.post(
     "/settings/billing/upgrade",
     {
+      preHandler: createAdminAuthHook("billing plan upgrade"),
       schema: {
         body: {
           type: "object",
