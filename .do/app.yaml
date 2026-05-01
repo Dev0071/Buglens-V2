@@ -49,7 +49,7 @@ services:
 
       # URLs — update API_BASE_URL after DO gives you an app URL
       - key: API_BASE_URL
-        value: https://buglens-staging-api.ondigitalocean.app
+        value: https://staging.buglens.co
       - key: APP_BASE_URL
         value: https://staging.buglens.co
       - key: FRONTEND_URL
