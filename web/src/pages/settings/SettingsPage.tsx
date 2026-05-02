@@ -26,7 +26,6 @@ import {
   useOrganizationSettings,
   useUpdateSettings,
   useIntegrations,
-  useConnectIntegration,
   useDisconnectIntegration,
   useTeamMembers,
   useInviteMember,
@@ -796,9 +795,9 @@ function TeamSettings() {
 
 function IntegrationsSettings() {
   const { data: integrations, isLoading, refetch } = useIntegrations();
-  const connectMutation = useConnectIntegration();
   const disconnectMutation = useDisconnectIntegration();
   const [showSentryModal, setShowSentryModal] = useState(false);
+  const [sentryConfiguring, setSentryConfiguring] = useState(false);
   const [availableProviders, setAvailableProviders] = useState<
     Array<{
       id: string;
@@ -963,8 +962,13 @@ function IntegrationsSettings() {
     dsn?: string;
     authToken?: string;
   }) => {
+    setSentryConfiguring(true);
     try {
-      await connectMutation.mutateAsync({ type: "sentry", config });
+      // Hit the dedicated /integrations/sentry/configure endpoint instead of
+      // the generic /integrations/:type/connect. The dedicated handler
+      // normalizes camelCase to snake_case, validates the api_base_url, and
+      // splits the auth token into encrypted storage.
+      await apiClient.post("/integrations/sentry/configure", config);
       setShowSentryModal(false);
       setNotification({
         type: "success",
@@ -976,6 +980,8 @@ function IntegrationsSettings() {
         type: "error",
         message: "Failed to configure Sentry integration",
       });
+    } finally {
+      setSentryConfiguring(false);
     }
   };
 
@@ -1092,7 +1098,7 @@ function IntegrationsSettings() {
         <SentryConfigModal
           onClose={() => setShowSentryModal(false)}
           onConnect={handleSentryConnect}
-          isLoading={connectMutation.isPending}
+          isLoading={sentryConfiguring}
         />
       )}
     </div>

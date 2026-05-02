@@ -252,8 +252,8 @@ async function processLLMJob(job: Job<LLMReasoningJobData>): Promise<void> {
     // Step 3: Mark job as LLM processing
     await markLLMProcessing(orgId, jobId);
 
-    // Step 4: Cache check — same signature + release already analyzed?
-    const cached = await findCachedRCA(orgId, eventId);
+    // Step 4: Cache check — same signature + release + top-frame already analyzed?
+    const cached = await findCachedRCA(orgId, eventId, evidenceBundle);
 
     let rcaResult: LLMResult;
     let cacheHit = false;
@@ -487,16 +487,26 @@ interface LLMResult {
 // LLM Result Cache
 // ============================================
 //
-// Re-uses an existing high-confidence RCA when the same error signature has
-// already been analyzed at the same code revision (release). Sentry groups
-// identical errors by signature, so when an event re-fires we serve the prior
-// result instead of paying for another LLM call.
+// Re-uses an existing high-confidence RCA when the same error has already been
+// analyzed at the same code revision (release). The cache only short-circuits
+// the LLM call (worker step 4); the downstream steps — evidence graph,
+// persistence, notifications — still run per event.
 //
-// The cache only short-circuits the LLM call (worker step 4). The downstream
-// steps — evidence graph, persistence, notifications — still run per event.
+// Cache key: signature + release + (first in-app stack frame file:line).
+//
+// Why the extra frame check: events.signature falls back to
+// `<exceptionType>:<exceptionValue>` when Sentry doesn't send a fingerprint
+// (webhooks.ts). A generic message like "Cannot read properties of undefined"
+// would otherwise collide across unrelated call sites in the same release and
+// we'd serve the wrong root cause. The first in-app frame disambiguates which
+// piece of code raised the error.
 
 const CACHE_MIN_CONFIDENCE = 0.7;
 const CACHE_MAX_AGE_DAYS = 30;
+// Look at up to N candidate rows from SQL and post-filter for matching
+// stack-frame location. Keeps the SQL bounded while still tolerating bursts
+// of the same incident.
+const CACHE_CANDIDATE_LIMIT = 20;
 
 interface CachedRCA {
   title: string;
@@ -512,15 +522,51 @@ interface CachedRCA {
   source_event_id: string;
 }
 
+interface FrameKey {
+  file: string;
+  line: number;
+}
+
+/**
+ * Pick the first in-app frame's file:line as the disambiguator. Falls back to
+ * the very first frame if no in-app frame is present (some Sentry payloads
+ * don't tag frames). Returns null when there's no usable frame info — in that
+ * case we conservatively skip the cache.
+ */
+function extractFrameKey(bundle: EvidenceBundle): FrameKey | null {
+  const frames = bundle.error?.stack_trace ?? [];
+  const isUsable = (f: { file?: string; line?: number | null } | undefined) =>
+    !!f && typeof f.file === "string" && typeof f.line === "number";
+  const inApp = frames.find((f) => f?.in_app && isUsable(f));
+  const fallback = frames.find((f) => isUsable(f));
+  const chosen = inApp ?? fallback;
+  if (!chosen || typeof chosen.line !== "number") return null;
+  return { file: chosen.file, line: chosen.line };
+}
+
+function frameKeysMatch(a: FrameKey, b: unknown): boolean {
+  if (!b || typeof b !== "object") return false;
+  const candidate = b as { file?: unknown; line?: unknown };
+  return (
+    typeof candidate.file === "string" &&
+    typeof candidate.line === "number" &&
+    candidate.file === a.file &&
+    candidate.line === a.line
+  );
+}
+
 async function findCachedRCA(
   orgId: string,
-  eventId: string
+  eventId: string,
+  currentEvidence: EvidenceBundle
 ): Promise<CachedRCA | null> {
+  const currentFrame = extractFrameKey(currentEvidence);
+  if (!currentFrame) {
+    // No usable frame — fall through to LLM rather than risk a wrong reuse.
+    return null;
+  }
+
   return transaction(orgId, async (client) => {
-    // Look up the current event's signature + release, then find an existing
-    // RCA for any prior event in this org with the same signature at the same
-    // release. Confidence and recency gates keep us from serving stale or
-    // low-quality results.
     const result = await client.query<{
       id: string;
       event_id: string;
@@ -533,6 +579,7 @@ async function findCachedRCA(
       evidence_refs: unknown;
       llm_model: string;
       error_category: string | null;
+      first_frame: unknown;
     }>(
       `WITH current_event AS (
          SELECT signature, COALESCE(release, '') AS release
@@ -541,7 +588,8 @@ async function findCachedRCA(
        )
        SELECT r.id, r.event_id, r.title, r.summary, r.root_cause,
               r.causal_chain, r.suggested_fix, r.confidence,
-              r.evidence_refs, r.llm_model, r.error_category
+              r.evidence_refs, r.llm_model, r.error_category,
+              r.evidence->'error'->'stack_trace'->0 AS first_frame
        FROM rca_results r
        JOIN events e ON e.id = r.event_id
        JOIN current_event c ON e.signature = c.signature
@@ -551,38 +599,51 @@ async function findCachedRCA(
          AND r.confidence >= $3
          AND r.created_at >= NOW() - ($4 || ' days')::interval
        ORDER BY r.created_at DESC
-       LIMIT 1`,
-      [eventId, orgId, CACHE_MIN_CONFIDENCE, CACHE_MAX_AGE_DAYS.toString()]
+       LIMIT $5`,
+      [
+        eventId,
+        orgId,
+        CACHE_MIN_CONFIDENCE,
+        CACHE_MAX_AGE_DAYS.toString(),
+        CACHE_CANDIDATE_LIMIT,
+      ]
     );
 
-    if (result.rows.length === 0) return null;
+    // Post-filter: pick the most recent candidate whose stored top frame
+    // matches the current event's top frame. The SQL groups by
+    // signature+release, but signature can collide for generic messages, so
+    // we use the in-app frame as the tiebreaker.
+    const match = result.rows.find((row) =>
+      frameKeysMatch(currentFrame, row.first_frame)
+    );
 
-    const row = result.rows[0];
-    const causalChain = Array.isArray(row.causal_chain)
-      ? (row.causal_chain as string[])
+    if (!match) return null;
+
+    const causalChain = Array.isArray(match.causal_chain)
+      ? (match.causal_chain as string[])
       : [];
-    const evidenceRefs = Array.isArray(row.evidence_refs)
-      ? (row.evidence_refs as string[])
+    const evidenceRefs = Array.isArray(match.evidence_refs)
+      ? (match.evidence_refs as string[])
       : [];
     const suggestedFix =
-      row.suggested_fix &&
-      typeof row.suggested_fix === "object" &&
-      "description" in row.suggested_fix
-        ? String((row.suggested_fix as { description: unknown }).description)
+      match.suggested_fix &&
+      typeof match.suggested_fix === "object" &&
+      "description" in match.suggested_fix
+        ? String((match.suggested_fix as { description: unknown }).description)
         : "";
 
     return {
-      title: row.title,
-      summary: row.summary,
-      root_cause: row.root_cause,
+      title: match.title,
+      summary: match.summary,
+      root_cause: match.root_cause,
       causal_chain: causalChain,
       suggested_fix: suggestedFix,
-      confidence: row.confidence,
+      confidence: match.confidence,
       evidence_refs: evidenceRefs,
-      llm_model: row.llm_model,
-      error_category: row.error_category,
-      source_rca_id: row.id,
-      source_event_id: row.event_id,
+      llm_model: match.llm_model,
+      error_category: match.error_category,
+      source_rca_id: match.id,
+      source_event_id: match.event_id,
     };
   });
 }

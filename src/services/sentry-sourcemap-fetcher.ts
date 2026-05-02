@@ -19,6 +19,7 @@ import type { RawSourceMap } from "source-map";
 import { query } from "../db/client.js";
 import { redis } from "../db/redis.js";
 import { logger } from "../utils/logger.js";
+import { getIntegrationSecrets } from "./oauth.js";
 
 interface SentryReleaseFile {
   id: string;
@@ -48,6 +49,23 @@ function configCacheKey(orgId: string): string {
   return `sentry:config:${orgId}`;
 }
 
+/**
+ * Re-validate apiBaseUrl on every read. The configure handler already enforces
+ * this on write, but we defend in depth in case someone writes directly to the
+ * `config` column (admin tooling, migrations).
+ */
+function isAllowedSentryApiBase(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    return (
+      parsed.hostname === "sentry.io" || parsed.hostname.endsWith(".sentry.io")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function loadSentryConfig(
   orgId: string
 ): Promise<CachedSentryConfig | null> {
@@ -67,24 +85,36 @@ async function loadSentryConfig(
   let resolved: CachedSentryConfig | null = null;
   if (result.rows.length > 0 && result.rows[0].config) {
     const cfg = result.rows[0].config as Record<string, unknown>;
-    const orgSlug = typeof cfg.organization_slug === "string"
-      ? cfg.organization_slug
-      : null;
-    const projSlug = typeof cfg.project_slug === "string"
-      ? cfg.project_slug
-      : null;
-    const authToken = typeof cfg.auth_token === "string" ? cfg.auth_token : null;
-    const apiBaseUrl = typeof cfg.api_base_url === "string"
-      ? cfg.api_base_url
-      : "https://sentry.io";
+    const orgSlug =
+      typeof cfg.organization_slug === "string" ? cfg.organization_slug : null;
+    const projSlug =
+      typeof cfg.project_slug === "string" ? cfg.project_slug : null;
+    const apiBaseUrl =
+      typeof cfg.api_base_url === "string"
+        ? cfg.api_base_url
+        : "https://sentry.io";
 
-    if (orgSlug && projSlug) {
+    // Reject malformed/disallowed bases — never fire authenticated requests
+    // against arbitrary hosts even if someone wrote the column directly.
+    if (orgSlug && projSlug && isAllowedSentryApiBase(apiBaseUrl)) {
+      // Auth token lives in encrypted_tokens, never the plaintext config blob.
+      const secrets = await getIntegrationSecrets(orgId, "sentry");
+      const authToken =
+        secrets && typeof secrets.auth_token === "string"
+          ? secrets.auth_token
+          : null;
+
       resolved = {
         authToken,
         organizationSlug: orgSlug,
         projectSlug: projSlug,
         apiBaseUrl: apiBaseUrl.replace(/\/+$/, ""),
       };
+    } else if (orgSlug && projSlug) {
+      logger.warn(
+        { orgId, apiBaseUrl },
+        "Sentry integration has disallowed api_base_url, ignoring config"
+      );
     }
   }
 
@@ -197,14 +227,17 @@ function parseNextCursor(linkHeader: string | null): string | null {
 
 async function downloadFile(
   config: CachedSentryConfig,
+  release: string,
   fileId: string
 ): Promise<string | null> {
   if (!config.authToken) {
     return null;
   }
 
+  // Per Sentry API docs: download is on the same release-files collection the
+  // listing came from, not the org-wide source-maps endpoint.
   const url = new URL(
-    `/api/0/projects/${config.organizationSlug}/${config.projectSlug}/files/source-maps/${fileId}/?download=1`,
+    `/api/0/projects/${config.organizationSlug}/${config.projectSlug}/releases/${encodeURIComponent(release)}/files/${fileId}/?download=1`,
     config.apiBaseUrl
   );
 
@@ -273,7 +306,7 @@ export async function fetchSourceMapFromSentry(opts: {
       return null;
     }
 
-    const content = await downloadFile(config, file.id);
+    const content = await downloadFile(config, release, file.id);
     if (!content) {
       await safeSetCache(cacheKey, "__not_found__", MAP_NEGATIVE_TTL_SECONDS);
       return null;

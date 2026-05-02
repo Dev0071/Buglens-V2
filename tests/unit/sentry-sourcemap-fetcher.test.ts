@@ -28,8 +28,13 @@ vi.mock("../../src/db/redis.js", () => ({
   },
 }));
 
+vi.mock("../../src/services/oauth.js", () => ({
+  getIntegrationSecrets: vi.fn(),
+}));
+
 import { query } from "../../src/db/client.js";
 import { redis } from "../../src/db/redis.js";
+import { getIntegrationSecrets } from "../../src/services/oauth.js";
 import {
   fetchSourceMapFromSentry,
   invalidateSentryConfigCache,
@@ -38,6 +43,7 @@ import {
 const mockedQuery = query as unknown as Mock;
 const mockedRedisGet = redis.client.get as unknown as Mock;
 const mockedRedisSet = redis.client.set as unknown as Mock;
+const mockedGetSecrets = getIntegrationSecrets as unknown as Mock;
 const ORG_ID = "org-test-123";
 
 const VALID_MAP_JSON = JSON.stringify({
@@ -48,26 +54,32 @@ const VALID_MAP_JSON = JSON.stringify({
   mappings: "AAAA",
 });
 
-function mockSentryConfig(overrides: Partial<{
-  authToken: string | null;
-  organizationSlug: string;
-  projectSlug: string;
-  apiBaseUrl: string;
-}> = {}) {
+function mockSentryConfig(
+  overrides: Partial<{
+    authToken: string | null;
+    organizationSlug: string;
+    projectSlug: string;
+    apiBaseUrl: string;
+  }> = {}
+) {
+  // The plaintext config row (no auth_token here — secrets live elsewhere now).
   mockedQuery.mockResolvedValueOnce({
     rows: [
       {
         config: {
           organization_slug: overrides.organizationSlug ?? "acme",
           project_slug: overrides.projectSlug ?? "frontend",
-          auth_token: overrides.authToken === undefined
-            ? "sntrys_test_token"
-            : overrides.authToken,
           api_base_url: overrides.apiBaseUrl ?? "https://sentry.io",
         },
       },
     ],
   });
+  // Encrypted secrets returned by getIntegrationSecrets.
+  const tokenValue =
+    overrides.authToken === undefined ? "sntrys_test_token" : overrides.authToken;
+  mockedGetSecrets.mockResolvedValueOnce(
+    tokenValue === null ? {} : { auth_token: tokenValue }
+  );
 }
 
 describe("fetchSourceMapFromSentry", () => {
@@ -76,6 +88,7 @@ describe("fetchSourceMapFromSentry", () => {
     mockedQuery.mockReset();
     mockedRedisGet.mockReset();
     mockedRedisSet.mockReset();
+    mockedGetSecrets.mockReset();
     mockedRedisGet.mockResolvedValue(null);
     mockedRedisSet.mockResolvedValue("OK");
     vi.stubGlobal("fetch", vi.fn());
@@ -293,8 +306,35 @@ describe("fetchSourceMapFromSentry", () => {
     );
   });
 
-  it("respects a custom api_base_url for self-hosted Sentry", async () => {
-    mockSentryConfig({ apiBaseUrl: "https://sentry.acme.internal" });
+  it("rejects a non-allowlisted api_base_url defensively at read time", async () => {
+    // Even if a stale row has a malicious base URL (e.g. from a pre-allowlist
+    // write), the fetcher must refuse to fire requests against it.
+    mockedQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          config: {
+            organization_slug: "acme",
+            project_slug: "frontend",
+            api_base_url: "https://attacker.example.com",
+          },
+        },
+      ],
+    });
+
+    const result = await fetchSourceMapFromSentry({
+      orgId: ORG_ID,
+      release: "v1.0.0",
+      candidates: ["app.min.js.map"],
+    });
+
+    expect(result).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+    // Should not have decrypted secrets either, since the host failed first.
+    expect(mockedGetSecrets).not.toHaveBeenCalled();
+  });
+
+  it("accepts an *.sentry.io subdomain like eu.sentry.io", async () => {
+    mockSentryConfig({ apiBaseUrl: "https://eu.sentry.io" });
 
     const fetchMock = global.fetch as unknown as Mock;
     fetchMock.mockResolvedValueOnce({
@@ -310,8 +350,38 @@ describe("fetchSourceMapFromSentry", () => {
     });
 
     const calledUrl = fetchMock.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("https://sentry.acme.internal");
-    expect(calledUrl).toContain("/api/0/projects/acme/frontend/releases/v1.0.0/files/");
+    expect(calledUrl).toContain("https://eu.sentry.io");
+    expect(calledUrl).toContain(
+      "/api/0/projects/acme/frontend/releases/v1.0.0/files/"
+    );
+  });
+
+  it("downloads from the release-files endpoint, not the org source-maps endpoint", async () => {
+    mockSentryConfig();
+    const fetchMock = global.fetch as unknown as Mock;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        { id: "file-xyz", name: "~/app.min.js.map", size: 1, sha1: "x" },
+      ],
+      headers: { get: () => null },
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: async () => VALID_MAP_JSON,
+    });
+
+    await fetchSourceMapFromSentry({
+      orgId: ORG_ID,
+      release: "v2.0.0",
+      candidates: ["app.min.js.map"],
+    });
+
+    const downloadUrl = fetchMock.mock.calls[1][0] as string;
+    expect(downloadUrl).toContain(
+      "/api/0/projects/acme/frontend/releases/v2.0.0/files/file-xyz/"
+    );
+    expect(downloadUrl).toContain("download=1");
   });
 
   it("paginates through release files using the link header cursor", async () => {

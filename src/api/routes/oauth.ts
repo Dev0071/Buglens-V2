@@ -536,20 +536,57 @@ async function sentryConfigureHandler(
     return;
   }
 
+  // Validate apiBaseUrl: HTTPS + Sentry-controlled host. The fetcher will use
+  // this URL as the base for authenticated requests with the org's auth token,
+  // so an attacker-controlled URL is an SSRF + token-exfiltration vector.
+  let validatedApiBaseUrl = "https://sentry.io";
+  if (apiBaseUrl && apiBaseUrl !== "https://sentry.io") {
+    try {
+      const parsed = new URL(apiBaseUrl);
+      const allowedHost =
+        parsed.protocol === "https:" &&
+        (parsed.hostname === "sentry.io" ||
+          parsed.hostname.endsWith(".sentry.io"));
+      if (!allowedHost) {
+        reply.status(400).send({
+          error: "Bad Request",
+          message:
+            "apiBaseUrl must be https://sentry.io or an *.sentry.io subdomain. Self-hosted Sentry is not supported yet.",
+        });
+        return;
+      }
+      validatedApiBaseUrl = `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      reply.status(400).send({
+        error: "Bad Request",
+        message: "apiBaseUrl must be a valid URL",
+      });
+      return;
+    }
+  }
+
   try {
     // Generate webhook URL and secret for this org
     const webhookSecret = crypto.randomUUID();
     const webhookUrl = getWebhookUrl("sentry", orgId);
 
-    await saveIntegration(orgId, "sentry", {
-      dsn,
-      project_slug: projectSlug,
-      organization_slug: organizationSlug,
-      webhook_secret: webhookSecret,
-      webhook_url: webhookUrl,
-      auth_token: authToken ?? null,
-      api_base_url: apiBaseUrl ?? "https://sentry.io",
-    });
+    // Public, non-sensitive fields go in `config` (plaintext, queryable).
+    // The auth token and webhook secret go in encrypted_tokens only.
+    await saveIntegration(
+      orgId,
+      "sentry",
+      {
+        dsn,
+        project_slug: projectSlug,
+        organization_slug: organizationSlug,
+        webhook_url: webhookUrl,
+        api_base_url: validatedApiBaseUrl,
+      },
+      {
+        webhook_secret: webhookSecret,
+        auth_token: authToken ?? null,
+      }
+    );
 
     // Drop the in-process config cache so the new auth_token is picked up
     // immediately by the source-map fetcher.
