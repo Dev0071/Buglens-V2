@@ -247,6 +247,7 @@ export class DeterministicAnalyzerService {
           installationId: repoRecord.installation_id,
           repo: repoRecord.full_name,
           ref: commitRef,
+          release: jobRow.release,
         });
 
         if (result) {
@@ -256,6 +257,7 @@ export class DeterministicAnalyzerService {
             content: result.file.content,
             error_line: frame.lineno ?? result.context.line_number,
             error_column: frame.colno ?? undefined,
+            source_map_resolved: result.sourceMapApplied,
           });
           segmentAdded = true;
         }
@@ -347,7 +349,7 @@ export class DeterministicAnalyzerService {
    */
   private async prepareFromExtractionResult(
     job: DeterministicAnalyzerJobData,
-    _jobRow: JobRow,
+    jobRow: JobRow,
     extractionResult: ExtractionResult
   ): Promise<AnalyzerRequestPayload> {
     logger.info(
@@ -420,6 +422,7 @@ export class DeterministicAnalyzerService {
         installationId: repoRecord.installation_id,
         repo: repoRecord.full_name,
         ref: commitRef,
+        release: jobRow.release,
       });
 
       if (result) {
@@ -429,6 +432,7 @@ export class DeterministicAnalyzerService {
           content: result.file.content,
           error_line: frame.line_number,
           error_column: frame.column_number,
+          source_map_resolved: result.sourceMapApplied,
         });
       } else if (frame.context_line) {
         // Fall back to embedded context from Sentry
@@ -438,6 +442,7 @@ export class DeterministicAnalyzerService {
           content: frame.context_line,
           error_line: frame.line_number,
           error_column: frame.column_number,
+          source_map_resolved: false,
         });
       }
     }
@@ -803,6 +808,7 @@ export class DeterministicAnalyzerService {
         language: seg.language,
         line_number: seg.error_line,
         column_number: seg.error_column ?? null,
+        source_map_resolved: seg.source_map_resolved ?? false,
       })),
     };
 

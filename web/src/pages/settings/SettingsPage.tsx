@@ -961,6 +961,7 @@ function IntegrationsSettings() {
     projectSlug: string;
     organizationSlug: string;
     dsn?: string;
+    authToken?: string;
   }) => {
     try {
       await connectMutation.mutateAsync({ type: "sentry", config });
@@ -1193,12 +1194,14 @@ function SentryConfigModal({
     projectSlug: string;
     organizationSlug: string;
     dsn?: string;
+    authToken?: string;
   }) => void;
   isLoading: boolean;
 }) {
   const [projectSlug, setProjectSlug] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("");
   const [dsn, setDsn] = useState("");
+  const [authToken, setAuthToken] = useState("");
   const [copied, setCopied] = useState(false);
 
   // Get orgId from auth store for webhook URL
@@ -1207,7 +1210,12 @@ function SentryConfigModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConnect({ projectSlug, organizationSlug, dsn: dsn || undefined });
+    onConnect({
+      projectSlug,
+      organizationSlug,
+      dsn: dsn || undefined,
+      authToken: authToken || undefined,
+    });
   };
 
   const copyToClipboard = async () => {
@@ -1264,6 +1272,25 @@ function SentryConfigModal({
                 placeholder="https://xxx@sentry.io/xxx"
                 className="input w-full"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Auth Token (Optional)
+              </label>
+              <input
+                type="password"
+                value={authToken}
+                onChange={(e) => setAuthToken(e.target.value)}
+                placeholder="sntrys_..."
+                className="input w-full font-mono"
+                autoComplete="off"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Required only if you upload source maps to Sentry. Create at{" "}
+                <strong>Settings → Account → Auth Tokens</strong> with the{" "}
+                <code>project:releases</code> scope.
+              </p>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">

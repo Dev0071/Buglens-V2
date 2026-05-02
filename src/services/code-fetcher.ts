@@ -38,6 +38,7 @@ import type {
 import { pool } from "../db/client.js";
 import { SourceMapConsumer, type RawSourceMap } from "source-map";
 import path from "node:path";
+import { fetchSourceMapFromSentry } from "./sentry-sourcemap-fetcher.js";
 
 // ============================================
 // Configuration
@@ -56,6 +57,7 @@ interface FetchOptions {
   installationId: string;
   repo: string;
   ref: string; // commit SHA or branch
+  release?: string | null; // Sentry release (used to look up uploaded source maps)
 }
 
 /**
@@ -219,6 +221,9 @@ class CodeFetcherService {
     // These are build artifacts that don't exist in the repo
     // Production builds should have source maps that resolve to original files
     return (
+      // Absolute URLs from production deployments (CDN, hosting providers)
+      // e.g. https://cdn.example.com/static/js/app.abc.js — never lives in the repo
+      /^https?:\/\//.test(lower) ||
       // Next.js build artifacts
       lower.includes(".next/") ||
       lower.includes("_next/") ||
@@ -233,6 +238,10 @@ class CodeFetcherService {
       // Vercel/serverless artifacts
       lower.includes("/var/task/") ||
       lower.includes("/__vc_") ||
+      // Vite production output (default `assets/` directory with hashed names)
+      /\/assets\/[^/]+\.[a-z0-9]+\.js$/i.test(lower) ||
+      // CRA / generic static-bundle layouts
+      /\/static\/(js|css)\//.test(lower) ||
       // Generic build output (not source)
       /\.[a-f0-9]{8,}\.js$/i.test(lower) // hash in filename like app.abc12345.js
     );
@@ -324,13 +333,15 @@ class CodeFetcherService {
     installationId: string,
     repo: string,
     ref: string,
-    orgId: string
+    orgId: string,
+    release: string | null
   ): Promise<{
     resolvedFrame: NormalizedFrame;
     originalSource?: string;
   } | null> {
     const mapCandidates = this.buildSourceMapCandidates(frame.file);
 
+    // Tier 1: try GitHub repo for sibling .map files
     for (const candidate of mapCandidates) {
       const mapFile = await this.fetchFromGitHub(
         candidate,
@@ -346,58 +357,92 @@ class CodeFetcherService {
 
       try {
         const rawMap = JSON.parse(mapFile.content) as RawSourceMap;
-        const mapped = await this.applySourceMap(frame, rawMap);
-
-        if (!mapped) {
-          continue;
-        }
-
-        const normalizedSource = this.normalizeOriginalSourcePath(
-          mapped.resolvedFrame.file
+        const resolved = await this.applyAndNormalizeMap(
+          frame,
+          rawMap,
+          candidate,
+          "github"
         );
-
-        if (!normalizedSource) {
-          continue;
+        if (resolved) {
+          return resolved;
         }
-
-        try {
-          this.validateFilePath(normalizedSource);
-        } catch {
-          continue;
-        }
-
-        const resolvedFrame: NormalizedFrame = {
-          file: normalizedSource,
-          line: mapped.resolvedFrame.line,
-          column: mapped.resolvedFrame.column,
-          functionName: mapped.resolvedFrame.functionName,
-        };
-
-        logger.debug(
-          {
-            bundler_file: frame.file,
-            original_file: normalizedSource,
-            source_map_path: candidate,
-          },
-          "Resolved bundled frame via source map"
-        );
-
-        return {
-          resolvedFrame,
-          originalSource: mapped.originalSource,
-        };
       } catch (error) {
         logger.debug(
           {
             source_map_path: candidate,
             error: error instanceof Error ? error.message : "Unknown error",
           },
-          "Failed to apply source map for bundled frame"
+          "Failed to parse source map JSON from GitHub"
         );
       }
     }
 
+    // Tier 2: fall back to Sentry release files API (where most prod maps actually live)
+    if (release) {
+      const sentryMap = await fetchSourceMapFromSentry({
+        orgId,
+        release,
+        candidates: mapCandidates,
+      });
+
+      if (sentryMap) {
+        const resolved = await this.applyAndNormalizeMap(
+          frame,
+          sentryMap,
+          mapCandidates[0],
+          "sentry"
+        );
+        if (resolved) {
+          return resolved;
+        }
+      }
+    }
+
     return null;
+  }
+
+  private async applyAndNormalizeMap(
+    frame: NormalizedFrame,
+    rawMap: RawSourceMap,
+    candidate: string,
+    source: "github" | "sentry"
+  ): Promise<{
+    resolvedFrame: NormalizedFrame;
+    originalSource?: string;
+  } | null> {
+    const mapped = await this.applySourceMap(frame, rawMap);
+    if (!mapped) return null;
+
+    const normalizedSource = this.normalizeOriginalSourcePath(
+      mapped.resolvedFrame.file
+    );
+    if (!normalizedSource) return null;
+
+    try {
+      this.validateFilePath(normalizedSource);
+    } catch {
+      return null;
+    }
+
+    logger.debug(
+      {
+        bundler_file: frame.file,
+        original_file: normalizedSource,
+        source_map_path: candidate,
+        source,
+      },
+      "Resolved bundled frame via source map"
+    );
+
+    return {
+      resolvedFrame: {
+        file: normalizedSource,
+        line: mapped.resolvedFrame.line,
+        column: mapped.resolvedFrame.column,
+        functionName: mapped.resolvedFrame.functionName,
+      },
+      originalSource: mapped.originalSource,
+    };
   }
 
   /**
@@ -413,7 +458,7 @@ class CodeFetcherService {
     frame: StackFrame,
     options: FetchOptions
   ): Promise<CodeFetchResult | null> {
-    const { orgId, installationId, repo, ref } = options;
+    const { orgId, installationId, repo, ref, release } = options;
     const normalizedFrame = this.normalizeFrame(frame);
     let resolvedFrame = normalizedFrame;
     let preResolvedContent: string | null = null;
@@ -436,7 +481,8 @@ class CodeFetcherService {
         installationId,
         repo,
         ref,
-        orgId
+        orgId,
+        release ?? null
       );
 
       if (bundlerResolution) {

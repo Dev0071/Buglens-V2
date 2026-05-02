@@ -252,34 +252,81 @@ async function processLLMJob(job: Job<LLMReasoningJobData>): Promise<void> {
     // Step 3: Mark job as LLM processing
     await markLLMProcessing(orgId, jobId);
 
-    // Step 4: Call LLM service
-    logger.debug({ jobId, step: 4 }, "[STEP] Generating RCA with LLM");
-    const llmService = new LLMService();
-    const llmResult = await llmService.generateRCA({
-      orgId,
-      eventId,
-      jobId,
-      evidence: evidenceBundle,
-    });
+    // Step 4: Cache check — same signature + release already analyzed?
+    const cached = await findCachedRCA(orgId, eventId);
 
-    if (!llmResult.success || !llmResult.rca) {
-      throw new Error(
-        llmResult.error ?? "LLM generation failed without error message"
+    let rcaResult: LLMResult;
+    let cacheHit = false;
+
+    if (cached) {
+      logger.info(
+        {
+          jobId,
+          eventId,
+          sourceRcaId: cached.source_rca_id,
+          sourceEventId: cached.source_event_id,
+          confidence: cached.confidence,
+        },
+        "[STEP] Cache hit — reusing prior RCA for identical signature+release"
+      );
+      rcaResult = {
+        title: cached.title,
+        summary: cached.summary,
+        root_cause: cached.root_cause,
+        suggested_fix: cached.suggested_fix,
+        confidence: cached.confidence,
+        causal_chain: cached.causal_chain,
+        evidence_refs: cached.evidence_refs,
+        llm_model: `cached:${cached.llm_model}`,
+        llm_tokens_used: 0,
+        error_category: cached.error_category ?? undefined,
+      };
+      cacheHit = true;
+    } else {
+      // Cache miss — call LLM
+      logger.debug({ jobId, step: 4 }, "[STEP] Generating RCA with LLM");
+      const llmService = new LLMService();
+      const llmResult = await llmService.generateRCA({
+        orgId,
+        eventId,
+        jobId,
+        evidence: evidenceBundle,
+      });
+
+      if (!llmResult.success || !llmResult.rca) {
+        throw new Error(
+          llmResult.error ?? "LLM generation failed without error message"
+        );
+      }
+
+      const orchestratorRca = llmResult.rca;
+      rcaResult = {
+        title: orchestratorRca.title,
+        summary: orchestratorRca.summary,
+        root_cause: orchestratorRca.root_cause,
+        suggested_fix:
+          orchestratorRca.suggested_fix?.description ?? orchestratorRca.summary,
+        confidence: orchestratorRca.confidence,
+        causal_chain: orchestratorRca.causal_chain.map((step) => step.step),
+        evidence_refs: orchestratorRca.causal_chain.map(
+          (step) => step.evidence
+        ),
+        llm_model: llmResult.llm_model,
+        llm_tokens_used: llmResult.llm_tokens_used,
+        error_category: undefined,
+      };
+
+      logger.info(
+        {
+          jobId,
+          confidence: rcaResult.confidence,
+          tokensUsed: llmResult.llm_tokens_used,
+          model: llmResult.llm_model,
+          usedFallback: llmResult.used_fallback,
+        },
+        "[STEP] RCA generated successfully"
       );
     }
-
-    const rcaResult = llmResult.rca;
-
-    logger.info(
-      {
-        jobId,
-        confidence: rcaResult.confidence,
-        tokensUsed: llmResult.llm_tokens_used,
-        model: llmResult.llm_model,
-        usedFallback: llmResult.used_fallback,
-      },
-      "[STEP] RCA generated successfully"
-    );
 
     // Step 5: Build evidence graph
     logger.debug({ jobId, step: 5 }, "[STEP] Building evidence graph");
@@ -347,24 +394,12 @@ async function processLLMJob(job: Job<LLMReasoningJobData>): Promise<void> {
     }
 
     // Step 6: Store RCA result
-    logger.debug({ jobId, step: 6 }, "[STEP] Storing RCA result");
+    logger.debug({ jobId, step: 6, cacheHit }, "[STEP] Storing RCA result");
     const rcaId = await storeRCAResult({
       orgId,
       eventId,
       jobId,
-      result: {
-        title: rcaResult.title,
-        summary: rcaResult.summary,
-        root_cause: rcaResult.root_cause,
-        suggested_fix:
-          rcaResult.suggested_fix?.description ?? rcaResult.summary,
-        confidence: rcaResult.confidence,
-        causal_chain: rcaResult.causal_chain.map((step) => step.step),
-        evidence_refs: rcaResult.causal_chain.map((step) => step.evidence),
-        llm_model: llmResult.llm_model,
-        llm_tokens_used: llmResult.llm_tokens_used,
-        error_category: undefined,
-      },
+      result: rcaResult,
       evidenceBundle,
       evidenceGraph,
     });
@@ -391,8 +426,9 @@ async function processLLMJob(job: Job<LLMReasoningJobData>): Promise<void> {
         durationMs,
         durationSec: (durationMs / 1000).toFixed(2),
         confidence: rcaResult.confidence,
-        tokensUsed: llmResult.llm_tokens_used,
-        model: llmResult.llm_model,
+        tokensUsed: rcaResult.llm_tokens_used,
+        model: rcaResult.llm_model,
+        cacheHit,
         hasEvidenceGraph: !!evidenceGraph,
         worker: "llm-reasoning",
         status: "success",
@@ -445,6 +481,110 @@ interface LLMResult {
   llm_model: string;
   llm_tokens_used: number;
   error_category?: string;
+}
+
+// ============================================
+// LLM Result Cache
+// ============================================
+//
+// Re-uses an existing high-confidence RCA when the same error signature has
+// already been analyzed at the same code revision (release). Sentry groups
+// identical errors by signature, so when an event re-fires we serve the prior
+// result instead of paying for another LLM call.
+//
+// The cache only short-circuits the LLM call (worker step 4). The downstream
+// steps — evidence graph, persistence, notifications — still run per event.
+
+const CACHE_MIN_CONFIDENCE = 0.7;
+const CACHE_MAX_AGE_DAYS = 30;
+
+interface CachedRCA {
+  title: string;
+  summary: string;
+  root_cause: string;
+  causal_chain: string[];
+  suggested_fix: string;
+  confidence: number;
+  evidence_refs: string[];
+  llm_model: string;
+  error_category: string | null;
+  source_rca_id: string;
+  source_event_id: string;
+}
+
+async function findCachedRCA(
+  orgId: string,
+  eventId: string
+): Promise<CachedRCA | null> {
+  return transaction(orgId, async (client) => {
+    // Look up the current event's signature + release, then find an existing
+    // RCA for any prior event in this org with the same signature at the same
+    // release. Confidence and recency gates keep us from serving stale or
+    // low-quality results.
+    const result = await client.query<{
+      id: string;
+      event_id: string;
+      title: string;
+      summary: string;
+      root_cause: string;
+      causal_chain: unknown;
+      suggested_fix: unknown;
+      confidence: number;
+      evidence_refs: unknown;
+      llm_model: string;
+      error_category: string | null;
+    }>(
+      `WITH current_event AS (
+         SELECT signature, COALESCE(release, '') AS release
+         FROM events
+         WHERE id = $1 AND org_id = $2
+       )
+       SELECT r.id, r.event_id, r.title, r.summary, r.root_cause,
+              r.causal_chain, r.suggested_fix, r.confidence,
+              r.evidence_refs, r.llm_model, r.error_category
+       FROM rca_results r
+       JOIN events e ON e.id = r.event_id
+       JOIN current_event c ON e.signature = c.signature
+                           AND COALESCE(e.release, '') = c.release
+       WHERE r.org_id = $2
+         AND r.event_id <> $1
+         AND r.confidence >= $3
+         AND r.created_at >= NOW() - ($4 || ' days')::interval
+       ORDER BY r.created_at DESC
+       LIMIT 1`,
+      [eventId, orgId, CACHE_MIN_CONFIDENCE, CACHE_MAX_AGE_DAYS.toString()]
+    );
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    const causalChain = Array.isArray(row.causal_chain)
+      ? (row.causal_chain as string[])
+      : [];
+    const evidenceRefs = Array.isArray(row.evidence_refs)
+      ? (row.evidence_refs as string[])
+      : [];
+    const suggestedFix =
+      row.suggested_fix &&
+      typeof row.suggested_fix === "object" &&
+      "description" in row.suggested_fix
+        ? String((row.suggested_fix as { description: unknown }).description)
+        : "";
+
+    return {
+      title: row.title,
+      summary: row.summary,
+      root_cause: row.root_cause,
+      causal_chain: causalChain,
+      suggested_fix: suggestedFix,
+      confidence: row.confidence,
+      evidence_refs: evidenceRefs,
+      llm_model: row.llm_model,
+      error_category: row.error_category,
+      source_rca_id: row.id,
+      source_event_id: row.event_id,
+    };
+  });
 }
 
 interface StoreRCAParams {
@@ -610,7 +750,7 @@ interface RCAResultForNotification {
   title: string;
   summary: string;
   root_cause: string;
-  suggested_fix?: { description?: string };
+  suggested_fix?: string;
   confidence: number;
 }
 
@@ -642,7 +782,7 @@ async function sendRCANotifications(
       rootCause: rcaResult.root_cause,
       confidence: rcaResult.confidence,
       severity,
-      suggestedFix: rcaResult.suggested_fix?.description,
+      suggestedFix: rcaResult.suggested_fix,
       affectedFile: evidenceBundle.error?.stack_trace?.[0]?.file,
       affectedLine: evidenceBundle.error?.stack_trace?.[0]?.line ?? undefined,
       timestamp: new Date().toISOString(),
@@ -684,7 +824,7 @@ async function sendRCANotifications(
         rootCause: rcaResult.root_cause,
         confidence: rcaResult.confidence,
         severity,
-        suggestedFix: rcaResult.suggested_fix?.description,
+        suggestedFix: rcaResult.suggested_fix,
         affectedFile: evidenceBundle.error?.stack_trace?.[0]?.file,
         affectedLine: evidenceBundle.error?.stack_trace?.[0]?.line ?? undefined,
         relatedFiles,

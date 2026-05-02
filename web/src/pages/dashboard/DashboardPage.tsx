@@ -1,4 +1,9 @@
-import { useDashboardStats, useRecentEvents, useRCAQuality } from "@/lib/hooks";
+import {
+  useDashboardStats,
+  useRecentEvents,
+  useRCAQuality,
+  useIntegrations,
+} from "@/lib/hooks";
 import {
   formatNumber,
   formatRelativeTime,
@@ -17,6 +22,7 @@ import {
   ShieldExclamationIcon,
   CodeBracketIcon,
   ArrowRightIcon,
+  BoltIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
 
@@ -62,6 +68,24 @@ import { Link } from "react-router-dom";
  */
 
 function DashboardPage() {
+  const { data: integrations, isLoading: integrationsLoading } =
+    useIntegrations();
+  const { data: stats, isLoading: statsLoading } = useDashboardStats();
+
+  // First-run check: no integrations connected AND no events ever ingested.
+  // We wait for both queries to resolve to avoid flashing the onboarding panel
+  // for returning users on a slow network.
+  const hasConnectedIntegration = (integrations ?? []).some(
+    (i) => i.status === "connected"
+  );
+  const hasEvents = (stats?.totalEvents ?? 0) > 0;
+  const isFirstRun =
+    !integrationsLoading && !statsLoading && !hasConnectedIntegration && !hasEvents;
+
+  if (isFirstRun) {
+    return <GettingStartedPanel />;
+  }
+
   return (
     <div className="space-y-6">
       {/* Data freshness indicator - TRUST */}
@@ -83,6 +107,102 @@ function DashboardPage() {
           <RCAQualityPulse />
           <QuickFilters />
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Getting Started panel — shown when the org has no integrations and no events.
+ * The CTA points the user to wire up Sentry, since nothing else is possible
+ * without an event source.
+ */
+function GettingStartedPanel() {
+  const steps = [
+    {
+      title: "Connect Sentry",
+      description:
+        "Point your Sentry project's webhook at Buglens so new errors flow into the analysis pipeline.",
+      href: "/settings/integrations",
+      cta: "Connect Sentry",
+      primary: true,
+    },
+    {
+      title: "Connect GitHub",
+      description:
+        "Install the GitHub App so Buglens can read your source code and resolve stack frames to real lines.",
+      href: "/settings/integrations",
+      cta: "Connect GitHub",
+      primary: false,
+    },
+    {
+      title: "Connect Slack (optional)",
+      description:
+        "Get RCA results pushed to your on-call channel as soon as they're ready.",
+      href: "/settings/integrations",
+      cta: "Connect Slack",
+      primary: false,
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-br from-amber-50 to-white dark:from-amber-900/20 dark:to-zinc-900 border border-amber-200 dark:border-amber-800 rounded-lg p-8">
+        <div className="flex items-start gap-4">
+          <div className="rounded-full bg-amber-100 dark:bg-amber-900/40 p-3">
+            <BoltIcon className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Welcome to Buglens
+            </h1>
+            <p className="mt-2 text-gray-600 dark:text-gray-300 max-w-2xl">
+              Buglens turns Sentry errors into root-cause analyses with real
+              code context. Connect Sentry to start receiving events — your
+              first RCA usually lands within a minute of the next error.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {steps.map((step, index) => (
+          <div
+            key={step.title}
+            className="flex items-center justify-between gap-4 p-5 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg"
+          >
+            <div className="flex items-start gap-4 min-w-0">
+              <div
+                className={cn(
+                  "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold",
+                  step.primary
+                    ? "bg-amber-500 text-zinc-900"
+                    : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400"
+                )}
+              >
+                {index + 1}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                  {step.title}
+                </h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  {step.description}
+                </p>
+              </div>
+            </div>
+            <Link
+              to={step.href}
+              className={cn(
+                "btn flex-shrink-0 flex items-center gap-2",
+                step.primary ? "btn-primary" : "btn-secondary"
+              )}
+            >
+              {step.cta}
+              <ArrowRightIcon className="w-4 h-4" />
+            </Link>
+          </div>
+        ))}
       </div>
     </div>
   );
