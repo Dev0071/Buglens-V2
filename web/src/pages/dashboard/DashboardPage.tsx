@@ -68,19 +68,32 @@ import { Link } from "react-router-dom";
  */
 
 function DashboardPage() {
-  const { data: integrations, isLoading: integrationsLoading } =
-    useIntegrations();
-  const { data: stats, isLoading: statsLoading } = useDashboardStats();
+  const {
+    data: integrations,
+    isLoading: integrationsLoading,
+    error: integrationsError,
+  } = useIntegrations();
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useDashboardStats();
 
   // First-run check: no integrations connected AND no events ever ingested.
   // We wait for both queries to resolve to avoid flashing the onboarding panel
   // for returning users on a slow network.
+  // Errors must not be treated as "empty org" states.
   const hasConnectedIntegration = (integrations ?? []).some(
     (i) => i.status === "connected"
   );
   const hasEvents = (stats?.totalEvents ?? 0) > 0;
   const isFirstRun =
-    !integrationsLoading && !statsLoading && !hasConnectedIntegration && !hasEvents;
+    !integrationsLoading &&
+    !statsLoading &&
+    !integrationsError &&
+    !statsError &&
+    !hasConnectedIntegration &&
+    !hasEvents;
 
   if (isFirstRun) {
     return <GettingStartedPanel />;
