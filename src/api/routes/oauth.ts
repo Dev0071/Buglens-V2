@@ -161,20 +161,24 @@ async function githubCallbackHandler(
     const repos = await getGitHubRepos(tokenData.access_token);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "github", {
-      access_token: tokenData.access_token,
-      token_type: tokenData.token_type,
-      scope: tokenData.scope,
-      user_id: user.id,
-      login: user.login,
-      name: user.name,
-      avatar_url: user.avatar_url,
-      repos: repos.map((r) => ({
-        id: r.id,
-        full_name: r.full_name,
-        private: r.private,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "github",
+      {
+        token_type: tokenData.token_type,
+        scope: tokenData.scope,
+        user_id: user.id,
+        login: user.login,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        repos: repos.map((r) => ({
+          id: r.id,
+          full_name: r.full_name,
+          private: r.private,
+        })),
+      },
+      { access_token: tokenData.access_token }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, login: user.login, repoCount: repos.length },
@@ -272,20 +276,24 @@ async function slackCallbackHandler(
     }
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "slack", {
-      access_token: authData.access_token,
-      token_type: authData.token_type,
-      scope: authData.scope,
-      bot_user_id: authData.bot_user_id,
-      team_id: authData.team.id,
-      team_name: authData.team.name,
-      webhook: authData.incoming_webhook,
-      channels: channels.slice(0, 50).map((c) => ({
-        id: c.id,
-        name: c.name,
-        is_private: c.is_private,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "slack",
+      {
+        token_type: authData.token_type,
+        scope: authData.scope,
+        bot_user_id: authData.bot_user_id,
+        team_id: authData.team.id,
+        team_name: authData.team.name,
+        webhook: authData.incoming_webhook,
+        channels: channels.slice(0, 50).map((c) => ({
+          id: c.id,
+          name: c.name,
+          is_private: c.is_private,
+        })),
+      },
+      { access_token: authData.access_token }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, teamName: authData.team.name },
@@ -375,18 +383,24 @@ async function jiraCallbackHandler(
     const resources = await getJiraResources(tokenData.access_token);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "jira", {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      token_type: tokenData.token_type,
-      expires_in: tokenData.expires_in,
-      scope: tokenData.scope,
-      resources: resources.map((r) => ({
-        id: r.id,
-        name: r.name,
-        url: r.url,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "jira",
+      {
+        token_type: tokenData.token_type,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope,
+        resources: resources.map((r) => ({
+          id: r.id,
+          name: r.name,
+          url: r.url,
+        })),
+      },
+      {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, resourceCount: resources.length },
@@ -473,13 +487,19 @@ async function teamsCallbackHandler(
     const tokenData = await exchangeTeamsCode(code);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "teams", {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      token_type: tokenData.token_type,
-      expires_in: tokenData.expires_in,
-      scope: tokenData.scope,
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "teams",
+      {
+        token_type: tokenData.token_type,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope,
+      },
+      {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      }
+    );
 
     logger.info({ orgId: oauthState.orgId }, "Teams integration connected");
 
@@ -511,7 +531,7 @@ interface SentryConfigBody {
  *
  * Configure Sentry integration with DSN/project details
  */
-async function sentryConfigureHandler(
+export async function sentryConfigureHandler(
   request: FastifyRequest<{ Body: SentryConfigBody }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -536,20 +556,57 @@ async function sentryConfigureHandler(
     return;
   }
 
+  // Validate apiBaseUrl: HTTPS + Sentry-controlled host. The fetcher will use
+  // this URL as the base for authenticated requests with the org's auth token,
+  // so an attacker-controlled URL is an SSRF + token-exfiltration vector.
+  let validatedApiBaseUrl = "https://sentry.io";
+  if (apiBaseUrl && apiBaseUrl !== "https://sentry.io") {
+    try {
+      const parsed = new URL(apiBaseUrl);
+      const allowedHost =
+        parsed.protocol === "https:" &&
+        (parsed.hostname === "sentry.io" ||
+          parsed.hostname.endsWith(".sentry.io"));
+      if (!allowedHost) {
+        reply.status(400).send({
+          error: "Bad Request",
+          message:
+            "apiBaseUrl must be https://sentry.io or an *.sentry.io subdomain. Self-hosted Sentry is not supported yet.",
+        });
+        return;
+      }
+      validatedApiBaseUrl = `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      reply.status(400).send({
+        error: "Bad Request",
+        message: "apiBaseUrl must be a valid URL",
+      });
+      return;
+    }
+  }
+
   try {
     // Generate webhook URL and secret for this org
     const webhookSecret = crypto.randomUUID();
     const webhookUrl = getWebhookUrl("sentry", orgId);
 
-    await saveIntegration(orgId, "sentry", {
-      dsn,
-      project_slug: projectSlug,
-      organization_slug: organizationSlug,
-      webhook_secret: webhookSecret,
-      webhook_url: webhookUrl,
-      auth_token: authToken ?? null,
-      api_base_url: apiBaseUrl ?? "https://sentry.io",
-    });
+    // Public, non-sensitive fields go in `config` (plaintext, queryable).
+    // The auth token and webhook secret go in encrypted_tokens only.
+    await saveIntegration(
+      orgId,
+      "sentry",
+      {
+        dsn,
+        project_slug: projectSlug,
+        organization_slug: organizationSlug,
+        webhook_url: webhookUrl,
+        api_base_url: validatedApiBaseUrl,
+      },
+      {
+        webhook_secret: webhookSecret,
+        auth_token: authToken ?? null,
+      }
+    );
 
     // Drop the in-process config cache so the new auth_token is picked up
     // immediately by the source-map fetcher.

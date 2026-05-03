@@ -11,12 +11,11 @@
 import {
   Queue,
   Worker,
-  type ConnectionOptions,
   type JobsOptions,
 } from "bullmq";
 import { logger } from "../../utils/logger.js";
 import { config } from "../../utils/config.js";
-import { URL } from "node:url";
+import { resolveRedisConnection } from "../../db/redis-connection.js";
 import {
   tokenRefreshJobHandler,
   tokenHealthCheckJobHandler,
@@ -44,33 +43,13 @@ export interface TokenRefreshJobData {
 
 let queue: Queue<TokenRefreshJobData> | null = null;
 
-function resolveQueueConnection(): ConnectionOptions {
-  const redisUrl = config.REDIS_URL;
-  const isTls = redisUrl.startsWith("rediss://");
-  const parsed = new URL(redisUrl);
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6379),
-    username: parsed.username || undefined,
-    password: parsed.password || undefined,
-    db: parsed.pathname ? Number(parsed.pathname.replace("/", "")) || 0 : 0,
-    ...(isTls
-      ? {
-          tls: {
-            rejectUnauthorized: false,
-          },
-        }
-      : {}),
-  };
-}
-
 function getQueue(): Queue<TokenRefreshJobData> {
   if (queue) {
     return queue;
   }
 
   queue = new Queue(TOKEN_REFRESH_QUEUE_NAME, {
-    connection: resolveQueueConnection(),
+    connection: resolveRedisConnection(),
   });
 
   return queue;
@@ -233,7 +212,7 @@ export function startTokenRefreshWorker(): Worker<TokenRefreshJobData> {
       }
     },
     {
-      connection: resolveQueueConnection(),
+      connection: resolveRedisConnection(),
       concurrency: 1, // Process one at a time to avoid race conditions
     }
   );

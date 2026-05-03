@@ -28,7 +28,11 @@ import {
   type GitHubInstallation,
   type SlackWorkspace,
 } from "./integration-tokens.js";
-import { encryptJsonForOrg } from "./crypto.js";
+import {
+  encryptJsonForOrg,
+  decryptJsonForOrg,
+  type EncryptedData,
+} from "./crypto.js";
 import { getOAuthCallbackUrl } from "../utils/url-helpers.js";
 
 // ============================================
@@ -595,15 +599,29 @@ export async function getJiraResources(
 // ============================================
 
 /**
- * Save integration to database with encrypted tokens
+ * Save integration to database.
+ *
+ * Two-tier storage:
+ * - publicConfig is persisted plaintext in the `config` column for fast reads
+ *   (slugs, URLs, IDs, anything an admin can see in the dashboard).
+ * - secrets is merged with publicConfig, encrypted, and stored in
+ *   `encrypted_tokens`. Sensitive fields (API tokens, refresh tokens) MUST go
+ *   here so they never appear in plaintext on disk or in admin tooling.
+ *
+ * Reads:
+ * - For non-sensitive fields, query the `config` column directly.
+ * - For secrets, use getIntegrationSecrets() which decrypts encrypted_tokens.
  */
 export async function saveIntegration(
   orgId: string,
   type: string,
-  integrationConfig: Record<string, unknown>
+  publicConfig: Record<string, unknown>,
+  secrets: Record<string, unknown> = {}
 ): Promise<string> {
-  // Encrypt sensitive tokens before storage
-  const encryptedConfig = encryptJsonForOrg(integrationConfig, orgId);
+  // Encrypted blob carries both public + secret fields so callers can decrypt
+  // everything in one shot. The plaintext `config` column carries public-only.
+  const fullConfig = { ...publicConfig, ...secrets };
+  const encryptedConfig = encryptJsonForOrg(fullConfig, orgId);
 
   const existing = await query<{ id: string }>(
     `SELECT id FROM integrations WHERE org_id = $1 AND type = $2`,
@@ -624,7 +642,7 @@ export async function saveIntegration(
              updated_at = NOW()
          WHERE id = $3 AND org_id = $4`,
         [
-          integrationConfig,
+          publicConfig,
           JSON.stringify(encryptedConfig),
           integrationId,
           orgId,
@@ -642,7 +660,7 @@ export async function saveIntegration(
           integrationId,
           orgId,
           type,
-          integrationConfig,
+          publicConfig,
           JSON.stringify(encryptedConfig),
         ]
       );
@@ -651,6 +669,41 @@ export async function saveIntegration(
   }
 
   return integrationId;
+}
+
+/**
+ * Decrypt and return the secrets stored in an integration's encrypted_tokens
+ * column. Returns null when the integration doesn't exist, isn't active, or
+ * has no encrypted blob.
+ */
+export async function getIntegrationSecrets(
+  orgId: string,
+  type: string
+): Promise<Record<string, unknown> | null> {
+  const result = await query<{ encrypted_tokens: unknown }>(
+    `SELECT encrypted_tokens FROM integrations
+     WHERE org_id = $1 AND type = $2 AND is_active = true
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [orgId, type]
+  );
+
+  if (result.rows.length === 0 || !result.rows[0].encrypted_tokens) {
+    return null;
+  }
+
+  try {
+    const raw = result.rows[0].encrypted_tokens;
+    const parsed: EncryptedData =
+      typeof raw === "string" ? (JSON.parse(raw) as EncryptedData) : (raw as EncryptedData);
+    return decryptJsonForOrg<Record<string, unknown>>(parsed, orgId);
+  } catch (err) {
+    logger.warn(
+      { err, type, orgId },
+      "Failed to decrypt integration secrets"
+    );
+    return null;
+  }
 }
 
 // ============================================

@@ -41,6 +41,7 @@ import {
   type EventTicketData,
   type RCATicketData,
 } from "../../services/jira-ticket-service.js";
+import { sentryConfigureHandler } from "./oauth.js";
 
 // ============================================
 // Request/Response Schemas
@@ -608,6 +609,9 @@ async function verifyIntegrationHandler(
 export async function integrationsRoutes(
   server: FastifyInstance
 ): Promise<void> {
+  // POST /api/integrations/sentry/configure (non-OAuth, config-based)
+  server.post("/integrations/sentry/configure", sentryConfigureHandler);
+
   // GET /api/integrations
   server.get("/integrations", listIntegrationsHandler);
 
@@ -800,11 +804,12 @@ export async function integrationsRoutes(
       const user = await getGitHubUser(tokens.access_token);
       const repos = await getGitHubRepos(tokens.access_token);
 
-      const integrationId = await saveIntegration(oauthState.orgId, "github", {
-        login: user.login,
-        access_token: tokens.access_token, // Will be encrypted
-        repos: repos.map((r) => ({ id: r.id, full_name: r.full_name })),
-      });
+      const integrationId = await saveIntegration(
+        oauthState.orgId,
+        "github",
+        { login: user.login, repos: repos.map((r) => ({ id: r.id, full_name: r.full_name })) },
+        { access_token: tokens.access_token }
+      );
 
       // Audit log: GitHub integration connected (CRITICAL for SOC2)
       // Note: OAuth callbacks don't have user context, use org-level logging
@@ -975,10 +980,12 @@ export async function integrationsRoutes(
 
     try {
       const tokens = await exchangeJiraCode(code);
-      const integrationId = await saveIntegration(oauthState.orgId, "jira", {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-      });
+      const integrationId = await saveIntegration(
+        oauthState.orgId,
+        "jira",
+        {},
+        { access_token: tokens.access_token, refresh_token: tokens.refresh_token }
+      );
 
       // Audit log: Jira integration connected (CRITICAL for SOC2)
       await logIntegrationConnect(
@@ -1056,10 +1063,12 @@ export async function integrationsRoutes(
 
     try {
       const tokens = await exchangeTeamsCode(code);
-      const integrationId = await saveIntegration(oauthState.orgId, "teams", {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-      });
+      const integrationId = await saveIntegration(
+        oauthState.orgId,
+        "teams",
+        {},
+        { access_token: tokens.access_token, refresh_token: tokens.refresh_token }
+      );
 
       // Audit log: Teams integration connected (CRITICAL for SOC2)
       await logIntegrationConnect(

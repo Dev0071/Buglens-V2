@@ -19,7 +19,7 @@ export default defineConfig({
     exclude: ["node_modules/**", "web/**", "dist/**"],
     coverage: {
       provider: "v8",
-      reporter: ["text", "json", "html"],
+      reporter: ["text", "json", "html", "lcov"],
       exclude: ["node_modules/**", "dist/**", "**/*.test.ts", "**/*.config.ts"],
     },
     // Use threads for better isolation

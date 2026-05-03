@@ -226,7 +226,7 @@ describe("Integrations OAuth Routes", () => {
   // ============================================
 
   describe("Sentry Integration", () => {
-    it("should return 404 for sentry configure (route not implemented)", async () => {
+    it("should return 401 when unauthenticated", async () => {
       const response = await server.inject({
         method: "POST",
         url: "/api/integrations/sentry/configure",
@@ -236,9 +236,23 @@ describe("Integrations OAuth Routes", () => {
         },
       });
 
-      // Sentry configure route is not implemented in integrations.ts
-      // Sentry uses webhook-based integration, not API configuration
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.payload).error).toBe("Unauthorized");
+    });
+
+    it("should return 401 (auth checked before body validation) even with invalid apiBaseUrl", async () => {
+      const response = await server.inject({
+        method: "POST",
+        url: "/api/integrations/sentry/configure",
+        payload: {
+          projectSlug: "test-project",
+          organizationSlug: "test-org",
+          apiBaseUrl: "https://attacker.example.com",
+        },
+      });
+
+      // Auth middleware fires before SSRF check — unauthenticated always 401
+      expect(response.statusCode).toBe(401);
     });
   });
 

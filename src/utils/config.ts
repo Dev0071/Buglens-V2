@@ -33,8 +33,15 @@ const envSchema = z.object({
     .default("false")
     .transform((val) => val === "true"),
 
-  // Redis
-  REDIS_URL: z.string().url(),
+  // Redis — primary connection via URL or explicit components.
+  // When REDIS_HOST is set the explicit vars take precedence over URL parsing,
+  // which avoids issues with managed-DB URLs that omit the password or use a
+  // non-standard format (e.g. DigitalOcean's DATABASE_URL binding for Redis).
+  REDIS_URL: z.string().url().default("redis://localhost:6379"),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.coerce.number().optional(),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_TLS: z.coerce.boolean().default(false),
   REDIS_MAX_RETRIES: z.coerce.number().default(3),
 
   // AWS
