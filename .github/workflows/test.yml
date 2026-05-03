@@ -98,8 +98,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/buglens_test
 
-      - name: Run unit tests
-        run: npm test -- --run
+      - name: Run unit tests with coverage
+        run: npm test -- --run --coverage
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/buglens_test
           REDIS_URL: redis://localhost:6379
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
-        if: always()
+        if: success() || failure()
         with:
           files: ./coverage/lcov.info
           fail_ci_if_error: false
