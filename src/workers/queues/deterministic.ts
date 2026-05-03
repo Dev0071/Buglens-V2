@@ -1,7 +1,7 @@
-import { Queue, type ConnectionOptions, type JobsOptions } from "bullmq";
+import { Queue, type JobsOptions } from "bullmq";
 import { config } from "../../utils/config.js";
 import { logger } from "../../utils/logger.js";
-import { URL } from "node:url";
+import { resolveRedisConnection } from "../../db/redis-connection.js";
 
 export const DETERMINISTIC_QUEUE_NAME = "deterministic-analyzer";
 
@@ -14,25 +14,7 @@ export interface DeterministicAnalyzerJobData {
 let queue: Queue<DeterministicAnalyzerJobData> | null = null;
 const inMemoryJobs: DeterministicAnalyzerJobData[] = [];
 
-export function resolveQueueConnection(): ConnectionOptions {
-  const redisUrl = config.REDIS_URL;
-  const isTls = redisUrl.startsWith("rediss://");
-  const parsed = new URL(redisUrl);
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6379),
-    username: parsed.username || undefined,
-    password: parsed.password || undefined,
-    db: parsed.pathname ? Number(parsed.pathname.replace("/", "")) || 0 : 0,
-    ...(isTls
-      ? {
-          tls: {
-            rejectUnauthorized: false,
-          },
-        }
-      : {}),
-  };
-}
+export { resolveRedisConnection as resolveQueueConnection };
 
 function getQueue(): Queue<DeterministicAnalyzerJobData> {
   if (queue) {
@@ -40,7 +22,7 @@ function getQueue(): Queue<DeterministicAnalyzerJobData> {
   }
 
   queue = new Queue(DETERMINISTIC_QUEUE_NAME, {
-    connection: resolveQueueConnection(),
+    connection: resolveRedisConnection(),
   });
 
   return queue;

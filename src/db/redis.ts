@@ -1,6 +1,7 @@
 import { Redis } from "ioredis";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
+import { resolveRedisUrl } from "./redis-connection.js";
 
 // ============================================
 // Redis Client Singleton
@@ -15,8 +16,8 @@ export function getRedisClient(): Redis {
   if (redisClient) {
     return redisClient;
   }
-  const redisUrl = config.REDIS_URL;
-  const isTls = redisUrl.startsWith("rediss://");
+  const redisUrl = resolveRedisUrl();
+  const isTls = redisUrl.startsWith("rediss://") || config.REDIS_TLS;
   const client = new Redis(redisUrl, {
     maxRetriesPerRequest: config.REDIS_MAX_RETRIES,
     enableReadyCheck: true,

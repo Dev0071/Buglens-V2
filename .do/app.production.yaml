@@ -67,9 +67,22 @@ services:
         value: "20"
 
       # Redis (injected from managed Redis)
+      # DATABASE_URL may omit the password on some DO Redis plans; explicit
+      # vars guarantee auth works regardless of URL format.
       - key: REDIS_URL
         scope: RUN_TIME
         value: ${buglens-redis-production.DATABASE_URL}
+      - key: REDIS_HOST
+        scope: RUN_TIME
+        value: ${buglens-redis-production.HOSTNAME}
+      - key: REDIS_PORT
+        scope: RUN_TIME
+        value: ${buglens-redis-production.PORT}
+      - key: REDIS_PASSWORD
+        scope: RUN_TIME
+        value: ${buglens-redis-production.PASSWORD}
+      - key: REDIS_TLS
+        value: "true"
 
       # DO Spaces (S3-compatible)
       - key: S3_ENDPOINT
@@ -179,6 +192,17 @@ services:
       - key: REDIS_URL
         scope: RUN_TIME
         value: ${buglens-redis-production.DATABASE_URL}
+      - key: REDIS_HOST
+        scope: RUN_TIME
+        value: ${buglens-redis-production.HOSTNAME}
+      - key: REDIS_PORT
+        scope: RUN_TIME
+        value: ${buglens-redis-production.PORT}
+      - key: REDIS_PASSWORD
+        scope: RUN_TIME
+        value: ${buglens-redis-production.PASSWORD}
+      - key: REDIS_TLS
+        value: "true"
 
       # DO Spaces
       - key: S3_ENDPOINT

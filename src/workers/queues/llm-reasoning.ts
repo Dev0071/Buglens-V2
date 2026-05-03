@@ -1,6 +1,5 @@
-import { Queue, Worker, Job, type ConnectionOptions } from "bullmq";
-import { URL } from "node:url";
-import { config } from "../../utils/config.js";
+import { Queue, Worker, Job } from "bullmq";
+import { resolveRedisConnection } from "../../db/redis-connection.js";
 import { logger } from "../../utils/logger.js";
 import { transaction } from "../../db/client.js";
 import { LLMService } from "../../services/llm-service.js";
@@ -52,31 +51,12 @@ export function getTestModeJobs(): LLMReasoningJobData[] {
   return [...testModeBuffer];
 }
 
-export function resolveQueueConnection(): ConnectionOptions {
-  const redisUrl = config.REDIS_URL;
-  const isTls = redisUrl.startsWith("rediss://");
-  const parsed = new URL(redisUrl);
-  return {
-    host: parsed.hostname,
-    port: Number(parsed.port || 6379),
-    username: parsed.username || undefined,
-    password: parsed.password || undefined,
-    db: parsed.pathname ? Number(parsed.pathname.replace("/", "")) || 0 : 0,
-    maxRetriesPerRequest: null,
-    ...(isTls
-      ? {
-          tls: {
-            rejectUnauthorized: false,
-          },
-        }
-      : {}),
-  };
-}
+export { resolveRedisConnection as resolveQueueConnection } from "../../db/redis-connection.js";
 
 export function getLLMQueue(): Queue<LLMReasoningJobData> {
   if (!llmQueue) {
     llmQueue = new Queue<LLMReasoningJobData>(QUEUE_NAME, {
-      connection: resolveQueueConnection(),
+      connection: resolveRedisConnection(),
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -965,7 +945,7 @@ export function startLLMWorker(): Worker<LLMReasoningJobData> {
   }
 
   llmWorker = new Worker<LLMReasoningJobData>(QUEUE_NAME, processLLMJob, {
-    connection: resolveQueueConnection(),
+    connection: resolveRedisConnection(),
     concurrency: 3, // Lower concurrency for LLM rate limits
     limiter: {
       max: 5,
