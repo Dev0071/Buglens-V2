@@ -544,15 +544,21 @@ function extractFrameKey(bundle: EvidenceBundle): FrameKey | null {
   return { file: chosen.file, line: chosen.line };
 }
 
-function frameKeysMatch(a: FrameKey, b: unknown): boolean {
-  if (!b || typeof b !== "object") return false;
-  const candidate = b as { file?: unknown; line?: unknown };
-  return (
-    typeof candidate.file === "string" &&
-    typeof candidate.line === "number" &&
-    candidate.file === a.file &&
-    candidate.line === a.line
-  );
+function frameKeysMatch(a: FrameKey, b: FrameKey | null): boolean {
+  return b !== null && b.file === a.file && b.line === a.line;
+}
+
+function extractFrameKeyFromFrames(frames: unknown): FrameKey | null {
+  if (!Array.isArray(frames)) return null;
+  const isUsable = (f: unknown): f is { file: string; line: number; in_app?: boolean } =>
+    !!f &&
+    typeof (f as Record<string, unknown>).file === "string" &&
+    typeof (f as Record<string, unknown>).line === "number";
+  const inApp = frames.find((f) => isUsable(f) && f.in_app);
+  const fallback = frames.find((f) => isUsable(f));
+  const chosen = inApp ?? fallback;
+  if (!chosen) return null;
+  return { file: chosen.file, line: chosen.line };
 }
 
 async function findCachedRCA(
@@ -579,7 +585,7 @@ async function findCachedRCA(
       evidence_refs: unknown;
       llm_model: string;
       error_category: string | null;
-      first_frame: unknown;
+      stack_trace: unknown;
     }>(
       `WITH current_event AS (
          SELECT signature, COALESCE(release, '') AS release
@@ -589,7 +595,7 @@ async function findCachedRCA(
        SELECT r.id, r.event_id, r.title, r.summary, r.root_cause,
               r.causal_chain, r.suggested_fix, r.confidence,
               r.evidence_refs, r.llm_model, r.error_category,
-              r.evidence->'error'->'stack_trace'->0 AS first_frame
+              r.evidence->'error'->'stack_trace' AS stack_trace
        FROM rca_results r
        JOIN events e ON e.id = r.event_id
        JOIN current_event c ON e.signature = c.signature
@@ -609,12 +615,13 @@ async function findCachedRCA(
       ]
     );
 
-    // Post-filter: pick the most recent candidate whose stored top frame
-    // matches the current event's top frame. The SQL groups by
-    // signature+release, but signature can collide for generic messages, so
-    // we use the in-app frame as the tiebreaker.
+    // Post-filter: pick the most recent candidate whose first in-app frame
+    // matches. SQL groups by signature+release; the in-app frame acts as
+    // tiebreaker for generic signatures. We extract the in-app-first frame
+    // from the full stack_trace array (same logic as extractFrameKey) rather
+    // than relying on ->0 which may be a library frame.
     const match = result.rows.find((row) =>
-      frameKeysMatch(currentFrame, row.first_frame)
+      frameKeysMatch(currentFrame, extractFrameKeyFromFrames(row.stack_trace))
     );
 
     if (!match) return null;

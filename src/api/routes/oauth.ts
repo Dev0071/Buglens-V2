@@ -161,20 +161,24 @@ async function githubCallbackHandler(
     const repos = await getGitHubRepos(tokenData.access_token);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "github", {
-      access_token: tokenData.access_token,
-      token_type: tokenData.token_type,
-      scope: tokenData.scope,
-      user_id: user.id,
-      login: user.login,
-      name: user.name,
-      avatar_url: user.avatar_url,
-      repos: repos.map((r) => ({
-        id: r.id,
-        full_name: r.full_name,
-        private: r.private,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "github",
+      {
+        token_type: tokenData.token_type,
+        scope: tokenData.scope,
+        user_id: user.id,
+        login: user.login,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        repos: repos.map((r) => ({
+          id: r.id,
+          full_name: r.full_name,
+          private: r.private,
+        })),
+      },
+      { access_token: tokenData.access_token }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, login: user.login, repoCount: repos.length },
@@ -272,20 +276,24 @@ async function slackCallbackHandler(
     }
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "slack", {
-      access_token: authData.access_token,
-      token_type: authData.token_type,
-      scope: authData.scope,
-      bot_user_id: authData.bot_user_id,
-      team_id: authData.team.id,
-      team_name: authData.team.name,
-      webhook: authData.incoming_webhook,
-      channels: channels.slice(0, 50).map((c) => ({
-        id: c.id,
-        name: c.name,
-        is_private: c.is_private,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "slack",
+      {
+        token_type: authData.token_type,
+        scope: authData.scope,
+        bot_user_id: authData.bot_user_id,
+        team_id: authData.team.id,
+        team_name: authData.team.name,
+        webhook: authData.incoming_webhook,
+        channels: channels.slice(0, 50).map((c) => ({
+          id: c.id,
+          name: c.name,
+          is_private: c.is_private,
+        })),
+      },
+      { access_token: authData.access_token }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, teamName: authData.team.name },
@@ -375,18 +383,24 @@ async function jiraCallbackHandler(
     const resources = await getJiraResources(tokenData.access_token);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "jira", {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      token_type: tokenData.token_type,
-      expires_in: tokenData.expires_in,
-      scope: tokenData.scope,
-      resources: resources.map((r) => ({
-        id: r.id,
-        name: r.name,
-        url: r.url,
-      })),
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "jira",
+      {
+        token_type: tokenData.token_type,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope,
+        resources: resources.map((r) => ({
+          id: r.id,
+          name: r.name,
+          url: r.url,
+        })),
+      },
+      {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      }
+    );
 
     logger.info(
       { orgId: oauthState.orgId, resourceCount: resources.length },
@@ -473,13 +487,19 @@ async function teamsCallbackHandler(
     const tokenData = await exchangeTeamsCode(code);
 
     // Save integration
-    await saveIntegration(oauthState.orgId, "teams", {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      token_type: tokenData.token_type,
-      expires_in: tokenData.expires_in,
-      scope: tokenData.scope,
-    });
+    await saveIntegration(
+      oauthState.orgId,
+      "teams",
+      {
+        token_type: tokenData.token_type,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope,
+      },
+      {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      }
+    );
 
     logger.info({ orgId: oauthState.orgId }, "Teams integration connected");
 
@@ -511,7 +531,7 @@ interface SentryConfigBody {
  *
  * Configure Sentry integration with DSN/project details
  */
-async function sentryConfigureHandler(
+export async function sentryConfigureHandler(
   request: FastifyRequest<{ Body: SentryConfigBody }>,
   reply: FastifyReply
 ): Promise<void> {
