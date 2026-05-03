@@ -147,6 +147,7 @@ interface CodeContextData {
     language: string;
     line_number: number;
     column_number: number | null;
+    source_map_resolved?: boolean;
   }>;
 }
 
@@ -382,7 +383,7 @@ function extractCodeResults(
         column_number: file.column_number,
         snippet_start: Math.max(1, file.line_number - 50), // Full context ±50 lines
         snippet_end: file.line_number + 50,
-        source_map_resolved: false,
+        source_map_resolved: file.source_map_resolved ?? false,
       },
     }));
   }

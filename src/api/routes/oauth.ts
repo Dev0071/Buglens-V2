@@ -498,6 +498,12 @@ interface SentryConfigBody {
   dsn?: string;
   projectSlug: string;
   organizationSlug: string;
+  // Optional Sentry user auth token with `project:releases` scope.
+  // Required only if you want Buglens to fetch source maps you've uploaded
+  // to Sentry (sentry-cli sourcemaps upload). Without it we fall back to
+  // GitHub-hosted maps and Sentry's embedded context.
+  authToken?: string;
+  apiBaseUrl?: string; // defaults to https://sentry.io for self-hosted instances
 }
 
 /**
@@ -519,7 +525,8 @@ async function sentryConfigureHandler(
     return;
   }
 
-  const { dsn, projectSlug, organizationSlug } = request.body;
+  const { dsn, projectSlug, organizationSlug, authToken, apiBaseUrl } =
+    request.body;
 
   if (!projectSlug || !organizationSlug) {
     reply.status(400).send({
@@ -540,7 +547,13 @@ async function sentryConfigureHandler(
       organization_slug: organizationSlug,
       webhook_secret: webhookSecret,
       webhook_url: webhookUrl,
+      auth_token: authToken ?? null,
+      api_base_url: apiBaseUrl ?? "https://sentry.io",
     });
+
+    // Drop the in-process config cache so the new auth_token is picked up
+    // immediately by the source-map fetcher.
+    invalidateSentryConfigCache(orgId);
 
     logger.info(
       { orgId, projectSlug, organizationSlug },
@@ -568,6 +581,7 @@ async function sentryConfigureHandler(
 
 import crypto from "crypto";
 import { getWebhookUrl } from "../../utils/url-helpers.js";
+import { invalidateSentryConfigCache } from "../../services/sentry-sourcemap-fetcher.js";
 
 export async function oauthRoutes(server: FastifyInstance): Promise<void> {
   // GitHub OAuth

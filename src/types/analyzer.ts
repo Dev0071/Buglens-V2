@@ -50,6 +50,7 @@ export interface AnalyzerCodeSegment {
   content: string;
   error_line: number;
   error_column?: number;
+  source_map_resolved?: boolean;
 }
 
 export interface AnalyzerRequestPayload {
