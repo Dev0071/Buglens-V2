@@ -964,11 +964,18 @@ function IntegrationsSettings() {
   }) => {
     setSentryConfiguring(true);
     try {
-      // Hit the dedicated /integrations/sentry/configure endpoint instead of
-      // the generic /integrations/:type/connect. The dedicated handler
-      // normalizes camelCase to snake_case, validates the api_base_url, and
-      // splits the auth token into encrypted storage.
-      await apiClient.post("/integrations/sentry/configure", config);
+      const useMockData = import.meta.env.VITE_USE_MOCK_DATA === "true";
+
+      if (useMockData) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      } else {
+        // Hit the dedicated /integrations/sentry/configure endpoint instead of
+        // the generic /integrations/:type/connect. The dedicated handler
+        // normalizes camelCase to snake_case, validates the api_base_url, and
+        // splits the auth token into encrypted storage.
+        await apiClient.post("/integrations/sentry/configure", config);
+      }
+
       setShowSentryModal(false);
       setNotification({
         type: "success",
