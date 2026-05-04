@@ -6,9 +6,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   XMarkIcon,
-  ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
-import { useAuthStore, useUserRole } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import Logo, { LogoIcon } from "@/components/ui/Logo";
 
 interface SidebarProps {
@@ -24,8 +23,6 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Cog6ToothIcon },
 ];
 
-// Admin navigation item - shown only to admin/owner roles
-const adminNavItem = { name: "Admin", href: "/admin", icon: ShieldCheckIcon };
 
 /**
  * Sidebar navigation component
@@ -141,9 +138,6 @@ function SidebarContent({
   } | null;
   currentPath: string;
 }) {
-  // Check if user has admin access
-  const role = useUserRole();
-  const isAdminOrOwner = role === "admin" || role === "owner";
 
   return (
     <div className="flex flex-col flex-1 overflow-y-auto">
@@ -196,25 +190,6 @@ function SidebarContent({
           );
         })}
 
-        {/* Admin link - only shown to admin/owner users */}
-        {isAdminOrOwner && (
-          <>
-            <div className="my-2 border-t border-gray-200 dark:border-zinc-800" />
-            <NavLink
-              to={adminNavItem.href}
-              className={`
-                sidebar-link
-                ${currentPath.startsWith("/admin") ? "active" : ""}
-                ${collapsed ? "justify-center px-2" : ""}
-                text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10
-              `}
-              title={collapsed ? adminNavItem.name : undefined}
-            >
-              <adminNavItem.icon className="w-5 h-5 flex-shrink-0" />
-              {!collapsed && <span>{adminNavItem.name}</span>}
-            </NavLink>
-          </>
-        )}
       </nav>
 
       {/* User info */}
