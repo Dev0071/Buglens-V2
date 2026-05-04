@@ -772,40 +772,6 @@ function FeedbackTab({ rca }: { rca: RCAResult }) {
         </div>
       </div>
 
-      {/* Feedback Stats */}
-      <div className="card bg-gray-50 dark:bg-gray-800/50">
-        <div className="card-body">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-            Community Feedback
-          </h3>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                4.2
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Avg Rating
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                87%
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Found Helpful
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                23
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Total Reviews
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
