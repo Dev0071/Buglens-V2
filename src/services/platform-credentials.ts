@@ -95,12 +95,8 @@ class PlatformCredentialsService {
           config.GITHUB_OAUTH_CLIENT_ID && config.GITHUB_OAUTH_CLIENT_SECRET
         );
       case "github_app":
-        // Require both app ID and app name to be configured for GitHub App
-        return !!(
-          config.GITHUB_APP_ID &&
-          config.GITHUB_APP_NAME &&
-          process.env.GITHUB_APP_PRIVATE_KEY
-        );
+        // Only app ID + name needed for the install URL; private key is checked separately at token exchange time
+        return !!(config.GITHUB_APP_ID && config.GITHUB_APP_NAME);
       case "slack":
         return !!(config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET);
       case "jira":

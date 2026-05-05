@@ -7,7 +7,6 @@ import { platformCredentials } from "../../services/platform-credentials.js";
 import {
   generateOAuthState,
   validateOAuthState,
-  getGitHubAuthUrl,
   getSlackAuthUrl,
   getJiraAuthUrl,
   getTeamsAuthUrl,
@@ -701,48 +700,27 @@ export async function integrationsRoutes(
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    // Prefer GitHub App over OAuth App
-    if (platformCredentials.isConfigured("github_app")) {
-      const state = generateOAuthState(
-        orgId,
-        "github_app",
-        "/settings/integrations",
-        { action: "install" }
-      );
-      const url = getGitHubAppInstallUrl(state);
-      if (!url) {
-        return reply.status(503).send({
-          error: "INTEGRATION_NOT_CONFIGURED",
-          message:
-            "GitHub integration is not configured. Please contact support.",
-        });
-      }
-      return reply.send({ authUrl: url, method: "github_app" });
+    if (!platformCredentials.isConfigured("github_app")) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "GitHub App integration is not configured. Please contact support.",
+      });
     }
 
-    // Fallback to OAuth App
-    if (platformCredentials.isConfigured("github")) {
-      const state = generateOAuthState(
-        orgId,
-        "github",
-        "/settings/integrations",
-        { action: "install" }
-      );
-      const url = getGitHubAuthUrl(state);
-      if (!url) {
-        return reply.status(503).send({
-          error: "INTEGRATION_NOT_CONFIGURED",
-          message:
-            "GitHub integration is not configured. Please contact support.",
-        });
-      }
-      return reply.send({ authUrl: url, method: "oauth" });
+    const state = generateOAuthState(
+      orgId,
+      "github_app",
+      "/settings/integrations",
+      { action: "install" }
+    );
+    const url = getGitHubAppInstallUrl(state);
+    if (!url) {
+      return reply.status(503).send({
+        error: "INTEGRATION_NOT_CONFIGURED",
+        message: "GitHub App integration is not configured. Please contact support.",
+      });
     }
-
-    return reply.status(503).send({
-      error: "INTEGRATION_NOT_CONFIGURED",
-      message: "GitHub integration is not configured. Please contact support.",
-    });
+    return reply.send({ authUrl: url, method: "github_app" });
   });
 
   /**
