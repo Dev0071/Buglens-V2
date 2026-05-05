@@ -802,6 +802,85 @@ export async function getGitHubAppInstallationToken(
 }
 
 /**
+ * Immediately fetch and register repositories for a GitHub App installation.
+ * Called right after the OAuth callback so repos are available without waiting for webhooks.
+ */
+export async function syncGitHubAppRepos(
+  installationId: number,
+  orgId: string
+): Promise<void> {
+  const tokenResult = await getGitHubAppInstallationToken(installationId);
+  if (!tokenResult) {
+    logger.warn({ installationId, orgId }, "Could not get installation token — repo sync skipped");
+    return;
+  }
+
+  try {
+    const repos: { full_name: string; name: string; private: boolean; default_branch: string }[] = [];
+    let page = 1;
+
+    while (true) {
+      const response = await fetch(
+        `https://api.github.com/installation/repositories?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `token ${tokenResult.token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        logger.error({ status: response.status, installationId }, "Failed to list installation repos");
+        break;
+      }
+
+      const data = (await response.json()) as {
+        total_count: number;
+        repositories: { full_name: string; name: string; private: boolean; default_branch: string }[];
+      };
+
+      repos.push(...data.repositories);
+      if (repos.length >= data.total_count) break;
+      page++;
+    }
+
+    if (repos.length === 0) {
+      logger.info({ installationId, orgId }, "No repositories found for installation");
+      return;
+    }
+
+    const installationIdText = installationId.toString();
+    const values = repos.flatMap((repo) => {
+      const [owner, name] = repo.full_name.split("/", 2);
+      return [orgId, owner ?? repo.full_name, name ?? repo.name, repo.full_name, repo.default_branch ?? "main", installationIdText];
+    });
+    const placeholders = repos
+      .map((_, i) => {
+        const o = i * 6;
+        return `($${o + 1}, 'github', $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, 'auto-registered', true)`;
+      })
+      .join(", ");
+
+    await query(
+      `INSERT INTO repos (org_id, provider, owner, name, full_name, default_branch, installation_id, secret_id, is_active)
+       VALUES ${placeholders}
+       ON CONFLICT (org_id, provider, full_name) DO UPDATE SET
+         installation_id = EXCLUDED.installation_id,
+         default_branch = EXCLUDED.default_branch,
+         is_active = true,
+         updated_at = NOW()`,
+      values
+    );
+
+    logger.info({ orgId, installationId, repoCount: repos.length }, "GitHub App repos synced");
+  } catch (error) {
+    logger.error({ error, installationId, orgId }, "Failed to sync GitHub App repos");
+  }
+}
+
+/**
  * Process GitHub App installation callback
  */
 export async function processGitHubAppInstallation(
@@ -830,6 +909,10 @@ export async function processGitHubAppInstallation(
 
   try {
     const integrationId = await storeGitHubInstallation(orgId, installation);
+    // Proactively fetch repos — don't wait for the webhook which may arrive late or not at all
+    syncGitHubAppRepos(installationId, orgId).catch((err) =>
+      logger.error({ err, orgId, installationId }, "Background repo sync failed")
+    );
     logger.info({ orgId, installationId }, "GitHub App installation processed");
     return integrationId;
   } catch (error) {
