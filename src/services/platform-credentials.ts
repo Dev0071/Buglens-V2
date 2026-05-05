@@ -39,8 +39,6 @@ export interface GitHubAppCredentials {
   appId: string;
   appName: string;
   privateKey: string;
-  clientId: string;
-  clientSecret: string;
   webhookSecret?: string;
 }
 
@@ -162,8 +160,6 @@ class PlatformCredentialsService {
       appId: config.GITHUB_APP_ID,
       appName,
       privateKey,
-      clientId: config.GITHUB_OAUTH_CLIENT_ID || "",
-      clientSecret: config.GITHUB_OAUTH_CLIENT_SECRET || "",
       webhookSecret: config.GITHUB_WEBHOOK_SECRET,
     };
   }

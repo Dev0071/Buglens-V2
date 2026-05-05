@@ -40,7 +40,7 @@ import {
   logSignup,
   logOrgCreated,
 } from "../../services/audit.js";
-import { getBaseUrlFromRequest } from "../../utils/url-helpers.js";
+import { getApiBaseUrl, getOAuthCallbackUrl } from "../../utils/url-helpers.js";
 
 // ============================================
 // Schemas
@@ -505,7 +505,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         maxAge: 600, // 10 minutes
       });
 
-      const redirectUri = `${getBaseUrlFromRequest(_request)}/api/auth/github/callback`;
+      const redirectUri = getOAuthCallbackUrl("github", "auth");
       const scope = "user:email read:user";
 
       const authUrl = new URL("https://github.com/login/oauth/authorize");
@@ -702,7 +702,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         maxAge: 600,
       });
 
-      const redirectUri = `${getBaseUrlFromRequest(_request)}/api/auth/google/callback`;
+      const redirectUri = getOAuthCallbackUrl("google", "auth");
       const scope = "openid email profile";
 
       const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -757,7 +757,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           return reply.redirect(`${frontendUrl}/login?error=oauth_not_configured`);
         }
 
-        const redirectUri = `${getBaseUrlFromRequest(request)}/api/auth/google/callback`;
+        const redirectUri = getOAuthCallbackUrl("google", "auth");
 
         // Exchange code for access token using platform credentials + PKCE
         const tokenParams: Record<string, string> = {
@@ -957,7 +957,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         });
       }
 
-      const baseUrl = getBaseUrlFromRequest(request);
+      const baseUrl = getApiBaseUrl();
       const state = crypto.randomBytes(32).toString("hex");
 
       // Store state with user ID for linking (not login)
@@ -1166,8 +1166,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         );
       }
 
-      const baseUrl = getBaseUrlFromRequest(request);
-      const redirectUri = `${baseUrl}/api/auth/link/google/callback`;
+      const redirectUri = `${getApiBaseUrl()}/api/auth/link/google/callback`;
 
       // Exchange code for token with PKCE
       const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
