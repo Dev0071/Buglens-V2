@@ -267,3 +267,15 @@ export const platformCredentials = new PlatformCredentialsService();
 
 // Log configured providers on startup
 platformCredentials.logConfiguredProviders();
+
+// Log GitHub App config status so missing env vars are visible at boot
+{
+  const hasAppId = !!config.GITHUB_APP_ID;
+  const hasAppName = !!config.GITHUB_APP_NAME;
+  const hasPrivateKey = !!process.env.GITHUB_APP_PRIVATE_KEY;
+  const keyLength = process.env.GITHUB_APP_PRIVATE_KEY?.length ?? 0;
+  logger.info(
+    { hasAppId, hasAppName, hasPrivateKey, privateKeyLength: keyLength },
+    "GitHub App env check"
+  );
+}
