@@ -186,8 +186,11 @@ async function handleInstallationEvent(payload: unknown): Promise<void> {
       "GitHub App installed"
     );
 
-    // 1. Create or get organization
-    const orgId = await findOrCreateOrganization(installation);
+    // 1. Look up org by installation_id stored during OAuth callback first,
+    //    then fall back to slug-based lookup for direct installs (no prior callback)
+    const orgId =
+      (await findOrgByInstallationId(installation.id)) ??
+      (await findOrCreateOrganization(installation));
 
     // 2. Register all repos
     if (repositories && repositories.length > 0) {
@@ -242,23 +245,12 @@ async function handleInstallationRepositoriesEvent(
       "Repositories added to installation"
     );
 
-    // Find org by installation_id
-    const orgResult = await pool.query<{ org_id: string }>(
-      `SELECT DISTINCT org_id FROM repos WHERE installation_id = $1 LIMIT 1`,
-      [installation.id.toString()]
-    );
-
-    if (orgResult.rows.length === 0) {
-      // New installation, create org
-      const orgId = await findOrCreateOrganization(installation);
-      await registerRepositories(orgId, installation.id, repositories_added);
-    } else {
-      await registerRepositories(
-        orgResult.rows[0].org_id,
-        installation.id,
-        repositories_added
-      );
-    }
+    // Prefer integrations table (set during OAuth callback) over repos table
+    const orgId =
+      (await findOrgByInstallationId(installation.id)) ??
+      (await findOrgByInstallationIdFromRepos(installation.id)) ??
+      (await findOrCreateOrganization(installation));
+    await registerRepositories(orgId, installation.id, repositories_added);
 
     return;
   }
@@ -292,6 +284,35 @@ async function handleInstallationRepositoriesEvent(
 // ============================================
 // Helper Functions
 // ============================================
+
+/**
+ * Look up the Buglens org that already stored this installation during the OAuth callback.
+ * This is the authoritative mapping — the user was logged in and their orgId was embedded in state.
+ */
+async function findOrgByInstallationId(
+  installationId: number
+): Promise<string | null> {
+  const result = await pool.query<{ org_id: string }>(
+    `SELECT org_id FROM integrations
+     WHERE type = 'github_app' AND external_id = $1
+     LIMIT 1`,
+    [installationId.toString()]
+  );
+  return result.rows[0]?.org_id ?? null;
+}
+
+/**
+ * Fallback: find org via repos already registered under this installation.
+ */
+async function findOrgByInstallationIdFromRepos(
+  installationId: number
+): Promise<string | null> {
+  const result = await pool.query<{ org_id: string }>(
+    `SELECT DISTINCT org_id FROM repos WHERE installation_id = $1 LIMIT 1`,
+    [installationId.toString()]
+  );
+  return result.rows[0]?.org_id ?? null;
+}
 
 /**
  * Find or create an organization based on GitHub installation
