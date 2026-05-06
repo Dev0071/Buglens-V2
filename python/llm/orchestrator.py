@@ -1,12 +1,17 @@
 """
 LLM orchestrator for RCA generation.
 
-Handles GPT-4o-mini API calls with:
+Handles OpenAI and Anthropic API calls with:
 - Cost tracking per request
 - Schema validation of responses
 - Retry logic for transient failures
 - Deterministic fallback when LLM fails
 - Token budget management
+
+Supported providers (set via LLM_PROVIDER env var):
+  openai    — default, uses OPENAI_API_KEY
+  deepseek  — OpenAI-compatible, uses OPENAI_API_KEY + LLM_BASE_URL
+  anthropic — uses ANTHROPIC_API_KEY; supports claude-sonnet-4-6, claude-opus-4-7, claude-haiku-4-5-20251001
 
 Entry point: Called via stdin/stdout from Node.js PythonBridge.
 """
@@ -34,34 +39,45 @@ from .prompts import (
 
 @dataclass
 class OrchestratorConfig:
-    """
-    Configuration for LLM orchestrator.
-
-    Timeout Rationale:
-    - timeout_seconds: 30s for full RCA generation
-      This is longer than llm_assist_extractor's 20s because:
-      1. RCA generation requires more complex reasoning
-      2. Larger input prompts (evidence bundles) = longer processing
-      3. More output tokens (full RCA vs simple extraction)
-
-    - llm_assist_extractor uses 20s with 10s buffer
-      Designed for quick extraction tasks with smaller payloads
-    """
+    """Configuration for LLM orchestrator."""
+    provider: str = "openai"   # openai | deepseek | anthropic
     model: str = "gpt-4o-mini"
-    temperature: float = 0.1  # Low for consistency
-    max_tokens: int = 2000  # Output token limit
-    max_input_tokens: int = 4000  # Input token budget
-    timeout_seconds: int = 30  # Full RCA requires more time than extraction (20s)
+    temperature: float = 0.1
+    max_tokens: int = 2000
+    max_input_tokens: int = 4000
+    timeout_seconds: int = 30
     max_retries: int = 2
     retry_delay_seconds: float = 1.0
 
 
-# GPT-4o-mini pricing (as of Dec 2024)
-# Input: $0.15 per 1M tokens, Output: $0.60 per 1M tokens
-PRICING = {
-    "input_per_token": 0.00000015,
-    "output_per_token": 0.0000006,
+# Per-model pricing (USD per token)
+PRICING: Dict[str, Dict[str, float]] = {
+    # OpenAI
+    "gpt-4o-mini":            {"input": 0.00000015,  "output": 0.0000006},
+    "gpt-4o":                 {"input": 0.000005,    "output": 0.000015},
+    # DeepSeek (OpenAI-compatible)
+    "deepseek-chat":          {"input": 0.00000027,  "output": 0.0000011},
+    # Anthropic Claude 4.x
+    "claude-sonnet-4-6":      {"input": 0.000003,    "output": 0.000015},
+    "claude-opus-4-7":        {"input": 0.000015,    "output": 0.000075},
+    "claude-haiku-4-5-20251001": {"input": 0.0000008, "output": 0.000004},
 }
+
+_ANTHROPIC_MODELS = {"claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"}
+
+
+def _config_from_env() -> "OrchestratorConfig":
+    """Build config from environment variables."""
+    provider = os.environ.get("LLM_PROVIDER", "openai")
+    model = os.environ.get("LLM_MODEL", "")
+    if not model:
+        if provider == "anthropic":
+            model = "claude-sonnet-4-6"
+        elif provider == "deepseek":
+            model = "deepseek-chat"
+        else:
+            model = "gpt-4o-mini"
+    return OrchestratorConfig(provider=provider, model=model)
 
 
 # =============================================================================
@@ -124,18 +140,27 @@ class RCAOrchestrator:
         self._client: Optional[Any] = None
 
     def _get_client(self):
-        """Lazy-load OpenAI client."""
+        """Lazy-load provider client."""
         if self._client is None:
-            try:
-                from openai import OpenAI
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
-                    raise ValueError("OPENAI_API_KEY environment variable not set")
-                self._client = OpenAI(api_key=api_key)
-            except ImportError:
-                raise ImportError(
-                    "openai package not installed. Run: pip install openai"
-                )
+            if self.config.provider == "anthropic" or self.config.model in _ANTHROPIC_MODELS:
+                try:
+                    import anthropic
+                    api_key = os.environ.get("ANTHROPIC_API_KEY")
+                    if not api_key:
+                        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+                    self._client = anthropic.Anthropic(api_key=api_key)
+                except ImportError:
+                    raise ImportError("anthropic package not installed. Run: pip install anthropic")
+            else:
+                try:
+                    from openai import OpenAI
+                    api_key = os.environ.get("OPENAI_API_KEY")
+                    if not api_key:
+                        raise ValueError("OPENAI_API_KEY environment variable not set")
+                    base_url = os.environ.get("LLM_BASE_URL")
+                    self._client = OpenAI(api_key=api_key, base_url=base_url or None)
+                except ImportError:
+                    raise ImportError("openai package not installed. Run: pip install openai")
         return self._client
 
     def generate_rca(self, evidence: Dict[str, Any]) -> OrchestratorResult:
@@ -229,15 +254,17 @@ class RCAOrchestrator:
         )
 
     def _call_llm(self, user_prompt: str) -> OrchestratorResult:
-        """
-        Make LLM API call with validation.
+        """Make LLM API call with validation."""
+        is_anthropic = (
+            self.config.provider == "anthropic"
+            or self.config.model in _ANTHROPIC_MODELS
+        )
+        if is_anthropic:
+            return self._call_anthropic(user_prompt)
+        return self._call_openai(user_prompt)
 
-        Args:
-            user_prompt: Formatted user prompt
-
-        Returns:
-            Result with parsed RCA or error
-        """
+    def _call_openai(self, user_prompt: str) -> OrchestratorResult:
+        """OpenAI / DeepSeek compatible call."""
         client = self._get_client()
 
         response = client.chat.completions.create(
@@ -252,19 +279,13 @@ class RCAOrchestrator:
             timeout=self.config.timeout_seconds,
         )
 
-        # Extract usage
         usage = response.usage
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
         total_tokens = usage.total_tokens if usage else 0
+        pricing = PRICING.get(self.config.model, {"input": 0.00000015, "output": 0.0000006})
+        cost_usd = input_tokens * pricing["input"] + output_tokens * pricing["output"]
 
-        # Calculate cost
-        cost_usd = (
-            input_tokens * PRICING["input_per_token"] +
-            output_tokens * PRICING["output_per_token"]
-        )
-
-        # Get response content
         content = response.choices[0].message.content
         if not content:
             return OrchestratorResult(
@@ -289,6 +310,76 @@ class RCAOrchestrator:
             return OrchestratorResult(
                 success=False,
                 rca=validation.parsed_data,  # May have partial data
+                error=f"Validation failed: {'; '.join(validation.errors)}",
+                llm_model=self.config.model,
+                llm_tokens_used=total_tokens,
+                llm_input_tokens=input_tokens,
+                llm_output_tokens=output_tokens,
+                llm_cost_usd=cost_usd,
+                processing_time_ms=0,
+                validation_passed=False,
+                validation_errors=validation.errors,
+                used_fallback=False,
+            )
+
+        return OrchestratorResult(
+            success=True,
+            rca=validation.parsed_data,
+            error=None,
+            llm_model=self.config.model,
+            llm_tokens_used=total_tokens,
+            llm_input_tokens=input_tokens,
+            llm_output_tokens=output_tokens,
+            llm_cost_usd=cost_usd,
+            processing_time_ms=0,
+            validation_passed=True,
+            validation_errors=[],
+            used_fallback=False,
+        )
+
+    def _call_anthropic(self, user_prompt: str) -> OrchestratorResult:
+        """Anthropic Claude API call."""
+        client = self._get_client()
+        pricing = PRICING.get(self.config.model, {"input": 0.000003, "output": 0.000015})
+
+        response = client.messages.create(
+            model=self.config.model,
+            max_tokens=self.config.max_tokens,
+            temperature=self.config.temperature,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+            timeout=self.config.timeout_seconds,
+        )
+
+        usage = response.usage
+        input_tokens = usage.input_tokens if usage else 0
+        output_tokens = usage.output_tokens if usage else 0
+        total_tokens = input_tokens + output_tokens
+        cost_usd = input_tokens * pricing["input"] + output_tokens * pricing["output"]
+
+        content = response.content[0].text if response.content else ""
+        if not content:
+            return OrchestratorResult(
+                success=False,
+                rca=None,
+                error="Empty response from Anthropic",
+                llm_model=self.config.model,
+                llm_tokens_used=total_tokens,
+                llm_input_tokens=input_tokens,
+                llm_output_tokens=output_tokens,
+                llm_cost_usd=cost_usd,
+                processing_time_ms=0,
+                validation_passed=False,
+                validation_errors=["Empty response"],
+                used_fallback=False,
+            )
+
+        validation = validate_rca_response(content)
+
+        if not validation.is_valid:
+            return OrchestratorResult(
+                success=False,
+                rca=validation.parsed_data,
                 error=f"Validation failed: {'; '.join(validation.errors)}",
                 llm_model=self.config.model,
                 llm_tokens_used=total_tokens,
@@ -428,7 +519,7 @@ def main():
         evidence = json.loads(input_data)
 
         # Create orchestrator and generate RCA
-        orchestrator = RCAOrchestrator()
+        orchestrator = RCAOrchestrator(config=_config_from_env())
         result = orchestrator.generate_rca(evidence)
 
         # Write result to stdout
