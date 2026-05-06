@@ -809,11 +809,14 @@ export async function syncGitHubAppRepos(
   installationId: number,
   orgId: string
 ): Promise<void> {
+  logger.info({ installationId, orgId }, "Repo sync: starting");
+
   const tokenResult = await getGitHubAppInstallationToken(installationId);
   if (!tokenResult) {
-    logger.warn({ installationId, orgId }, "Could not get installation token — repo sync skipped");
+    logger.warn({ installationId, orgId }, "Repo sync: no installation token — private key missing or JWT failed");
     return;
   }
+  logger.info({ installationId, orgId }, "Repo sync: token obtained, fetching repos from GitHub");
 
   try {
     const repos: { full_name: string; name: string; private: boolean; default_branch: string }[] = [];
@@ -832,7 +835,8 @@ export async function syncGitHubAppRepos(
       );
 
       if (!response.ok) {
-        logger.error({ status: response.status, installationId }, "Failed to list installation repos");
+        const body = await response.text();
+        logger.error({ status: response.status, body, installationId }, "Repo sync: GitHub API error listing repos");
         break;
       }
 
@@ -841,15 +845,18 @@ export async function syncGitHubAppRepos(
         repositories: { full_name: string; name: string; private: boolean; default_branch: string }[];
       };
 
+      logger.info({ page, fetched: data.repositories.length, total: data.total_count, installationId }, "Repo sync: page fetched");
       repos.push(...data.repositories);
       if (repos.length >= data.total_count) break;
       page++;
     }
 
     if (repos.length === 0) {
-      logger.info({ installationId, orgId }, "No repositories found for installation");
+      logger.warn({ installationId, orgId }, "Repo sync: GitHub returned 0 repositories — check App installation scope");
       return;
     }
+
+    logger.info({ installationId, orgId, repoCount: repos.length }, "Repo sync: inserting repos into DB");
 
     const installationIdText = installationId.toString();
     const values = repos.flatMap((repo) => {
@@ -863,20 +870,22 @@ export async function syncGitHubAppRepos(
       })
       .join(", ");
 
-    await query(
-      `INSERT INTO repos (org_id, provider, owner, name, full_name, default_branch, installation_id, secret_id, is_active)
-       VALUES ${placeholders}
-       ON CONFLICT (org_id, provider, full_name) DO UPDATE SET
-         installation_id = EXCLUDED.installation_id,
-         default_branch = EXCLUDED.default_branch,
-         is_active = true,
-         updated_at = NOW()`,
-      values
-    );
+    await transaction(orgId, async (client) => {
+      await client.query(
+        `INSERT INTO repos (org_id, provider, owner, name, full_name, default_branch, installation_id, secret_id, is_active)
+         VALUES ${placeholders}
+         ON CONFLICT (org_id, provider, full_name) DO UPDATE SET
+           installation_id = EXCLUDED.installation_id,
+           default_branch = EXCLUDED.default_branch,
+           is_active = true,
+           updated_at = NOW()`,
+        values
+      );
+    });
 
-    logger.info({ orgId, installationId, repoCount: repos.length }, "GitHub App repos synced");
+    logger.info({ orgId, installationId, repoCount: repos.length }, "Repo sync: complete");
   } catch (error) {
-    logger.error({ error, installationId, orgId }, "Failed to sync GitHub App repos");
+    logger.error({ error, installationId, orgId }, "Repo sync: failed");
   }
 }
 
