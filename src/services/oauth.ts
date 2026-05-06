@@ -764,12 +764,32 @@ export async function getGitHubAppInstallationToken(
       .replace(/\r/g, "\n")
       .trim();
 
-    // Explicitly declare format+type so OpenSSL 3 can decode GitHub's PKCS#1 RSA keys
-    const privateKeyObject = crypto.createPrivateKey({
-      key: normalizedKey,
-      format: "pem",
-      type: "pkcs1",
-    });
+    // Diagnostic: log key shape so we can see what OpenSSL is actually receiving
+    const keyLines = normalizedKey.split("\n");
+    logger.info(
+      {
+        keyLength: normalizedKey.length,
+        lineCount: keyLines.length,
+        firstLine: keyLines[0],
+        lastLine: keyLines[keyLines.length - 1],
+        hasRealNewlines: normalizedKey.includes("\n"),
+      },
+      "JWT signing: parsing private key"
+    );
+
+    // Try PKCS#1 first (GitHub's default), fall back to auto-detect
+    let privateKeyObject;
+    try {
+      privateKeyObject = crypto.createPrivateKey({
+        key: normalizedKey,
+        format: "pem",
+        type: "pkcs1",
+      });
+    } catch (pkcs1Err) {
+      logger.warn({ err: (pkcs1Err as Error).message }, "PKCS#1 parse failed, retrying with auto-detect");
+      privateKeyObject = crypto.createPrivateKey(normalizedKey);
+    }
+
     const signature = crypto
       .createSign("RSA-SHA256")
       .update(`${header}.${body}`)
@@ -809,7 +829,17 @@ export async function getGitHubAppInstallationToken(
       expiresAt: new Date(data.expires_at),
     };
   } catch (error) {
-    logger.error({ error }, "GitHub App installation token error");
+    const err = error as Error & { code?: string; opensslErrorStack?: string[] };
+    logger.error(
+      {
+        message: err.message,
+        code: err.code,
+        name: err.name,
+        stack: err.stack,
+        opensslErrorStack: err.opensslErrorStack,
+      },
+      "GitHub App installation token error"
+    );
     return null;
   }
 }

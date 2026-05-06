@@ -153,7 +153,13 @@ class PlatformCredentialsService {
     const rawKey = process.env.GITHUB_APP_PRIVATE_KEY_BASE64
       ? Buffer.from(process.env.GITHUB_APP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
       : (process.env.GITHUB_APP_PRIVATE_KEY || "");
-    const privateKey = rawKey.replace(/\\n/g, "\n").trim();
+    const privateKey = rawKey
+      .replace(/\\n/g, "\n")       // literal \n → real newline
+      .replace(/\r\n/g, "\n")       // CRLF → LF
+      .replace(/\r/g, "\n")         // bare CR → LF
+      .trim()
+      .replace(/^["']|["']$/g, "")  // strip wrapping quotes if present
+      .trim();
     const appName = config.GITHUB_APP_NAME || "buglens";
 
     return {
@@ -279,7 +285,13 @@ platformCredentials.logConfiguredProviders();
   const rawKey = process.env.GITHUB_APP_PRIVATE_KEY_BASE64
     ? Buffer.from(process.env.GITHUB_APP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
     : (process.env.GITHUB_APP_PRIVATE_KEY || "");
-  const normalizedKey = rawKey.replace(/\\n/g, "\n").trim();
+  const normalizedKey = rawKey
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
   const keySource = process.env.GITHUB_APP_PRIVATE_KEY_BASE64 ? "base64" : process.env.GITHUB_APP_PRIVATE_KEY ? "pem" : "missing";
   const keyPreview = normalizedKey.length > 0
     ? `${normalizedKey.slice(0, 27)}...${normalizedKey.slice(-25)}`
