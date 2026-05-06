@@ -278,26 +278,3 @@ export const platformCredentials = new PlatformCredentialsService();
 // Log configured providers on startup
 platformCredentials.logConfiguredProviders();
 
-// Log GitHub App config status so key format issues are visible at boot
-{
-  const hasAppId = !!config.GITHUB_APP_ID;
-  const hasAppName = !!config.GITHUB_APP_NAME;
-  const rawKey = process.env.GITHUB_APP_PRIVATE_KEY_BASE64
-    ? Buffer.from(process.env.GITHUB_APP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
-    : (process.env.GITHUB_APP_PRIVATE_KEY || "");
-  const normalizedKey = rawKey
-    .replace(/\\n/g, "\n")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .trim()
-    .replace(/^["']|["']$/g, "")
-    .trim();
-  const keySource = process.env.GITHUB_APP_PRIVATE_KEY_BASE64 ? "base64" : process.env.GITHUB_APP_PRIVATE_KEY ? "pem" : "missing";
-  const keyPreview = normalizedKey.length > 0
-    ? `${normalizedKey.slice(0, 27)}...${normalizedKey.slice(-25)}`
-    : "empty";
-  logger.info(
-    { hasAppId, hasAppName, hasPrivateKey: normalizedKey.length > 0, keySource, keyLength: normalizedKey.length, keyPreview },
-    "GitHub App env check"
-  );
-}
