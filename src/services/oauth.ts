@@ -757,8 +757,19 @@ export async function getGitHubAppInstallationToken(
       JSON.stringify({ alg: "RS256", typ: "JWT" })
     ).toString("base64url");
     const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-    // createPrivateKey() handles PKCS#1 RSA keys correctly under OpenSSL 3 (Node 18+)
-    const privateKeyObject = crypto.createPrivateKey(appConfig.privateKey);
+    // Normalize line endings — DO App Platform may store env vars with \r\n or literal \n
+    const normalizedKey = appConfig.privateKey
+      .replace(/\\n/g, "\n")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
+
+    // Explicitly declare format+type so OpenSSL 3 can decode GitHub's PKCS#1 RSA keys
+    const privateKeyObject = crypto.createPrivateKey({
+      key: normalizedKey,
+      format: "pem",
+      type: "pkcs1",
+    });
     const signature = crypto
       .createSign("RSA-SHA256")
       .update(`${header}.${body}`)
