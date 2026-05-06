@@ -757,10 +757,12 @@ export async function getGitHubAppInstallationToken(
       JSON.stringify({ alg: "RS256", typ: "JWT" })
     ).toString("base64url");
     const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    // createPrivateKey() handles PKCS#1 RSA keys correctly under OpenSSL 3 (Node 18+)
+    const privateKeyObject = crypto.createPrivateKey(appConfig.privateKey);
     const signature = crypto
       .createSign("RSA-SHA256")
       .update(`${header}.${body}`)
-      .sign(appConfig.privateKey, "base64url");
+      .sign(privateKeyObject, "base64url");
 
     const jwt = `${header}.${body}.${signature}`;
 
