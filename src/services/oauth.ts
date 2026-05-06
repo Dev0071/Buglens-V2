@@ -757,25 +757,7 @@ export async function getGitHubAppInstallationToken(
       JSON.stringify({ alg: "RS256", typ: "JWT" })
     ).toString("base64url");
     const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-    // Normalize line endings — DO App Platform may store env vars with \r\n or literal \n
-    const normalizedKey = appConfig.privateKey
-      .replace(/\\n/g, "\n")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .trim();
-
-    // Diagnostic: log key shape so we can see what OpenSSL is actually receiving
-    const keyLines = normalizedKey.split("\n");
-    logger.info(
-      {
-        keyLength: normalizedKey.length,
-        lineCount: keyLines.length,
-        firstLine: keyLines[0],
-        lastLine: keyLines[keyLines.length - 1],
-        hasRealNewlines: normalizedKey.includes("\n"),
-      },
-      "JWT signing: parsing private key"
-    );
+    const normalizedKey = appConfig.privateKey;
 
     // Try PKCS#1 first (GitHub's default), fall back to auto-detect
     let privateKeyObject;
@@ -864,8 +846,9 @@ export async function syncGitHubAppRepos(
   try {
     const repos: { full_name: string; name: string; private: boolean; default_branch: string }[] = [];
     let page = 1;
+    let hasMore = true;
 
-    while (true) {
+    while (hasMore) {
       const response = await fetch(
         `https://api.github.com/installation/repositories?per_page=100&page=${page}`,
         {
@@ -890,7 +873,7 @@ export async function syncGitHubAppRepos(
 
       logger.info({ page, fetched: data.repositories.length, total: data.total_count, installationId }, "Repo sync: page fetched");
       repos.push(...data.repositories);
-      if (repos.length >= data.total_count) break;
+      hasMore = repos.length < data.total_count;
       page++;
     }
 

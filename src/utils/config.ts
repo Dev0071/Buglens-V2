@@ -58,9 +58,10 @@ const envSchema = z.object({
 
   // LLM Configuration
   OPENAI_API_KEY: z.string().optional(),
-  LLM_PROVIDER: z.enum(["openai", "deepseek"]).default("openai"),
-  LLM_MODEL: z.string().optional(), // Override default model (e.g., "deepseek-chat")
-  LLM_BASE_URL: z.string().url().optional(), // Custom API base URL for DeepSeek etc.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  LLM_PROVIDER: z.enum(["openai", "deepseek", "anthropic"]).default("openai"),
+  LLM_MODEL: z.string().optional(),
+  LLM_BASE_URL: z.string().url().optional(),
 
   // Development Testing
   ALLOW_DEV_ERRORS: z.coerce.boolean().default(true), // Allow processing local/dev errors

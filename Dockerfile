@@ -42,7 +42,10 @@ FROM python:3.11-alpine AS python-deps
 
 WORKDIR /python
 
-# Install Python dependencies
+# gcc + musl-dev are required to compile tree-sitter's native C extension (_binding.so)
+# Alpine doesn't support manylinux wheels, so pip must build from source
+RUN apk add --no-cache gcc musl-dev python3-dev
+
 COPY python/requirements.txt ./
 RUN pip install --no-cache-dir --target=/python/packages -r requirements.txt
 
