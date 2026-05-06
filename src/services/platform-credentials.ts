@@ -147,9 +147,13 @@ class PlatformCredentialsService {
       return null;
     }
 
-    // In production, private key comes from AWS Secrets Manager
-    // For now, check if it's available
-    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY || "";
+    // Accept plain PEM or base64-encoded PEM (required for DO App Platform which
+    // can't store multi-line env vars). Also normalize escaped \n → real newlines
+    // since DO sometimes stores them as literals.
+    const rawKey = process.env.GITHUB_APP_PRIVATE_KEY_BASE64
+      ? Buffer.from(process.env.GITHUB_APP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
+      : (process.env.GITHUB_APP_PRIVATE_KEY || "");
+    const privateKey = rawKey.replace(/\\n/g, "\n").trim();
     const appName = config.GITHUB_APP_NAME || "buglens";
 
     return {
@@ -268,14 +272,20 @@ export const platformCredentials = new PlatformCredentialsService();
 // Log configured providers on startup
 platformCredentials.logConfiguredProviders();
 
-// Log GitHub App config status so missing env vars are visible at boot
+// Log GitHub App config status so key format issues are visible at boot
 {
   const hasAppId = !!config.GITHUB_APP_ID;
   const hasAppName = !!config.GITHUB_APP_NAME;
-  const hasPrivateKey = !!process.env.GITHUB_APP_PRIVATE_KEY;
-  const keyLength = process.env.GITHUB_APP_PRIVATE_KEY?.length ?? 0;
+  const rawKey = process.env.GITHUB_APP_PRIVATE_KEY_BASE64
+    ? Buffer.from(process.env.GITHUB_APP_PRIVATE_KEY_BASE64, "base64").toString("utf8")
+    : (process.env.GITHUB_APP_PRIVATE_KEY || "");
+  const normalizedKey = rawKey.replace(/\\n/g, "\n").trim();
+  const keySource = process.env.GITHUB_APP_PRIVATE_KEY_BASE64 ? "base64" : process.env.GITHUB_APP_PRIVATE_KEY ? "pem" : "missing";
+  const keyPreview = normalizedKey.length > 0
+    ? `${normalizedKey.slice(0, 27)}...${normalizedKey.slice(-25)}`
+    : "empty";
   logger.info(
-    { hasAppId, hasAppName, hasPrivateKey, privateKeyLength: keyLength },
+    { hasAppId, hasAppName, hasPrivateKey: normalizedKey.length > 0, keySource, keyLength: normalizedKey.length, keyPreview },
     "GitHub App env check"
   );
 }
