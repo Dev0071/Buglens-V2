@@ -105,6 +105,29 @@ const STRIP_PATH_PREFIXES = [
   "/dist/",
 ];
 
+// Framework / library packages whose source paths sometimes leak into Sentry stack
+// traces (via shipped source maps). Frames rooted in these packages will never live
+// in the user's repo, so we skip GitHub fetch + source-map resolution entirely.
+// Match the first path segment, e.g. "next/src/server/...", "@nextjs/foo/...".
+const FRAMEWORK_PACKAGE_PREFIXES = [
+  "next",
+  "react",
+  "react-dom",
+  "react-server-dom-webpack",
+  "vue",
+  "@vue",
+  "nuxt",
+  "@nuxt",
+  "svelte",
+  "@sveltejs",
+  "@nextjs",
+  "@remix-run",
+  "express",
+  "fastify",
+  "@fastify",
+  "node:",
+];
+
 // Path traversal patterns that indicate malicious input
 const PATH_TRAVERSAL_PATTERNS = [
   /\.\.\//, // ../
@@ -213,6 +236,20 @@ class CodeFetcherService {
       column: frame.colno || 0,
       functionName: frame.function || null,
     };
+  }
+
+  /**
+   * True when the path roots inside a known framework/library package.
+   * These frames come from npm packages whose source maps point back to the
+   * package's own source tree (e.g. "next/src/server/route-modules/..."),
+   * which never exists in the user's repo.
+   */
+  private isFrameworkInternalPath(filePath: string): boolean {
+    if (!filePath) return false;
+    const lower = filePath.toLowerCase().replace(/^\/+/, "");
+    if (lower.startsWith("node:")) return true;
+    const firstSegment = lower.split("/", 1)[0];
+    return FRAMEWORK_PACKAGE_PREFIXES.includes(firstSegment);
   }
 
   private isBundledPath(filePath: string): boolean {
@@ -468,6 +505,16 @@ class CodeFetcherService {
       { file: normalizedFrame.file, line: normalizedFrame.line, repo, ref },
       "Fetching code for stack frame"
     );
+
+    // Framework-internal frames (next/, react/, etc.) never live in the user's repo.
+    // Source-map resolution can't help — skip the GitHub fetch entirely.
+    if (this.isFrameworkInternalPath(normalizedFrame.file)) {
+      logger.debug(
+        { file: normalizedFrame.file },
+        "Skipping framework-internal frame (not in user repo)"
+      );
+      return null;
+    }
 
     // If this is a bundled path, try to resolve via source map first
     if (this.isBundledPath(normalizedFrame.file)) {
