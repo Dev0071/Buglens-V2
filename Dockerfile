@@ -36,28 +36,21 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 # ============================================
-# Stage 3: Python Analyzers
-# ============================================
-FROM python:3.11-alpine AS python-deps
-
-WORKDIR /python
-
-# gcc + musl-dev are required to compile tree-sitter's native C extension (_binding.so)
-# Alpine doesn't support manylinux wheels, so pip must build from source
-RUN apk add --no-cache gcc musl-dev python3-dev
-
-COPY python/requirements.txt ./
-RUN pip install --no-cache-dir --target=/python/packages -r requirements.txt
-
-# ============================================
-# Stage 4: Production Runner
+# Stage 3: Production Runner
 # ============================================
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Install Python runtime (no pip needed)
-RUN apk add --no-cache python3
+# Install Python + build toolchain, install deps, then strip toolchain.
+# Building in the same stage as runtime avoids Python ABI mismatches
+# (the .so files must match the exact Python version that loads them).
+COPY python/requirements.txt /tmp/py-requirements.txt
+RUN apk add --no-cache python3 py3-pip && \
+    apk add --no-cache --virtual .build-deps gcc musl-dev python3-dev && \
+    pip3 install --no-cache-dir --break-system-packages -r /tmp/py-requirements.txt && \
+    apk del .build-deps && \
+    rm -f /tmp/py-requirements.txt
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -68,15 +61,11 @@ COPY --from=builder /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy Python analyzers and dependencies
+# Copy Python analyzers
 COPY python/ ./python/
-COPY --from=python-deps /python/packages /usr/local/lib/python3.11/site-packages
 
 # Copy migrations for runtime execution
 COPY migrations/ ./migrations/
-
-# Set Python path
-ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
