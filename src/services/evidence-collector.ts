@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 import {
-  S3Client,
   PutObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { createGzip, createGunzip } from "zlib";
 import { config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
-import { transaction } from "../db/client.js";
+import { getSharedS3Client, isS3Configured } from "../utils/s3-client.js";
+import { query, transaction } from "../db/client.js";
 import {
   fetchRecentCommits,
   parseRepoFullName,
@@ -34,38 +34,6 @@ import {
   determineCodeFetchSource,
   buildFallbackTimeline,
 } from "./evidence-transforms.js";
-
-// ============================================
-// S3 Client for Evidence Storage
-// ============================================
-
-let s3Client: S3Client | null = null;
-
-function getS3Client(): S3Client {
-  if (s3Client) {
-    return s3Client;
-  }
-
-  s3Client = new S3Client({
-    region: config.AWS_REGION,
-    ...(config.S3_ENDPOINT
-      ? {
-          endpoint: config.S3_ENDPOINT,
-          forcePathStyle: true,
-        }
-      : {}),
-    ...(config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY
-      ? {
-          credentials: {
-            accessKeyId: config.AWS_ACCESS_KEY_ID,
-            secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
-          },
-        }
-      : {}),
-  });
-
-  return s3Client;
-}
 
 // ============================================
 // Compression Utilities
@@ -260,29 +228,25 @@ export class EvidenceCollectorService {
   }
 
   /**
-   * Store evidence bundle in S3 (production/staging) or LocalStack (development with S3_ENDPOINT)
+   * Store evidence bundle in S3 or fall back to database when S3 is not configured.
    *
-   * In development mode without S3_ENDPOINT, storage falls back to database.
-   * When S3_ENDPOINT is configured (LocalStack), S3 storage is used even in development.
+   * Falls back to database when credentials or bucket are missing — this keeps the
+   * pipeline running in staging/dev without DO Spaces configured. The LLM reasoning
+   * worker detects the "local-db" bucket marker and loads from the database instead.
    */
   async storeInS3(bundle: EvidenceBundle): Promise<EvidenceStorageRef> {
-    // Add date-based prefix for better S3 performance and organization
     const date = new Date(bundle.created_at);
     const datePrefix = `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
     const key = `evidence/${datePrefix}/${bundle.org_id}/${bundle.job_id}/${bundle.bundle_id}.json.gz`;
 
-    // In development without LocalStack endpoint, skip S3 and store in database instead
-    if (config.NODE_ENV === "development" && !config.S3_ENDPOINT) {
+    if (!isS3Configured()) {
       logger.info(
         { bundleId: bundle.bundle_id, key },
-        "Development mode without LocalStack: Storing evidence bundle in database"
+        "S3 not configured: storing evidence bundle in database"
       );
-
-      // Store the bundle JSON in the database as a fallback
       await this.storeInDatabase(bundle, key);
-
       return {
-        bucket: "local-dev",
+        bucket: "local-db",
         key,
         size_bytes: JSON.stringify(bundle).length,
         compressed: false,
@@ -293,23 +257,43 @@ export class EvidenceCollectorService {
     const jsonContent = JSON.stringify(bundle);
     const compressed = await compressContent(jsonContent);
 
-    const s3 = getS3Client();
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: config.S3_BUCKET_NAME,
-        Key: key,
-        Body: compressed,
-        ContentType: "application/json",
-        ContentEncoding: "gzip",
-        Metadata: {
-          org_id: bundle.org_id,
-          event_id: bundle.event_id,
-          job_id: bundle.job_id,
-          bundle_id: bundle.bundle_id,
-          created_at: bundle.created_at,
-        },
-      })
-    );
+    const s3 = getSharedS3Client();
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: config.S3_BUCKET_NAME,
+          Key: key,
+          Body: compressed,
+          ContentType: "application/json",
+          ContentEncoding: "gzip",
+          Metadata: {
+            org_id: bundle.org_id,
+            event_id: bundle.event_id,
+            job_id: bundle.job_id,
+            bundle_id: bundle.bundle_id,
+            created_at: bundle.created_at,
+          },
+        })
+      );
+    } catch (error: unknown) {
+      const e = error as { name?: string; Code?: string };
+      const code = e.name ?? e.Code ?? "";
+      if (code === "SignatureDoesNotMatch" || code === "InvalidAccessKeyId" || code === "AuthorizationQueryParametersError") {
+        logger.error(
+          { bundleId: bundle.bundle_id, key, errorCode: code },
+          "S3 credentials invalid: falling back to database storage"
+        );
+        await this.storeInDatabase(bundle, key);
+        return {
+          bucket: "local-db",
+          key,
+          size_bytes: jsonContent.length,
+          compressed: false,
+          created_at: new Date(),
+        };
+      }
+      throw error;
+    }
 
     logger.info({ key, sizeBytes: compressed.length }, "Evidence stored in S3");
 
@@ -328,7 +312,7 @@ export class EvidenceCollectorService {
    */
   async retrieveFromS3(key: string): Promise<EvidenceBundle | null> {
     try {
-      const s3 = getS3Client();
+      const s3 = getSharedS3Client();
       const response = await s3.send(
         new GetObjectCommand({
           Bucket: config.S3_BUCKET_NAME,
@@ -356,6 +340,25 @@ export class EvidenceCollectorService {
       logger.error({ error, key }, "Failed to retrieve evidence from S3");
       throw error;
     }
+  }
+
+  /**
+   * Retrieve evidence bundle stored in the database (local-db fallback path).
+   * Used by the LLM reasoning worker when S3 wasn't configured at assembly time.
+   */
+  async retrieveFromDatabase(
+    jobId: string,
+    orgId: string
+  ): Promise<EvidenceBundle | null> {
+    const result = await query<{ evidence_bundle: unknown }>(
+      `SELECT evidence_bundle FROM rca_jobs WHERE id = $1 AND org_id = $2`,
+      [jobId, orgId]
+    );
+    const raw = result.rows[0]?.evidence_bundle;
+    if (!raw) return null;
+    return typeof raw === "string"
+      ? (JSON.parse(raw) as EvidenceBundle)
+      : (raw as EvidenceBundle);
   }
 
   /**

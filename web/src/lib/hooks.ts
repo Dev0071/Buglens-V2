@@ -973,6 +973,40 @@ export function useUpdateNotificationPreferences() {
   });
 }
 
+// ============================================================
+// Onboarding
+// ============================================================
+
+export interface OnboardingStep {
+  complete: boolean;
+  label: string;
+  description: string;
+  action_url: string;
+  repos_count?: number;
+  deployments_count?: number;
+  events_count?: number;
+}
+
+export interface OnboardingStatus {
+  steps: {
+    github: OnboardingStep;
+    sentry: OnboardingStep;
+    deploy: OnboardingStep;
+    first_event: OnboardingStep;
+  };
+  completion_pct: number;
+  is_ready_for_rca: boolean;
+  next_step: "github" | "sentry" | "deploy" | "first_event" | "complete";
+}
+
+export function useOnboardingStatus() {
+  return useQuery({
+    queryKey: queryKeys.onboarding.status(),
+    queryFn: () => apiClient.get<OnboardingStatus>("/settings/onboarding/status"),
+    staleTime: 30 * 1000, // re-check every 30s so the UI updates after connecting
+  });
+}
+
 /**
  * Delete user account (mutation)
  */

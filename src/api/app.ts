@@ -28,6 +28,7 @@ import { adminUserRoutes } from "./routes/admin/users.js";
 import { adminSystemRoutes } from "./routes/admin/system.js";
 import { adminAuditRoutes } from "./routes/admin/audit.js";
 import { sentryTunnelRoutes } from "./routes/sentry-tunnel.js";
+import { deploymentRoutes } from "./routes/deployments.js";
 import {
   orgContextMiddleware,
   setupOrgDecorators,
@@ -195,6 +196,7 @@ await server.register(adminUserRoutes, { prefix: "/api/admin/users" });
 await server.register(adminSystemRoutes, { prefix: "/api/admin/system" });
 await server.register(adminAuditRoutes, { prefix: "/api/admin/audit" });
 await server.register(sentryTunnelRoutes, { prefix: "/api" });
+await server.register(deploymentRoutes, { prefix: "/api" });
 
 // Error handler
 server.setErrorHandler((error, request, reply) => {

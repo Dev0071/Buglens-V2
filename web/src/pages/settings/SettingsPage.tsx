@@ -32,6 +32,7 @@ import {
   useUpdateProfile,
   useChangePassword,
   useDeleteAccount,
+  useOnboardingStatus,
 } from "@/lib/hooks";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/toaster";
@@ -42,6 +43,7 @@ const settingsNav = [
   { name: "Organization", href: "/settings" },
   { name: "Team", href: "/settings/team" },
   { name: "Integrations", href: "/settings/integrations" },
+  { name: "SDK Setup", href: "/settings/sdk" },
 ];
 
 /**
@@ -98,6 +100,8 @@ function SettingsPage() {
           <TeamSettings />
         ) : location.pathname === "/settings/integrations" ? (
           <IntegrationsSettings />
+        ) : location.pathname === "/settings/sdk" ? (
+          <SdkSetupSettings />
         ) : (
           <Outlet />
         )}
@@ -1705,5 +1709,272 @@ function ProfileSettings() {
 }
 
 
+
+// ============================================================================
+// SDK Setup Settings Section
+// ============================================================================
+
+function CodeBlock({ code, copyKey, copiedSection, onCopy }: {
+  code: string;
+  copyKey: string;
+  copiedSection: string | null;
+  onCopy: (text: string, key: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm font-mono overflow-x-auto whitespace-pre">
+        {code}
+      </pre>
+      <button
+        onClick={() => onCopy(code, copyKey)}
+        className="absolute top-2 right-2 btn btn-ghost text-xs text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600"
+      >
+        <ClipboardDocumentIcon className="w-3.5 h-3.5 mr-1 inline" />
+        {copiedSection === copyKey ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function SdkSetupSettings() {
+  const { data: onboarding, isLoading: onboardingLoading } = useOnboardingStatus();
+  const [repos, setRepos] = useState<{ id: string; full_name: string; default_branch: string }[]>([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [selectedRepo, setSelectedRepo] = useState("");
+  const [copiedSection, setCopiedSection] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiClient
+      .get<{ id: string; full_name: string; default_branch: string }[]>("/integrations/repos")
+      .then((data) => {
+        setRepos(data);
+        if (data.length > 0) setSelectedRepo(data[0].full_name);
+      })
+      .catch(() => setRepos([]))
+      .finally(() => setReposLoading(false));
+  }, []);
+
+  const repo = selectedRepo || "owner/repo";
+
+  // GitHub Actions expression syntax — use variables to avoid TS template literal parsing
+  const GH_SHA = "${{ github.sha }}";
+  const GH_REPO = "${{ github.repository }}";
+
+  const curlCommand =
+`# Add this to your deploy step (GitHub Actions, GitLab CI, CircleCI, etc.)
+# ${GH_SHA} and ${GH_REPO} are built-in GitHub Actions vars.
+
+curl -X POST https://api.buglens.com/api/v1/track-deploy \\
+  -H "Authorization: Bearer $BUGLENS_DEPLOY_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "repo":        "${GH_REPO}",
+    "sha":         "${GH_SHA}",
+    "environment": "production"
+  }'`;
+
+  const gitlabSnippet =
+`# GitLab CI — add after your deploy job
+deploy:
+  script:
+    - |
+      curl -X POST https://api.buglens.com/api/v1/track-deploy \\
+        -H "Authorization: Bearer $BUGLENS_DEPLOY_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d "{\\"repo\\":\\"${repo}\\",\\"sha\\":\\"$CI_COMMIT_SHA\\",\\"environment\\":\\"production\\"}"`;
+
+  const copyToClipboard = async (text: string, section: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedSection(section);
+    setTimeout(() => setCopiedSection(null), 2000);
+  };
+
+  const githubStep = onboarding?.steps.github;
+  const sentryStep = onboarding?.steps.sentry;
+  const deployStep = onboarding?.steps.deploy;
+
+  if (onboardingLoading || reposLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* Live status bar */}
+      <div className="card">
+        <div className="card-body">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Setup status</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { label: "GitHub", step: githubStep, href: "/settings/integrations" },
+              { label: "Sentry",  step: sentryStep,  href: "/settings/integrations" },
+              { label: "Deploy tracking", step: deployStep, href: null },
+            ].map(({ label, step, href }) => (
+              <div
+                key={label}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${
+                  step?.complete
+                    ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700"
+                    : "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700"
+                }`}
+              >
+                <span className={step?.complete ? "text-green-500" : "text-amber-500"}>
+                  {step?.complete ? "✓" : "○"}
+                </span>
+                <span className={step?.complete ? "text-green-800 dark:text-green-200" : "text-amber-800 dark:text-amber-200"}>
+                  {label}
+                </span>
+                {!step?.complete && href && (
+                  <a href={href} className="ml-auto text-xs underline text-amber-700 dark:text-amber-300">
+                    Connect →
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Step 1 — GitHub */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${githubStep?.complete ? "bg-green-500 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600"}`}>
+              {githubStep?.complete ? "✓" : "1"}
+            </span>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Connect GitHub</h3>
+          </div>
+        </div>
+        <div className="card-body">
+          {repos.length === 0 ? (
+            <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+              <p className="text-sm text-amber-800 dark:text-amber-200">No repositories connected yet.</p>
+              <a href="/settings/integrations" className="btn btn-primary text-sm">Connect GitHub →</a>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Select the repository Buglens should fetch code from when an error fires.
+              </p>
+              <div className="max-w-sm">
+                <select
+                  value={selectedRepo}
+                  onChange={(e) => setSelectedRepo(e.target.value)}
+                  className="input w-full"
+                >
+                  {repos.map((r) => (
+                    <option key={r.id} value={r.full_name}>{r.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Step 2 — Sentry */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${sentryStep?.complete ? "bg-green-500 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600"}`}>
+              {sentryStep?.complete ? "✓" : "2"}
+            </span>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Connect Sentry</h3>
+          </div>
+        </div>
+        <div className="card-body">
+          {sentryStep?.complete ? (
+            <p className="text-sm text-green-600 dark:text-green-400">Sentry is connected. Errors will be forwarded automatically.</p>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Configure your Sentry DSN and webhook to forward errors to Buglens.
+              </p>
+              <a href="/settings/integrations" className="btn btn-primary text-sm ml-4">Configure →</a>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Step 3 — Deploy tracking (the key step) */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${deployStep?.complete ? "bg-green-500 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-600"}`}>
+              {deployStep?.complete ? "✓" : "3"}
+            </span>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Set up deploy tracking</h3>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Buglens needs to know which commit is running in production when an error fires.
+            No app code changes — one line in your CI/CD pipeline.
+          </p>
+        </div>
+        <div className="card-body space-y-4">
+
+          {deployStep?.complete && (
+            <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-sm text-green-700 dark:text-green-300">
+              ✓ {deployStep.deployments_count} deployment{(deployStep.deployments_count ?? 0) !== 1 ? "s" : ""} tracked. Buglens will resolve commit SHAs automatically.
+            </div>
+          )}
+
+          {/* Zero-config callout */}
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-sm text-blue-800 dark:text-blue-200">
+            <strong>Already on Vercel, Railway, Render, or Heroku?</strong> These platforms write to GitHub's Deployments API automatically — Buglens reads from it with zero setup. You only need the step below if you use a custom or self-hosted pipeline.
+          </div>
+
+          {/* GitHub Actions */}
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">GitHub Actions</p>
+            <CodeBlock code={curlCommand} copyKey="curl" copiedSection={copiedSection} onCopy={copyToClipboard} />
+          </div>
+
+          {/* GitLab CI */}
+          <details className="group">
+            <summary className="text-sm text-brand-600 dark:text-brand-400 cursor-pointer select-none">
+              Show GitLab CI snippet
+            </summary>
+            <div className="mt-2">
+              <CodeBlock code={gitlabSnippet} copyKey="gitlab" copiedSection={copiedSection} onCopy={copyToClipboard} />
+            </div>
+          </details>
+
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Store <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">BUGLENS_DEPLOY_TOKEN</code> as a CI/CD secret — never commit it.
+            Generate a token from your org settings (JWT authentication).
+          </p>
+        </div>
+      </div>
+
+      {/* Step 4 — Verify */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold bg-gray-200 dark:bg-gray-700 text-gray-600">4</span>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Verify end-to-end</h3>
+          </div>
+        </div>
+        <div className="card-body">
+          <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-gray-300">
+            <li>Deploy your app. The CI/CD curl command runs and records the commit SHA.</li>
+            <li>Trigger a test error in your app so Sentry fires a webhook to Buglens.</li>
+            <li>
+              Check the{" "}
+              <a href="/events" className="text-brand-600 dark:text-brand-400 underline">Events page</a>
+              {" "}— the RCA should show the exact file and commit that caused the error.
+            </li>
+          </ol>
+          <div className="mt-3">
+            <a href="/events" className="btn btn-secondary text-sm">View events →</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default SettingsPage;

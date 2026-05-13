@@ -26,6 +26,7 @@ const EventDetailPage = lazy(() => import("@/pages/events/EventDetailPage"));
 const RCADetailPage = lazy(() => import("@/pages/rca/RCADetailPage"));
 const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"));
 // Admin pages (lazy loaded)
+const OnboardingPage = lazy(() => import("@/pages/onboarding/OnboardingPage"));
 const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
 const AdminDashboardPage = lazy(
   () => import("@/pages/admin/AdminDashboardPage")
@@ -195,12 +196,25 @@ function App() {
                     path="/settings/integrations"
                     element={<SettingsPage />}
                   />
+                  <Route path="/settings/sdk" element={<SettingsPage />} />
+                  <Route path="/settings/billing" element={<SettingsPage />} />
+                  <Route path="/settings/notifications" element={<SettingsPage />} />
                   {/* Redirect old /integrations route to settings */}
                   <Route
                     path="/integrations"
                     element={<Navigate to="/settings/integrations" replace />}
                   />
                 </Route>
+
+                {/* Onboarding - protected, no sidebar layout */}
+                <Route
+                  path="/onboarding"
+                  element={
+                    <ProtectedRoute>
+                      <OnboardingPage />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Admin routes - protected with role check and admin token */}
                 <Route

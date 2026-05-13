@@ -1,5 +1,4 @@
 import {
-  S3Client,
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
@@ -12,6 +11,7 @@ import { getFromCache, setInCache } from "../db/redis.js";
 import { pool } from "../db/client.js";
 import type { CacheKeyParams, CachedFileContent } from "../types/github.js";
 import { sanitizePathForCacheKey } from "../types/github.js";
+import { getSharedS3Client } from "../utils/s3-client.js";
 
 // ============================================
 // Cache Configuration
@@ -26,7 +26,6 @@ const S3_RETRY_BASE_DELAY_MS = 100;
 // S3 Client
 // ============================================
 
-let s3Client: S3Client | null = null;
 let s3Disabled = false; // Flag to disable S3 if bucket doesn't exist
 let s3DisabledReason: string | null = null;
 let s3HealthChecked = false; // Track if health check has been performed
@@ -252,36 +251,9 @@ export async function checkS3Health(): Promise<{
   }
 }
 
-function getS3Client(): S3Client | null {
-  // Skip S3 in dev mode without LocalStack
-  if (!shouldUseS3()) {
-    return null;
-  }
-
-  if (s3Client) {
-    return s3Client;
-  }
-
-  s3Client = new S3Client({
-    region: config.AWS_REGION,
-    // LocalStack endpoint for local development
-    ...(config.S3_ENDPOINT
-      ? {
-          endpoint: config.S3_ENDPOINT,
-          forcePathStyle: true, // Required for LocalStack
-        }
-      : {}),
-    ...(config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY
-      ? {
-          credentials: {
-            accessKeyId: config.AWS_ACCESS_KEY_ID,
-            secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
-          },
-        }
-      : {}), // Use IAM role if no explicit credentials
-  });
-
-  return s3Client;
+function getS3Client() {
+  if (!shouldUseS3()) return null;
+  return getSharedS3Client();
 }
 
 // ============================================

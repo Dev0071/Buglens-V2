@@ -41,6 +41,7 @@ import {
   type RCATicketData,
 } from "../../services/jira-ticket-service.js";
 import { sentryConfigureHandler } from "./oauth.js";
+import { getOrgRepos } from "../../services/github.js";
 
 // ============================================
 // Request/Response Schemas
@@ -1233,6 +1234,24 @@ export async function integrationsRoutes(
       }
     }
   );
+
+  /**
+   * GET /api/integrations/repos
+   * List all active GitHub repos connected to the organization (used by SDK setup UI)
+   */
+  server.get("/integrations/repos", async (request, reply) => {
+    const orgId = request.getOrgId();
+    if (!orgId) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+    try {
+      const repos = await getOrgRepos(orgId);
+      return reply.send(repos.map((r) => ({ id: r.id, full_name: r.full_name, default_branch: r.default_branch })));
+    } catch (error) {
+      logger.error({ error, orgId }, "Failed to fetch org repos");
+      return reply.status(500).send({ error: "Failed to fetch repos" });
+    }
+  });
 
   // ============================================
   // Jira Ticket Creation Routes

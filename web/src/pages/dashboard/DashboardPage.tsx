@@ -3,6 +3,7 @@ import {
   useRecentEvents,
   useRCAQuality,
   useIntegrations,
+  useOnboardingStatus,
 } from "@/lib/hooks";
 import {
   formatNumber,
@@ -22,9 +23,12 @@ import {
   ArrowRightIcon,
   BoltIcon,
 } from "@heroicons/react/24/outline";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 
 function DashboardPage() {
+  const navigate = useNavigate();
+  const { data: onboarding, isLoading: onboardingLoading } = useOnboardingStatus();
   const {
     data: integrations,
     isLoading: integrationsLoading,
@@ -35,6 +39,16 @@ function DashboardPage() {
     isLoading: statsLoading,
     error: statsError,
   } = useDashboardStats();
+
+  // Redirect to onboarding when neither GitHub nor Sentry is connected
+  useEffect(() => {
+    if (!onboardingLoading && onboarding) {
+      const { github, sentry } = onboarding.steps;
+      if (!github.complete && !sentry.complete) {
+        navigate("/onboarding", { replace: true });
+      }
+    }
+  }, [onboarding, onboardingLoading, navigate]);
 
   const hasConnectedIntegration = (integrations ?? []).some(
     (i) => i.status === "connected"

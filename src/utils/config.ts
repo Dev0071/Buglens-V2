@@ -45,11 +45,14 @@ const envSchema = z.object({
   REDIS_MAX_RETRIES: z.coerce.number().default(3),
 
   // AWS
-  AWS_REGION: z.string().default("us-east-1"),
+  // No default — must be set explicitly when S3 or Secrets Manager is used.
+  // Different vendors embed regions differently in endpoint URLs (or not at all),
+  // so we never infer the region from the endpoint URL.
+  AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_BUCKET_NAME: z.string().optional(), // Optional for staging MVP
-  S3_ENDPOINT: z.string().url().optional(), // LocalStack endpoint for local dev
+  S3_BUCKET_NAME: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
   SECRETS_MANAGER_PREFIX: z.string().default("buglens/"),
 
   // Authentication
@@ -109,6 +112,20 @@ const envSchema = z.object({
 
   // Admin Security
   PLATFORM_ADMIN_TOKEN: z.string().min(32).optional(), // Required for secret management API
+}).superRefine((env, ctx) => {
+  // If S3 is configured (bucket name is set), AWS_REGION must be provided explicitly.
+  // We do not infer the region from the endpoint URL because vendors encode regions
+  // differently (or not at all): DO Spaces puts it in the subdomain, Cloudflare R2 uses
+  // "auto", MinIO has no region in the URL, Backblaze uses a different path pattern.
+  if (env.S3_BUCKET_NAME && !env.AWS_REGION) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AWS_REGION"],
+      message:
+        "AWS_REGION is required when S3_BUCKET_NAME is set. " +
+        "Set it to match your storage provider's region (e.g. nyc3 for DO Spaces, us-east-1 for AWS).",
+    });
+  }
 });
 
 export type Config = z.infer<typeof envSchema>;

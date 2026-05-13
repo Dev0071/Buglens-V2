@@ -10,6 +10,7 @@
     "start": "node dist/src/api/server.js",
     "heroku-postbuild": "npm run build",
     "test": "vitest",
+    "test:unit": "vitest tests/unit tests/workers tests/middleware tests/security",
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",

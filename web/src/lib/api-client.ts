@@ -208,6 +208,11 @@ export const queryKeys = {
     notifications: () => ["profile", "notifications"] as const,
   },
 
+  // Onboarding
+  onboarding: {
+    status: () => ["onboarding", "status"] as const,
+  },
+
   // Analytics
   analytics: {
     summary: (period: string) => ["analytics", "summary", period] as const,

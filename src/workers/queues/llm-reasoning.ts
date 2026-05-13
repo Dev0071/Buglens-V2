@@ -163,12 +163,21 @@ async function loadJobForLLM(
 
 async function loadEvidenceBundle(
   s3Key: string,
-  _orgId: string,
-  _jobId: string
+  orgId: string,
+  jobId: string
 ): Promise<EvidenceBundle> {
   const evidenceCollector = new EvidenceCollectorService();
 
-  // Extract just the key part from s3://bucket/key format
+  // local-db / local-dev: evidence was stored in the database (S3 not configured)
+  if (/^s3:\/\/local-(db|dev)\//.test(s3Key)) {
+    const bundle = await evidenceCollector.retrieveFromDatabase(jobId, orgId);
+    if (!bundle) {
+      throw new Error(`Evidence bundle not found in database for job ${jobId}`);
+    }
+    return bundle;
+  }
+
+  // Normal S3 path: strip the s3://bucket/ prefix to get the object key
   const key = s3Key.replace(/^s3:\/\/[^/]+\//, "");
   const bundle = await evidenceCollector.retrieveFromS3(key);
 

@@ -86,8 +86,9 @@ export function extractRepoFromRelease(releaseTag: string | null): {
 } {
   if (!releaseTag) return { repo: null, commitSha: null };
 
+  // Match "owner/repo@<anything>" — the ref part can be a SHA, version, or "unknown"
   const releaseMatch = releaseTag.match(
-    /^([a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]+)[@:]([a-f0-9]{7,40}|v?[\d.]+.*)$/i
+    /^([a-zA-Z0-9_.-]+\/[a-zA-Z0-9._-]+)[@:](.+)$/i
   );
 
   if (!releaseMatch) return { repo: null, commitSha: null };
@@ -95,7 +96,7 @@ export function extractRepoFromRelease(releaseTag: string | null): {
   const repo = releaseMatch[1];
   const ref = releaseMatch[2];
 
-  // Check if ref is a commit SHA (7-40 hex chars)
+  // Only use the ref as a commit SHA if it looks like one (7–40 hex chars)
   const commitSha = /^[a-f0-9]{7,40}$/i.test(ref) ? ref : null;
 
   return { repo, commitSha };

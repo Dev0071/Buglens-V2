@@ -578,10 +578,118 @@ async function upgradePlanHandler(
 }
 
 // ============================================
+// Onboarding Status
+// ============================================
+
+/**
+ * GET /api/settings/onboarding/status
+ *
+ * Returns per-step setup completion for the org.
+ * Used by the onboarding page, SDK setup tab, and dashboard banner.
+ *
+ * Steps in order:
+ *   1. github      — at least one active repo synced via GitHub App
+ *   2. sentry      — Sentry integration connected
+ *   3. deploy      — at least one deployment tracked (any source)
+ *   4. first_event — at least one Sentry error received
+ */
+async function getOnboardingStatusHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const orgId = request.getOrgId();
+  if (!orgId) return reply.status(401).send({ error: "Unauthorized" });
+
+  try {
+    const result = await query<{
+      repos_count: string;
+      sentry_connected: boolean;
+      deployments_count: string;
+      events_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*) FROM repos      WHERE org_id = $1 AND is_active = true) AS repos_count,
+         EXISTS(
+           SELECT 1 FROM integrations
+           WHERE org_id = $1 AND type IN ('sentry', 'sentry_app') AND status = 'connected'
+         ) AS sentry_connected,
+         (SELECT COUNT(*) FROM deployments WHERE org_id = $1) AS deployments_count,
+         (SELECT COUNT(*) FROM events     WHERE org_id = $1) AS events_count`,
+      [orgId]
+    );
+
+    const row = result.rows[0];
+    const reposCount      = parseInt(row.repos_count,      10);
+    const deploymentsCount = parseInt(row.deployments_count, 10);
+    const eventsCount     = parseInt(row.events_count,     10);
+
+    const steps = {
+      github: {
+        complete: reposCount > 0,
+        repos_count: reposCount,
+        label: "Connect GitHub",
+        description: "Install the Buglens GitHub App to enable code fetching and deploy tracking.",
+        action_url: "/settings/integrations",
+      },
+      sentry: {
+        complete: row.sentry_connected,
+        label: "Connect Sentry",
+        description: "Configure Sentry to send error events to Buglens via webhook.",
+        action_url: "/settings/integrations",
+      },
+      deploy: {
+        complete: deploymentsCount > 0,
+        deployments_count: deploymentsCount,
+        label: "Set up deploy tracking",
+        description: "Add one line to your CI/CD pipeline so Buglens knows which commit is running in production.",
+        action_url: "/settings/sdk",
+      },
+      first_event: {
+        complete: eventsCount > 0,
+        events_count: eventsCount,
+        label: "Receive your first error",
+        description: "Trigger a test error in your app to verify the Sentry webhook is working.",
+        action_url: "/events",
+      },
+    };
+
+    const completedCount = Object.values(steps).filter((s) => s.complete).length;
+    const totalCount = Object.keys(steps).length;
+    const completionPct = Math.round((completedCount / totalCount) * 100);
+
+    // RCA requires GitHub (for code) + Sentry (for events)
+    const isReadyForRca = steps.github.complete && steps.sentry.complete;
+
+    const nextStep = !steps.github.complete
+      ? "github"
+      : !steps.sentry.complete
+        ? "sentry"
+        : !steps.deploy.complete
+          ? "deploy"
+          : !steps.first_event.complete
+            ? "first_event"
+            : "complete";
+
+    return reply.send({
+      steps,
+      completion_pct: completionPct,
+      is_ready_for_rca: isReadyForRca,
+      next_step: nextStep,
+    });
+  } catch (error) {
+    logger.error({ error, orgId }, "Failed to fetch onboarding status");
+    return reply.status(500).send({ error: "Failed to fetch onboarding status" });
+  }
+}
+
+// ============================================
 // Route Registration
 // ============================================
 
 export async function settingsRoutes(server: FastifyInstance): Promise<void> {
+  // GET /api/settings/onboarding/status
+  server.get("/settings/onboarding/status", getOnboardingStatusHandler);
+
   // GET /api/settings/organization
   server.get("/settings/organization", getOrganizationSettingsHandler);
 

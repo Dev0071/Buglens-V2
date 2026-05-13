@@ -1,5 +1,6 @@
 import { codeFetcherService, CodeFetcherService } from "./code-fetcher.js";
 import { PythonBridge } from "./python-bridge.js";
+import { resolveCommitForEvent } from "./deployment-tracker.js";
 import {
   analyzerResultSchema,
   type AnalyzerRequestPayload,
@@ -7,7 +8,7 @@ import {
 } from "../types/analyzer.js";
 import type { StackFrame } from "../types/github.js";
 import { logger } from "../utils/logger.js";
-import { transaction } from "../db/client.js";
+import { query, transaction } from "../db/client.js";
 import type { DeterministicAnalyzerJobData } from "../workers/queues/deterministic.js";
 import {
   extractRepoFromPayload,
@@ -62,6 +63,9 @@ export class DeterministicAnalyzerService {
       // RUN EXTRACTION PIPELINE (3-stage hybrid extraction)
       // =================================================================
       const extractionResult = await this.runExtractionPipeline(job, jobRow);
+
+      // Enrich with deployment-resolved commit SHA when extraction couldn't find one
+      await this.enrichWithDeployment(job.orgId, extractionResult, jobRow.raw_payload);
 
       // Persist extraction results for later use
       await this.persistExtractionResult(job, extractionResult);
@@ -140,6 +144,56 @@ export class DeterministicAnalyzerService {
       );
       await this.markFailed(job, err.message);
       throw err;
+    }
+  }
+
+  /**
+   * If the extraction pipeline couldn't resolve a commit SHA, try the deployment
+   * tracker (our own table → GitHub Deployments API).
+   *
+   * Mutates extractionResult in place — only fills commit_sha when it's missing,
+   * never overwrites a SHA the pipeline already found.
+   */
+  private async enrichWithDeployment(
+    orgId: string,
+    extractionResult: ExtractionResult,
+    rawPayload: unknown
+  ): Promise<void> {
+    if (extractionResult.commit_sha || !extractionResult.repo) return;
+
+    // Extract error timestamp from the Sentry payload (fallback: now)
+    const payload = rawPayload as Record<string, unknown>;
+    const sentryTimestamp = typeof payload?.timestamp === "number"
+      ? new Date(payload.timestamp * 1000)
+      : typeof payload?.timestamp === "string"
+        ? new Date(payload.timestamp)
+        : new Date();
+
+    const environment = extractionResult.environment ?? "production";
+
+    // Get the installation_id for this repo so we can hit the GitHub Deployments API
+    const repoRow = await query<{ installation_id: string | null }>(
+      `SELECT installation_id FROM repos
+        WHERE org_id = $1 AND full_name = $2 AND is_active = true
+        LIMIT 1`,
+      [orgId, extractionResult.repo]
+    );
+    const installationId = repoRow.rows[0]?.installation_id ?? null;
+
+    const match = await resolveCommitForEvent({
+      orgId,
+      repoFullName: extractionResult.repo,
+      environment,
+      errorTimestamp: sentryTimestamp,
+      installationId,
+    });
+
+    if (match) {
+      extractionResult.commit_sha = match.commit_sha;
+      logger.info(
+        { repo: extractionResult.repo, sha: match.commit_sha, source: match.source },
+        "Commit SHA resolved via deployment tracker"
+      );
     }
   }
 
